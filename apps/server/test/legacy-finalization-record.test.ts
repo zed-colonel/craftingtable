@@ -200,6 +200,11 @@ it('lets an open finalization with improvement rounds only stop (R-B10)', async 
   await expect(state.context.services.agentRunService.startForCycle(running)).rejects.toThrow(
     'retired improvement rounds',
   );
+  // The launch's refusal is the retired finalization's own stop, whose exit is its panel's Stop
+  // (R-B4 increment 4 re-check, A1).
+  await expect(state.context.services.agentRunService.startForCycle(running)).rejects.toMatchObject(
+    { stop: 'legacy-finalization-retired' },
+  );
   expect(fixture.backend.launches).toHaveLength(launches);
   const stoppedResponse = await command('stop', {
     expectedCycleVersion: state.context.storage.execution.cycles.find(ws, cycle.id)!.version,

@@ -32,6 +32,28 @@ describe('typed attention (R-A3)', () => {
     for (const gate of AWAITING_MERGE_GATES) expect(CYCLE_ATTENTION[gate]).toBeDefined();
   });
 
+  // R-B4, decision 3 (increment 4 re-check): the stops `controller-error` used to hide each
+  // wait for the operator; a controller owner would claim them as automation's.
+  it('leaves each stop controller-error used to hide to the operator', () => {
+    const typed = [
+      'phase-gate',
+      'item-unavailable',
+      'item-not-admitted',
+      'item-completed-unmerged',
+      'predecessors-incomplete',
+      'predecessor-merge-missing',
+      'worktree-state',
+      'resolution-not-ready',
+      'launch-refused',
+      'roadmap-binding-changed',
+      'delegation-authority-lost',
+      'review-capture-failed',
+      'finalization-inactive',
+      'service-unavailable',
+    ] as const;
+    for (const code of typed) expect(cycleAttention(code).owner, code).toBe('operator');
+  });
+
   it('prefers declared attention and has none outside the stop statuses', () => {
     const declared = cycleAttention('step-time-limit');
     expect(

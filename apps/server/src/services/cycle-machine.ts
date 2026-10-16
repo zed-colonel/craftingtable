@@ -479,6 +479,20 @@ const GUARDS: Record<CycleGuard, Guard> = {
 };
 
 /**
+ * Whether one guard would decide this input on its own, whatever the guards before it say: the
+ * precedence check combines two guards' inputs and needs to know that both still apply.
+ */
+export function guardApplies(
+  guard: CycleGuard,
+  cycle: WorkCycle,
+  facts: CycleFacts,
+  kernel: KernelFacts,
+  now: Date,
+): boolean {
+  return GUARDS[guard]({ cycle, facts, kernel, now }) !== undefined;
+}
+
+/**
  * The first guard with something to say decides. `onGuard` is told each guard as it is asked,
  * so a caller can name the guard a throwing gate belongs to.
  */

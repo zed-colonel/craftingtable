@@ -572,7 +572,8 @@ it("refuses to start a check-only run when the daemon's check service cannot run
     headers: mutationHeaders(state),
     payload: { worktreeId: worktree.id, role: 'review' },
   });
-  expect(started.statusCode).not.toBe(200);
+  // The service's absence, as the daemon answers any missing service (R-B4 increment 4 re-check).
+  expect(started.statusCode).toBe(503);
   expect(started.body).toContain('check service is not running');
   expect(
     state.context.storage.execution.runs.listForWorktree(state.workspaceId, worktree.id),

@@ -137,6 +137,7 @@ import {
   CheckDefinitionChangedError,
   DeclaredChecksMissingError,
   RepositoryChecksUndeclaredError,
+  TypedRefusalError,
   UpstreamPinMovedError,
 } from './errors.js';
 import {
@@ -1452,17 +1453,24 @@ export class RuntimeEvidenceService {
     const candidateContext = workflowContext(this.storage, cycle);
     const checkpoint = candidateContext?.checkpoints.find((c) => c.id === active?.checkpointId);
     const user = this.storage.users.findById(cycle.createdByUserId);
+    if (user?.status !== 'active')
+      throw new TypedRefusalError('authority-lost', 'Checkpoint review authority was revoked.');
+    // The pass checks these before it gets here, from the same state (`advanceWorkflow`).
     if (
-      user?.status !== 'active' ||
       !cycle.executionScope ||
-      !delegation ||
-      !delegation.runnable ||
+      !delegation?.runnable ||
       active?.kind !== 'checkpoint' ||
-      !checkpoint?.supported ||
-      !checkpoint.assigned ||
-      checkpoint.pending.length
+      !active.checkpointId
     )
       conflict(
+        'Checkpoint delegation or prerequisites changed. Review the current roadmap obligations.',
+      );
+    // Nothing earlier checks the checkpoint itself, which may have changed while its review ran:
+    // it cannot attest now, and the stop names it, not `controller-error`. Resume reviews again
+    // once its inputs change (R-B4 increment 4 re-check).
+    if (!checkpoint?.supported || !checkpoint.assigned || checkpoint.pending.length)
+      throw new CheckpointAttestationError(
+        active.checkpointId,
         'Checkpoint delegation or prerequisites changed. Review the current roadmap obligations.',
       );
     const context: CommandContext = { user };

@@ -12,7 +12,8 @@ import {
   FINALIZATION_STAGE_KINDS,
   type WorkCycle,
 } from '@craftingtable/domain';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ExecutionRequestError } from '../src/services/errors.js';
 import { openDaemonStorage } from '../src/persisted-records.js';
 
 /* -------------------------------------------------------------------------- */
@@ -375,6 +376,69 @@ describe('collecting background review results', () => {
       );
     },
   );
+
+  // R-B4 increment 4 re-check (W20, A3): a continuation's capture refused for any reason the
+  // capture does not name is the continuation's stop, whether the pass or the launch meets it.
+  it.each(['pass', 'launch'])(
+    'names a refused continuation capture at the %s as the review continuation’s stop',
+    async (site) => {
+      const { state, backend, worktree } = await cycleFixture([
+        designDone,
+        implementationDone,
+        { resultText: 'Waiting.', exitReason: 'background-work-incomplete' },
+        { resultText: reviewText([]) },
+      ]);
+      const branches = state.context.services.executionService.branches;
+      const capture = branches.captureReviewContinuation.bind(branches);
+      let calls = 0;
+      vi.spyOn(branches, 'captureReviewContinuation').mockImplementation(async (tree, baseline) => {
+        // The pass captures first, then the launch.
+        calls++;
+        if ((site === 'pass' && calls === 1) || (site === 'launch' && calls === 2))
+          throw new ExecutionRequestError('conflict', 'Simulated refused capture.');
+        return capture(tree, baseline);
+      });
+      const cycle = await startCycle(state, worktree.id);
+      await waitFor(
+        () => currentCycle(state, cycle).status === 'needs-attention',
+        'refused continuation capture',
+      );
+      expect(currentCycle(state, cycle).attention?.code).toBe('review-capture-failed');
+      expect(currentCycle(state, cycle).reason).toContain('Simulated refused capture.');
+      expect(backend.launches).toHaveLength(3);
+    },
+  );
+
+  // R-B4 increment 4 re-check (A2): a review relaunched as a continuation whose interrupted review
+  // cannot be continued is refused as the continuation's stop, not the launch's.
+  it('names a continuation without a continuable review as the review continuation’s stop', async () => {
+    const { state, worktree } = await cycleFixture([
+      designDone,
+      implementationDone,
+      { resultText: reviewText([]) },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'reviewed');
+    const { attention: _attention, ...reviewed } = currentCycle(state, cycle);
+    // A continuation reserved after the review had finished: it has nothing to continue.
+    const running = state.context.storage.execution.cycles.replace(
+      {
+        ...reviewed,
+        status: 'running',
+        step: 'review',
+        version: reviewed.version + 1,
+        currentRunId: asAgentRunId('cccccccc-cccc-4ccc-cccc-cccccccccccc'),
+        parentRunId: reviewed.currentRunId,
+        resultContinuations: 1,
+        reason: 'Continuing the review.',
+        runDeadlineAt: new Date(Date.now() + 3_600_000).toISOString(),
+      },
+      reviewed.version,
+    )!;
+    await expect(
+      state.context.services.agentRunService.startForCycle(running),
+    ).rejects.toMatchObject({ stop: 'review-capture-failed' });
+  });
 
   it.each(['plain', 'guided', 'reserved'])(
     '%s resume of an interrupted finalization review can classify its artifacts',

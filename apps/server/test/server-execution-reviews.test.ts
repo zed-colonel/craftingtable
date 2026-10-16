@@ -1092,6 +1092,119 @@ itNeedsCargo.each([
   },
 );
 
+// R-B4 increment 4 re-check (L2c, L2c2): the acceptance's own checks after its preview are the
+// checkpoint's stop too. A newer run in the worktree than the review being accepted (an
+// operator's run while the roadmap held the review) is not this review's evidence; the runtime
+// replaced while the preview read Git leaves the evidence incomplete.
+itNeedsCargo.each(['another run’s', 'incomplete'] as const)(
+  'stops a delegated checkpoint as its own when the acceptance finds %s evidence',
+  async (mode) => {
+    const f = await supervisedMapFixture(true, 'automatic', false, false, false, (source) => ({
+      ...source,
+      checkpoints: [
+        ...source.checkpoints,
+        {
+          ...source.checkpoints[0]!,
+          id: 'LOCAL-REVIEW',
+          kind: 'contract' as const,
+          owner: 'local',
+          requires: [],
+          pass_criteria: ['Candidate boundary is sound'],
+          evidence_profile: 'scope-review',
+        },
+      ],
+      slices: source.slices.map((s, i) =>
+        i
+          ? s
+          : {
+              ...s,
+              mode: 'domain',
+              merge_requires: [
+                { kind: 'checkpoint' as const, id: 'LOCAL-REVIEW', state: 'passed' as const },
+              ],
+            },
+      ),
+    }));
+    const original = f.backend.replyForRequest!;
+    f.backend.replyForRequest = async (request) => {
+      const reply = await original(request);
+      if (request.model !== 'review-model') return reply;
+      const checkpoint = request.prompt.includes('This is a separate checkpoint review.');
+      const def = f.state.context.storage.imports.definition(
+        f.state.workspaceId,
+        f.parentScope.definitionId,
+      )!;
+      const spec = requireSubjectRequirements(
+        def,
+        { kind: 'checkpoint', sourceId: 'LOCAL-REVIEW' },
+        f.scopes[0]!.sourceId,
+      );
+      return {
+        ...reply,
+        resultText: withWorkflowReport(
+          reply.resultText!,
+          checkpoint
+            ? {
+                checkpoint: {
+                  id: 'LOCAL-REVIEW',
+                  passed: true,
+                  requirements: spec.requirements.map((requirement) => ({
+                    requirement,
+                    evidence: 'Independent exact-candidate check and fixture receipts',
+                  })),
+                  caseIds: spec.cases.map((c) => c.id),
+                },
+              }
+            : {},
+        ),
+      };
+    };
+    const service = f.state.context.services.runtimeEvidenceService;
+    const preview = service.checkpointRecovery.bind(service);
+    let previewed = false;
+    vi.spyOn(service, 'checkpointRecovery').mockImplementation(async (...args) => {
+      const recovery = await preview(...args);
+      // Only the controller's acceptance previews delegated candidates.
+      if (args[4] !== true) return recovery;
+      previewed = true;
+      return mode === 'another run’s'
+        ? {
+            ...recovery,
+            candidates: recovery.candidates.map((c) => ({
+              ...c,
+              runId: asAgentRunId('dddddddd-dddd-4ddd-dddd-dddddddddddd'),
+            })),
+          }
+        : recovery;
+    });
+    if (mode === 'incomplete') {
+      const build = f.state.context.storage.runtimeEvidence.build.bind(
+        f.state.context.storage.runtimeEvidence,
+      );
+      vi.spyOn(f.state.context.storage.runtimeEvidence, 'build').mockImplementation((...args) =>
+        previewed ? undefined : build(...args),
+      );
+    }
+    await adoptSupervisedMap(f);
+    f.service.save(f.auth, f.state.workspaceId, f.input);
+    await roadmapControl(f.state, 'start');
+    const stopped = () =>
+      f.state.context.storage.execution.cycles
+        .listForWorkspace(f.state.workspaceId)
+        .find((c) => c.executionScope?.kind === 'slice' && c.status === 'needs-attention');
+    await waitFor(() => stopped() !== undefined, 'the checkpoint acceptance stop');
+    expect(stopped()!.attention).toMatchObject({
+      code: 'checkpoint-attestation-failed',
+      refs: { checkpointId: 'LOCAL-REVIEW' },
+    });
+    expect(stopped()!.reason).toContain(
+      mode === 'another run’s'
+        ? 'A separate exact-candidate checkpoint review is required.'
+        : 'Checkpoint review evidence is incomplete.',
+    );
+  },
+);
+
 itNeedsCargo(
   'reassesses an older implementation question read-only and leaves a genuine operator question at its named destination',
   async () => {

@@ -3436,6 +3436,16 @@ export class WorkCycleService {
           'worktree-state',
           'Remediation requires the managed branch without unresolved Git operations.',
         );
+      // The inspection awaited: a pause or another grant may have landed meanwhile, as the
+      // review's grant re-checks (R-B4 increment 4 re-check).
+      this.mutations.requireAvailable(cycle.worktreeId);
+      if (
+        this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !== cycle.version
+      )
+        throw new ExecutionRequestError(
+          'conflict',
+          'Cycle changed; refresh before authorizing more remediation.',
+        );
     }
     if (decided.kind === 'attention') {
       this.attention(cycle, decided.code, decided.message);

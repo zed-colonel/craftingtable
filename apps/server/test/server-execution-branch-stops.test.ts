@@ -9,6 +9,7 @@ import { TypedRefusalError } from '../src/services/errors.js';
 import {
   cleanupExecutionFixtures,
   cycleFixture,
+  commitFile,
   designDone,
   git,
 } from './execution-test-support.js';
@@ -98,6 +99,100 @@ it('names an incomplete predecessor and a missing merge at the predecessor check
     completedByUserId: state.userId,
   });
   expect(await stopOf(check)).toBe('predecessor-merge-missing');
+});
+
+// R-B4 increment 4 re-check (B2, B1): a recorded merge the integration branch lacks is decision
+// 1's stop, seen live; a commit Git cannot read is the worktree's.
+it('names a recorded predecessor merge the branch lacks, and one Git cannot read', async () => {
+  const { state, worktree, root } = await cycleFixture([designDone]);
+  const branches = state.context.services.executionService.branches;
+  const head = git(['rev-parse', 'HEAD'], root).trim();
+  git(['checkout', '-b', 'side'], root);
+  const side = commitFile(root, 'side.md', 'side\n');
+  git(['checkout', '-'], root);
+  const prior = asWorkItemId('prior');
+  const record = (mergeSha: string) =>
+    state.context.storage.transaction((tx) => {
+      tx.planning.workItems.insertMany([
+        {
+          id: prior,
+          workspaceId: state.workspaceId,
+          projectId: asProjectId('project-1'),
+          planVersionId: asPlanVersionId('version-1'),
+          sourceId: 'AQ-00',
+          ordinal: 2,
+          title: 'Prerequisite',
+          risk: 'low',
+          primaryAreas: [],
+          exitGate: 'done',
+          sourceFields: {},
+        },
+      ]);
+      tx.planning.workItems.complete({
+        workspaceId: state.workspaceId,
+        workItemId: prior,
+        projectId: asProjectId('project-1'),
+        completedAt: new Date().toISOString(),
+        completedByUserId: state.userId,
+        mergeSha,
+      });
+      tx.planning.dependencies.insertMany([
+        {
+          id: asWorkItemDependencyId('prior-edge'),
+          workspaceId: state.workspaceId,
+          planVersionId: asPlanVersionId('version-1'),
+          predecessorWorkItemId: prior,
+          successorWorkItemId: state.workItemId,
+          kind: 'required',
+          ordinal: 0,
+        },
+      ]);
+    });
+  record(side);
+  const check = () =>
+    branches.requirePredecessors(
+      state.workspaceId,
+      state.workItemId,
+      root,
+      head,
+      worktree.repositoryId,
+    );
+  await expect(check()).rejects.toThrow("AQ-00's merge is absent");
+  expect(await stopOf(check)).toBe('predecessor-merge-missing');
+  // A merge commit the repository does not have: Git's failure is the worktree's stop.
+  expect(
+    await stopOf(() =>
+      branches.requirePredecessors(
+        state.workspaceId,
+        state.workItemId,
+        root,
+        'f'.repeat(40),
+        worktree.repositoryId,
+      ),
+    ),
+  ).toBe('worktree-state');
+});
+
+// R-B4 increment 4 re-check (B5, B6): a review's branch checks are the worktree's stops, not the
+// launch's: the integration branch moved ahead of the worktree (seen live), or the recorded
+// review no longer matches the branch.
+it('stops a review whose integration branch advanced or whose reviewed context changed', async () => {
+  const { state, worktree, root } = await cycleFixture([designDone]);
+  const branches = state.context.services.executionService.branches;
+  const tree = () =>
+    state.context.storage.execution.worktrees.find(state.workspaceId, worktree.id)!;
+  const current = await branches.captureReview(tree());
+  expect(
+    await stopOf(() =>
+      branches.assertReview(tree(), {
+        reviewBranchContext: { ...current, headSha: 'f'.repeat(40) },
+      } as never),
+    ),
+  ).toBe('worktree-state');
+  git(['checkout', tree().integrationBranch!], root);
+  commitFile(root, 'advanced.md', 'advanced\n');
+  await expect(branches.captureReview(tree())).rejects.toThrow('Integration branch advanced');
+  expect(await stopOf(() => branches.captureReview(tree()))).toBe('worktree-state');
 });
 
 // R-B4 increment 5 review, LOW-3: an entry waiting on an absent merge asks again each pass; Git

@@ -1,5 +1,6 @@
 import { cycleAttention, type WorkCycle } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
+import type { CycleDecision } from '../src/services/cycle-machine.js';
 import { CycleTransitionError } from '../src/services/cycle-transitions.js';
 import { createCycleFixture, storedCycle } from './cycle-test-support.js';
 import { cleanupExecutionFixtures, startCycle } from './execution-test-support.js';
@@ -137,4 +138,48 @@ it('leaves an operator’s stop as it is when an unexpected error meets it (R-B4
   };
   await f.services.workCycleService.tick();
   expect(storedCycle(f, cycle.id)).toEqual(stopped);
+});
+
+// R-B4 increment 4 re-check (W5): a guard's stop is written with its refs, as its decision
+// carries them; the phase gate's row above reaches storage through the launch instead.
+it('writes a guard’s stop with the refs its decision carries', async () => {
+  const f = await createCycleFixture();
+  const cycle = await startCycle(f, f.worktreeId);
+  const service = f.services.workCycleService as unknown as {
+    apply: (cycle: WorkCycle, decision: CycleDecision) => Promise<void>;
+  };
+  await service.apply(cycle, {
+    kind: 'attention',
+    guard: 'scope-phase-gates',
+    code: 'phase-gate',
+    message: 'The binding changed.',
+    endTurn: false,
+    refs: { blockers: ['binding-changed'] },
+  });
+  expect(storedCycle(f, cycle.id)).toMatchObject({
+    status: 'needs-attention',
+    attention: { code: 'phase-gate', refs: { blockers: ['binding-changed'] } },
+    reason: 'The binding changed.',
+  });
+});
+
+// R-B4 increment 4 re-check (W2): a decision whose writes fail stays the decision the replay
+// records; only a gate that threw before any decision is recorded as the failure.
+it('records the decision, not the failure, when applying it throws', async () => {
+  const f = await createCycleFixture();
+  const cycle = await startCycle(f, f.worktreeId);
+  const recorded: unknown[] = [];
+  f.services.workCycleService.observePass({
+    decided: (decided, result) => {
+      if (decided.id === cycle.id) recorded.push(result);
+    },
+    cycle: () => undefined,
+  });
+  f.services.agentRunService.startForCycle = async () => {
+    throw new TypeError('x is undefined');
+  };
+  await f.services.workCycleService.tick();
+  expect(recorded).toEqual([
+    { decision: expect.objectContaining({ kind: 'start-run', guard: 'no-run' }) },
+  ]);
 });

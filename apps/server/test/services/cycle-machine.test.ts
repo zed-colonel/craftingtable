@@ -13,6 +13,7 @@ import {
   decide,
   decisionSummary,
   GUARD_CODES,
+  guardApplies,
   IDLE_REASONS,
   WAIT_CHANGES,
 } from '../../src/services/cycle-machine.js';
@@ -758,6 +759,81 @@ describe('which guard decides', () => {
     ).toMatchObject(expected),
   );
 
+  // Every adjacent pair, generated from the rows above (increment 2 re-check, LOW-3): two rows'
+  // inputs merged so both guards apply, and the earlier one decides. A pair whose conditions
+  // cannot hold at once is listed, and the list is checked to be exactly those pairs.
+  const exclusive: readonly (readonly [CycleGuard, CycleGuard])[] = [
+    // An investigation is live until its result is recorded, and the change is a result.
+    ['investigation-live', 'worktree-change-open'],
+    // A step either has its run or does not.
+    ['no-run', 'step-outcome'],
+  ];
+  // Today's order written out: the pairs come from it, not from `CYCLE_GUARDS`, so a swap there
+  // fails the decisions it changes.
+  const order: readonly CycleGuard[] = [
+    'roadmap-settling',
+    'investigation-live',
+    'worktree-change-open',
+    'kernel-busy',
+    'integrated',
+    'shared-decision-reassessment',
+    'reassessable-stop',
+    'not-active',
+    'worktree-inactive',
+    'authority-lost',
+    'operator-merge-only',
+    'item-ready',
+    'merge-reserved',
+    'merge-boundary',
+    'controller-review-held',
+    'scope-phase-gates',
+    'design-dependencies',
+    'phase-wait-cleared',
+    'step-deadline',
+    'provider-retry-due',
+    'provider-retry-held',
+    'integration-resolution',
+    'no-run',
+    'step-outcome',
+  ];
+  it('orders every guard', () => expect([...order].sort()).toEqual([...CYCLE_GUARDS].sort()));
+  const pairs = order.slice(1).map((later, i) => [order[i]!, later] as const);
+  const merged = (a: Row, b: Row) => ({
+    cycle: cycleOf({ ...b.cycle, ...a.cycle }),
+    facts: factsOf({ ...b.facts, ...a.facts }),
+    kernel: kernelOf({ ...b.kernel, ...a.kernel }),
+  });
+  const applies = (guard: CycleGuard, input: ReturnType<typeof merged>) => {
+    try {
+      return guardApplies(guard, input.cycle, input.facts, input.kernel, NOW);
+    } catch {
+      return false;
+    }
+  };
+  /** Each pair's merged inputs under which both guards apply. */
+  const both = pairs.map(([earlier, later]) => {
+    const rowsOf = (guard: CycleGuard) => rows.filter((row) => row.expected.guard === guard);
+    const inputs = rowsOf(earlier).flatMap((a) =>
+      rowsOf(later).flatMap((b) => [merged(a, b), merged(b, a)]),
+    );
+    return {
+      earlier,
+      later,
+      inputs: inputs.filter((input) => applies(earlier, input) && applies(later, input)),
+    };
+  });
+  it.each(both.filter((pair) => pair.inputs.length))(
+    '$earlier decides before $later',
+    ({ earlier, inputs }) => {
+      for (const input of inputs)
+        expect(decide(input.cycle, input.facts, input.kernel, NOW).guard).toBe(earlier);
+    },
+  );
+  it('lists exactly the adjacent pairs that cannot both apply', () =>
+    expect(
+      both.filter((pair) => !pair.inputs.length).map((pair) => [pair.earlier, pair.later]),
+    ).toEqual(exclusive));
+
   it('decides whole decisions where they carry more than their code', () => {
     // G9: a creator who lost the permission ends the live turn with the stop.
     expect(decide(cycleOf(), factsOf({ creatorAuthorized: () => false }), kernelOf(), NOW)).toEqual(
@@ -778,6 +854,25 @@ describe('which guard decides', () => {
         NOW,
       ),
     ).toEqual({ kind: 'start-run', guard: 'no-run', refreshFirst: true, parent: finished });
+    // The item gate's stop keeps the refs its refusal names (increment 4 re-check, M3).
+    const refs = { blockers: ['binding-changed'] };
+    expect(
+      decide(
+        cycleOf(),
+        factsOf({
+          currentRun: () => undefined,
+          readiness: () => ({ kind: 'refused', code: 'phase-gate', message: 'Changed.', refs }),
+        }),
+        kernelOf(),
+        NOW,
+      ),
+    ).toEqual({
+      kind: 'attention',
+      guard: 'item-ready',
+      code: 'phase-gate',
+      message: 'Changed.',
+      refs,
+    });
     // The step deadline ends the turn too.
     expect(decide(cycleOf({ runDeadlineAt: EARLIER }), factsOf(), kernelOf(), NOW)).toMatchObject({
       kind: 'attention',

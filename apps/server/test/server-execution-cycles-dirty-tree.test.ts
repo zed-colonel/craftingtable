@@ -1,5 +1,5 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { cycleAttention, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, expect, it } from 'vitest';
@@ -100,6 +100,49 @@ it('hands dirty negative review findings directly to remediation', async () => {
   ]);
   expect(currentCycle(state, cycle).remediationRounds).toBe(1);
   expect(git(['ls-files'], worktree.path)).not.toContain('.wal');
+});
+
+// R-B4 increment 4 re-check (W21): a review whose findings need remediation, finished while its
+// worktree left the managed branch, stops on the worktree's state, not as controller-error.
+it('stops on the worktree’s state when a review with findings ends off its branch', async () => {
+  const { state, backend, worktree } = await cycleFixture([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([structuredFinding]) },
+  ]);
+  backend.onLaunch = (request) => {
+    if (request.model === 'review-model') git(['checkout', '-b', 'elsewhere'], worktree.path);
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'off-branch stop');
+  expect(currentCycle(state, cycle)).toMatchObject({
+    step: 'review',
+    attention: { code: 'worktree-state' },
+    reason: expect.stringContaining('Remediation requires the managed branch'),
+  });
+  expect(backend.launches.map((r) => r.model)).not.toContain('remediate-model');
+});
+
+// R-B4 increment 4 re-check (W6): a passing review that leaves its worktree off the managed
+// branch stops on the worktree's state at approval, not as controller-error. (Approval's own
+// check comes before the clean-head read, which is reached only if the tree changes between.)
+it('stops on the worktree’s state when a passing review leaves its worktree off its branch', async () => {
+  const { state, backend, worktree } = await cycleFixture([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([]) },
+  ]);
+  backend.onLaunch = (request) => {
+    if (request.model === 'review-model') git(['checkout', '-b', 'elsewhere'], worktree.path);
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status !== 'running', 'approval stop');
+  expect(currentCycle(state, cycle)).toMatchObject({
+    status: 'needs-attention',
+    step: 'review',
+    attention: { code: 'worktree-state' },
+    reason: 'Review approval requires the managed branch without unresolved Git operations.',
+  });
 });
 
 it('routes unclassified new files through bounded remediation without checkpointing them blindly', async () => {
@@ -310,18 +353,29 @@ it('relaunches the housekeeping remediation when more is authorized at its limit
     step: 'implement',
     attention: { code: 'remediation-exhausted' },
   });
+  // Reviews that stalled before the stop (R-B4 increment 4 re-check).
+  state.context.storage.execution.cycles.replace(
+    { ...stopped, stalledReviews: 2, version: stopped.version + 1 },
+    stopped.version,
+  );
   const grant = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
     headers: mutationHeaders(state),
     payload: {
       action: 'authorize-remediation',
-      expectedVersion: stopped.version,
+      expectedVersion: stopped.version + 1,
       additionalRounds: 1,
       instructions: 'Remove the generated artifact.',
     },
   });
   expect(grant.statusCode, grant.body).toBe(200);
+  // The grant opens a new progress window, as at a review's limit, and says what it authorized.
+  expect(grant.json().cycle).toMatchObject({
+    step: 'remediate',
+    stalledReviews: 0,
+    reason: 'Authorized 1 additional remediation attempt(s); starting remediation.',
+  });
   // The grant's own write, by its action.
   expect(
     state.context.storage.audit
@@ -387,6 +441,16 @@ it('refuses the housekeeping grant at another stop, too few rounds, or an unsett
   expect(offBranch.statusCode).toBe(409);
   expect(offBranch.body).toContain('Remediation requires the managed branch');
   git(['checkout', worktree.branchName], worktree.path);
+  // So would a pending merge (R-B4 increment 4 re-check).
+  const mergeHead = resolve(
+    worktree.path,
+    git(['rev-parse', '--git-path', 'MERGE_HEAD'], worktree.path).trim(),
+  );
+  writeFileSync(mergeHead, `${git(['rev-parse', 'HEAD'], worktree.path).trim()}\n`);
+  const pending = await grant();
+  expect(pending.statusCode).toBe(409);
+  expect(pending.body).toContain('without unresolved Git operations');
+  rmSync(mergeHead);
   // Rounds already spent beyond the allowance need a grant that covers them.
   rewrite({ remediationRounds: 2 });
   const tooFew = await grant(1);
@@ -395,6 +459,66 @@ it('refuses the housekeeping grant at another stop, too few rounds, or an unsett
   // Another stop at the step is not the limit's.
   rewrite({ remediationRounds: 0, attention: cycleAttention('step-incomplete') });
   expect((await grant()).statusCode).toBe(409);
+  // A worktree that is no longer active takes no remediation (R-B4 increment 4 re-check).
+  rewrite({ attention: cycleAttention('remediation-exhausted') });
+  state.context.storage.execution.worktrees.markRemoved({
+    workspaceId: state.workspaceId,
+    worktreeId: worktree.id,
+    occurredAt: new Date().toISOString(),
+  });
+  const inactive = await grant();
+  expect(inactive.statusCode).toBe(409);
+  expect(inactive.body).toContain('The managed worktree must be active');
   expect(backend.launches.map((r) => r.model)).toEqual(['design-model', 'implement-model']);
   expect(limit.step).toBe('implement');
+});
+
+// R-B4 increment 4 re-check: the grant inspects the worktree before it writes, and a cycle
+// changed meanwhile (a pause, another tab's grant) refuses it, as at a review's limit.
+it('refuses the housekeeping grant when the cycle changed during its worktree inspection', async () => {
+  const real = createGitOperations({ gitExecutable: 'git' });
+  let during: (() => void) | undefined;
+  const { state, backend, worktree } = await cycleFixture(
+    [designDone, implementationDone, implementationDone, { resultText: reviewText([]) }],
+    undefined,
+    {
+      ...real,
+      inspectWorktreeChanges: async (path) => {
+        const result = await real.inspectWorktreeChanges(path);
+        const change = during;
+        during = undefined;
+        change?.();
+        return result;
+      },
+    },
+  );
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model')
+      writeFileSync(join(worktree.path, 'unknown.wal'), 'test artifact');
+  };
+  const cycle = await startCycle(state, worktree.id, {
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+  });
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'limit stop');
+  const stopped = currentCycle(state, cycle);
+  during = () =>
+    state.context.storage.execution.cycles.replace(
+      { ...stopped, reason: 'Changed elsewhere.', version: stopped.version + 1 },
+      stopped.version,
+    );
+  const raced = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+    headers: mutationHeaders(state),
+    payload: {
+      action: 'authorize-remediation',
+      expectedVersion: stopped.version,
+      additionalRounds: 1,
+      instructions: 'Remove the generated artifact.',
+    },
+  });
+  expect(raced.statusCode, raced.body).toBe(409);
+  expect(raced.body).toContain('Cycle changed; refresh before authorizing more remediation.');
+  expect(currentCycle(state, cycle)).toMatchObject({ remediationRounds: 0, step: 'implement' });
+  expect(backend.launches.map((r) => r.model)).toEqual(['design-model', 'implement-model']);
 });

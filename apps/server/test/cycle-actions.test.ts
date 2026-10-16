@@ -3,11 +3,12 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createWorktreeResponseSchema, workCycleResponseSchema } from '@craftingtable/contracts';
 import { asWorkItemId, cycleActions, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCycleFixture, type CycleFixture, storedCycle } from './cycle-test-support.js';
 import {
   cleanupExecutionFixtures,
   cycleProfiles,
+  designDone,
   git,
   startCycle,
   stepDaemon,
@@ -209,5 +210,41 @@ describe('offer only actions that can make progress (R-A7)', () => {
     expect(started.json().error.message).toContain("AQ-01's merge is absent");
     expect(storedCycle(f, cycle.id).status).toBe('needs-attention');
     expect(f.backend.sessions).toHaveLength(1);
+  });
+});
+
+// R-B4 increment 6 review, LOW-3 (W3): the shell carries a command's side effects as flags; a
+// Stop during a live turn ends the agent's session, not only the cycle.
+describe('a command’s side effects', () => {
+  it('ends the live turn’s session when the cycle is stopped', async () => {
+    const f = await fixture();
+    const started = await startCycle(f, f.worktreeId);
+    await stepDaemon(f.services);
+    const session = f.backend.latest;
+    const kill = vi.spyOn(session, 'kill');
+    const runId = storedCycle(f, started.id).currentRunId;
+    expect(f.context.storage.execution.runs.find(f.workspaceId, runId)?.status).toBe('running');
+    expect((await control(f, started.id, 'stop')).statusCode).toBe(200);
+    expect(kill).toHaveBeenCalledOnce();
+    await stepDaemon(f.services);
+    expect(storedCycle(f, started.id).status).toBe('stopped');
+    expect(f.context.storage.execution.runs.find(f.workspaceId, runId)?.status).toBe('cancelled');
+  });
+
+  // W1: the controller asks a finished turn's session to end once; a resume forgets that, so a
+  // session that never exited is asked again rather than left running.
+  it('asks a finished turn’s session to end again after a resume', async () => {
+    const f = await fixture();
+    const started = await startCycle(f, f.worktreeId);
+    await stepDaemon(f.services);
+    const session = f.backend.latest;
+    const end = vi.spyOn(session, 'end').mockImplementation(() => undefined);
+    session.release(designDone);
+    await stepDaemon(f.services, 2);
+    expect(end).toHaveBeenCalledOnce();
+    expect((await control(f, started.id, 'pause')).statusCode).toBe(200);
+    expect((await control(f, started.id, 'resume')).statusCode).toBe(200);
+    await stepDaemon(f.services);
+    expect(end).toHaveBeenCalledTimes(2);
   });
 });

@@ -12,6 +12,7 @@ import {
 } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ExecutionRequestError } from '../src/services/errors.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -384,6 +385,72 @@ it('refuses a plain resume at the round limit toward Authorize more remediation'
   expect(response.statusCode, response.body).toBe(409);
   expect(response.body).toContain('Authorize more remediation');
   expect(currentCycle(state, cycle)).toEqual(restarted);
+  // The control it names is offered in Resume's place, there and at a plain pause, and grants
+  // from either (increment 6 review, HIGH-1).
+  const offered = async () =>
+    (
+      await state.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${state.workspaceId}/cycles`,
+        headers: { cookie: state.cookie },
+      })
+    )
+      .json()
+      .cycles.find((v: { cycle: { id: string } }) => v.cycle.id === cycle.id)?.projection.actions;
+  expect(await offered()).toEqual(['authorize-remediation', 'stop']);
+  const { attention: _stop, ...unstopped } = restarted;
+  const paused = { ...unstopped, status: 'paused' as const, version: restarted.version + 1 };
+  expect(state.context.storage.execution.cycles.replace(paused, restarted.version)).toBeTruthy();
+  expect(await offered()).toEqual(['authorize-remediation', 'stop']);
+  const grant = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+    headers: mutationHeaders(state),
+    payload: {
+      action: 'authorize-remediation',
+      expectedVersion: paused.version,
+      additionalRounds: 1,
+      instructions: '',
+    },
+  });
+  expect(grant.statusCode, grant.body).toBe(200);
+});
+
+// R-B4 increment 6 review, LOW-3 (W15): a review asked again for skipped adopted checks whose
+// reservation is refused puts the cycle back at its gate, and the refusal is the one reported.
+it('restores the merge gate when a review asked again for adopted checks is refused', async () => {
+  const { state, worktree } = await cycleFixture([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([]) },
+  ]);
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'approval');
+  const approved = currentCycle(state, cycle);
+  // W13: not while a session is live in the worktree.
+  const live = vi
+    .spyOn(state.context.storage.execution.runs, 'liveForWorktree')
+    .mockReturnValue([{ id: 'run-live' } as never]);
+  expect(
+    await state.context.services.workCycleService.reviewForDeclaredChecks(approved, () => {}),
+  ).toBe(false);
+  expect(currentCycle(state, cycle)).toEqual(approved);
+  live.mockRestore();
+  let checks = 0;
+  const refusal = new ExecutionRequestError(
+    'conflict',
+    'Delegation changed during the reservation.',
+  );
+  await expect(
+    state.context.services.workCycleService.reviewForDeclaredChecks(approved, () => {
+      if (++checks === 2) throw refusal;
+    }),
+  ).rejects.toBe(refusal);
+  expect(currentCycle(state, cycle)).toMatchObject({
+    status: 'awaiting-merge',
+    attention: approved.attention,
+    reason: approved.reason,
+  });
 });
 
 it('refreshes a phase wait when its blockers change and records nothing for a controller write that changes nothing', async () => {

@@ -13,8 +13,11 @@ import {
  *
  * - The stop a status carries: `running`, `stopped` and `completed` none (their end record is
  *   R-B4b's); `needs-attention` an operator stop, never a merge gate; `awaiting-merge` one of
- *   its gates (`AWAITING_MERGE_GATES`, or a record from before codes); `paused` none, or the
- *   stop it was taken at.
+ *   its gates (`AWAITING_MERGE_GATES`); `paused` none, or the stop it was taken at. A record
+ *   written before codes keeps having none until the first pass fills it in, as long as a write
+ *   keeps its status.
+ * - The status half comes from what the code does (every status change the server suite makes,
+ *   recorded by action); the stop half is derived from the code, not recorded.
  * - Waits (`phaseWait`, `designWait`) sit beside the stop on every status, as stored today:
  *   nothing clears them when a cycle stops, pauses or ends, and clearing them would be a change
  *   of behaviour.
@@ -77,11 +80,9 @@ const ONLY_BY: Partial<Record<`${Status}>${Status}`, string>> = {
   'completed>running': 'review-again',
 };
 
-const GATES: ReadonlySet<CycleAttentionCode> = new Set<CycleAttentionCode>([
-  ...AWAITING_MERGE_GATES,
-  // A record written before codes, put back by an undone reservation (`restoredStatus`).
-  'legacy-attention',
-]);
+// A record written before codes derives `legacy-attention` only at an operator's stop
+// (`effectiveCycleAttention`), so it is not a gate (increment 6 review, LOW-1).
+const GATES: ReadonlySet<CycleAttentionCode> = new Set<CycleAttentionCode>(AWAITING_MERGE_GATES);
 
 /** A write outside `CYCLE_TRANSITIONS`: a programming error, never an operator's refusal. */
 export class CycleTransitionError extends Error {
@@ -107,13 +108,16 @@ export function checkTransition(
   }
   const code = to.attention?.code;
   const carried = CYCLE_TRANSITIONS[to.status].stop;
+  // A record written before codes keeps its stop as stored, without one, until the first pass
+  // fills its code in (`refreshAttention`): only a write that keeps its status.
+  const uncoded = code === undefined && from.attention === undefined && from.status === to.status;
   const fits =
     carried === 'none'
       ? code === undefined
       : carried === 'gate'
-        ? code !== undefined && GATES.has(code)
+        ? uncoded || (code !== undefined && GATES.has(code))
         : carried === 'operator'
-          ? code !== undefined && !GATES.has(code)
+          ? uncoded || (code !== undefined && !GATES.has(code))
           : code === undefined || !GATES.has(code);
   if (!fits)
     throw new CycleTransitionError(

@@ -118,6 +118,8 @@ export interface CommandFacts {
   readonly continuesLineage: (run: AgentRun) => boolean;
   /** The finished review's complete report asks for remediation. */
   readonly reviewAsksRemediation: (run: AgentRun) => boolean;
+  /** The worktree's scope rejects the finished review's report (`scopedReviewIssue`). */
+  readonly reviewScopeIssue: (run: AgentRun) => boolean;
   /** A new step window's deadline. */
   readonly deadline: () => string;
 }
@@ -422,21 +424,21 @@ function decideRelaunch(
   if (!run || ['failed', 'cancelled', 'interrupted'].includes(run.status))
     return { kind: 'launch', step: cycle.step, parent: run };
   if (cycle.step === 'review' && run.status === 'finished') {
+    // A plain resume at the round limit cannot start a round: it is refused toward the grant,
+    // instead of recording the limit stop itself (R-B4, decision 14).
+    if (resumeAtRoundLimit(cycle, run, facts))
+      return refuse(
+        'round-limit',
+        'The remediation limit is reached, so a resume cannot start another round. Use Authorize more remediation.',
+        { control: 'authorize-remediation' },
+      );
     const scope = cycle.executionScope;
     if (
       !cycle.finalizationProgress &&
       (!scope || scope.kind === 'slice') &&
       facts.reviewAsksRemediation(run)
     )
-      // A plain resume at the round limit cannot start a round: it is refused toward the
-      // grant, instead of recording the limit stop itself (R-B4, decision 14).
-      return remediationUsed(cycle) >= remediationAllowance(cycle)
-        ? refuse(
-            'round-limit',
-            'The remediation limit is reached, so a resume cannot start another round. Use Authorize more remediation.',
-            { control: 'authorize-remediation' },
-          )
-        : { kind: 'remediate' };
+      return { kind: 'remediate' };
     return { kind: 'launch', step: 'review', parent: run };
   }
   return {
@@ -448,6 +450,31 @@ function decideRelaunch(
       phaseWait: null,
     },
   };
+}
+
+/**
+ * A plain resume of the cycle's finished review would need a remediation round its allowance has
+ * spent (R-B4, decision 14). The command refuses it toward Authorize more remediation, and the
+ * offer shows that control in place of Resume from this same rule (increment 6 review). A report
+ * the worktree's scope rejects is not one: its resume reaches the review's own stop, as before.
+ */
+export function resumeAtRoundLimit(
+  cycle: WorkCycle,
+  run: AgentRun | undefined,
+  review: Pick<CommandFacts, 'reviewAsksRemediation' | 'reviewScopeIssue'>,
+): boolean {
+  const scope = cycle.executionScope;
+  return (
+    !!run &&
+    !resumeAdopts(cycle, run) &&
+    cycle.step === 'review' &&
+    run.status === 'finished' &&
+    !cycle.finalizationProgress &&
+    (!scope || scope.kind === 'slice') &&
+    remediationUsed(cycle) >= remediationAllowance(cycle) &&
+    review.reviewAsksRemediation(run) &&
+    !review.reviewScopeIssue(run)
+  );
 }
 
 // ---------------------------------------------------------------------------------------------

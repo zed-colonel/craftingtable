@@ -183,3 +183,35 @@ it('records the decision, not the failure, when applying it throws', async () =>
     { decision: expect.objectContaining({ kind: 'start-run', guard: 'no-run' }) },
   ]);
 });
+
+// R-B4 increment 6 review, LOW-2: waits sit beside the stop on every status, as stored today,
+// so a write that stops or pauses a cycle keeps them.
+it('keeps a cycle’s waits through a stop and a pause', async () => {
+  const f = await createCycleFixture();
+  const cycle = await startCycle(f, f.worktreeId);
+  const service = f.services.workCycleService as unknown as {
+    change: (cycle: WorkCycle, changes: Record<string, unknown>, action?: string) => WorkCycle;
+  };
+  const designWait = {
+    startedAt: '2026-10-16T00:00:00.000Z',
+    requirements: [{ kind: 'slice', id: 'wi/A', state: 'merged' }],
+  };
+  const stopped = service.change(cycle, {
+    status: 'needs-attention',
+    attention: cycleAttention('design-dependency-unsupported'),
+    reason: 'Waits on its design’s dependencies.',
+    designWait,
+  });
+  expect(storedCycle(f, cycle.id).designWait).toEqual(designWait);
+  // As the pause command writes it: the stop it was taken at, kept.
+  service.change(
+    stopped,
+    { status: 'paused', attention: stopped.attention, reason: 'Paused.' },
+    'pause',
+  );
+  expect(storedCycle(f, cycle.id)).toMatchObject({
+    status: 'paused',
+    attention: { code: 'design-dependency-unsupported' },
+    designWait,
+  });
+});

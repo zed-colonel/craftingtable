@@ -224,6 +224,21 @@ itNeedsCargo(
     expect(currentCycle(state, cycle)).toEqual(cycle);
     expect(state.context.services.workCycleService.isTransitioning(cycle.id)).toBe(false);
     rmSync(join(tree.path, 'operator-note.txt'));
+    // A tree bound to another scope is not this review's to repeat (R-B4 increment 6 review,
+    // LOW-3, W18).
+    const trees = state.context.storage.execution.worktrees;
+    const find = trees.find.bind(trees);
+    const rebound = vi.spyOn(trees, 'find').mockImplementation((w, id) => {
+      const found = find(w, id);
+      return found && id === tree.id
+        ? { ...found, executionScope: { ...found.executionScope!, sourceId: 'another/slice' } }
+        : found;
+    });
+    const elsewhere = await command();
+    rebound.mockRestore();
+    expect(elsewhere.statusCode).toBe(409);
+    expect(elsewhere.body).toContain('Only a completed or unstarted independent scope review');
+    expect(currentCycle(state, cycle)).toEqual(cycle);
     const branches = state.context.services.executionService.branches;
     const changeWorktree = branches.changeWorktree.bind(branches);
     let release!: () => void;

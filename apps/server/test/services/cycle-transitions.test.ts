@@ -56,6 +56,17 @@ describe('CYCLE_TRANSITIONS', () => {
     [at('completed'), at('running'), 'review-again'],
     // A write that keeps an ended cycle's status is not a status change.
     [at('completed'), at('completed'), 'advance'],
+    // A record written before codes (increment 6 review, LOW-1): its derived code is an
+    // operator's stop, kept by a pause, and one with no stored code keeps none until the first
+    // pass fills it in.
+    [at('needs-attention', 'legacy-attention'), at('paused', 'legacy-attention'), 'pause'],
+    [
+      at('needs-attention', 'legacy-attention'),
+      at('needs-attention', 'legacy-attention'),
+      'investigation-started',
+    ],
+    [at('needs-attention'), at('needs-attention'), 'advance'],
+    [at('awaiting-merge'), at('awaiting-merge'), 'advance'],
   ] as const)('%#: %o to %o by %s', (from, to, action) =>
     expect(() => checkTransition(from, to, action)).not.toThrow(),
   );
@@ -100,6 +111,18 @@ describe('CYCLE_TRANSITIONS', () => {
       'pause',
     ],
     ['an ended cycle carries no stop', at('running'), at('stopped', 'step-incomplete'), 'stop'],
+    [
+      'the merge boundary carries no legacy stop',
+      at('running'),
+      at('awaiting-merge', 'legacy-attention'),
+      'advance',
+    ],
+    [
+      'a record without a code gains no stop without one',
+      at('awaiting-merge'),
+      at('needs-attention'),
+      'advance',
+    ],
   ] as const)('refuses: %s', (_name, from, to, action) =>
     expect(() => checkTransition(from, to, action)).toThrow(CycleTransitionError),
   );
@@ -114,16 +137,5 @@ describe('CYCLE_TRANSITIONS', () => {
       'stopped',
     ]);
     expect(CYCLE_TRANSITIONS.stopped.to).toEqual([]);
-  });
-
-  it('allows waits on every status, as stored today', () => {
-    const waiting = {
-      phaseWait: { startedAt: 'x', blockers: [] },
-      designWait: { startedAt: 'x', requirements: [] },
-    };
-    for (const status of ['running', 'paused', 'stopped', 'completed'] as const)
-      expect(() =>
-        checkTransition(at('running'), { ...at(status), ...waiting } as WorkCycle, 'advance'),
-      ).not.toThrow();
   });
 });

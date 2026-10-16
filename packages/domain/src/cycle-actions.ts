@@ -175,11 +175,31 @@ export function cycleActions(
    * pass its gate; Stop is the way on (increment 5 review).
    */
   latestOutsideLineage = false,
+  /**
+   * A plain resume of the finished review would need a round the allowance has spent, so the
+   * daemon refuses it toward the grant (R-B4, decision 14): the grant is offered in its place,
+   * unless the stop kept by a pause has a redirect, whose resume returns to that stop
+   * (increment 6 review).
+   */
+  resumeAtRoundLimit = false,
 ): readonly CycleAction[] {
   const offered = cycleActionsAt(cycle, latestRunId, reviewNeedsRounds, investigation);
-  return latestOutsideLineage || stopCode(cycle) === 'item-completed-unmerged'
-    ? offered.filter((action) => action !== 'resume')
-    : offered;
+  const noResume = latestOutsideLineage || stopCode(cycle) === 'item-completed-unmerged';
+  const grant =
+    resumeAtRoundLimit &&
+    !resumeRedirect(cycle, latestRunId) &&
+    !offered.includes('authorize-remediation');
+  return offered.flatMap((action): readonly CycleAction[] =>
+    action !== 'resume'
+      ? [action]
+      : noResume
+        ? []
+        : resumeAtRoundLimit && !resumeRedirect(cycle, latestRunId)
+          ? grant
+            ? ['authorize-remediation']
+            : []
+          : [action],
+  );
 }
 
 function cycleActionsAt(

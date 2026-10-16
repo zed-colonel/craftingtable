@@ -2,7 +2,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { workCycleResponseSchema, workCyclesResponseSchema } from '@craftingtable/contracts';
 import type { WorkCycle } from '@craftingtable/domain';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ExecutionRequestError } from '../src/services/errors.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -132,6 +133,34 @@ describe('single work-item automation', () => {
     await controlCycle(state, currentCycle(state, cycle), 'resume');
     await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'resolved design');
     expect(backend.launches).toHaveLength(4);
+  });
+
+  // R-B4 increment 6 review, LOW-3 (W2): adopting a manual run launches nothing, so the launch
+  // gates a relaunch must pass are not asked.
+  it('adopts a manual resolution where a launch would be refused', async () => {
+    const { state, worktree } = await cycleFixture([
+      { resultText: '## Open questions\nWhich storage format?' },
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'design questions',
+    );
+    const manual = await runToFinish(state, worktree.id, {
+      role: 'design',
+      parentRunId: currentCycle(state, cycle).currentRunId,
+    });
+    const gate = vi
+      .spyOn(
+        state.context.services.workCycleService as unknown as {
+          transitionGate: () => Promise<void>;
+        },
+        'transitionGate',
+      )
+      .mockRejectedValue(new ExecutionRequestError('conflict', 'A launch would be refused.'));
+    const resumed = await controlCycle(state, currentCycle(state, cycle), 'resume');
+    expect(gate).not.toHaveBeenCalled();
+    expect(resumed.currentRunId).toBe(manual);
   });
 
   itNeedsCargo(

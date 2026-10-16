@@ -227,4 +227,45 @@ describe('the newer run’s lineage', () => {
       cycleActions({ ...stopped, status: 'paused' } as WorkCycle, newer, false, undefined, true),
     ).toEqual(['stop']);
   });
+  // Increment 6 review, LOW-3 (A2): only Resume goes; the stop's other offers stay.
+  it('keeps the stop’s other offers', () => {
+    const asking = {
+      ...cycle('needs-attention', 'review-open-questions'),
+      currentRunId: 'run-1',
+    } as WorkCycle;
+    expect(
+      cycleActions(asking, asAgentRunId('run-2'), false, { questions: true, live: false }, true),
+    ).toEqual(['investigate', 'stop']);
+  });
+});
+
+// R-B4, decision 14 (increment 6 review): where a plain resume would be refused at the round
+// limit, the grant is offered in its place, so the control the refusal names is there.
+describe('a resume at the round limit', () => {
+  const at = (stopped: WorkCycle) =>
+    cycleActions(stopped, undefined, false, undefined, false, true);
+  it('offers the grant in place of Resume at a stop with no redirect, and at a plain pause', () => {
+    expect(at(cycle('needs-attention', 'restart-resume'))).toEqual([
+      'authorize-remediation',
+      'stop',
+    ]);
+    expect(at(cycle('needs-attention', 'worktree-state'))).toEqual([
+      'authorize-remediation',
+      'stop',
+    ]);
+    expect(at(cycle('paused'))).toEqual(['authorize-remediation', 'stop']);
+  });
+  it('keeps a redirect, and a pause whose resume returns to its stop', () => {
+    expect(at(cycle('needs-attention', 'remediation-exhausted'))).toEqual([
+      'authorize-remediation',
+      'stop',
+    ]);
+    expect(at(cycle('paused', 'remediation-no-change'))).toEqual(['resume', 'stop']);
+  });
+  it('offers the grant once where a question stop already offers it', () =>
+    expect(
+      cycleActions(cycle('paused', 'work-item-questions'), undefined, true, undefined, false, true),
+    ).toEqual(['authorize-remediation', 'stop']));
+  it('offers Resume where the resume would not reach the limit', () =>
+    expect(cycleActions(cycle('paused'))).toEqual(['resume', 'stop']));
 });

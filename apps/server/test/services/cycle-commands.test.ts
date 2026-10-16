@@ -65,6 +65,7 @@ function factsOf(overrides: Partial<Record<keyof CommandFacts, unknown>> = {}): 
     liveRuns: () => [],
     continuesLineage: () => true,
     reviewAsksRemediation: () => false,
+    reviewScopeIssue: () => false,
     deadline: () => LATER,
     ...overrides,
   } as CommandFacts;
@@ -108,6 +109,13 @@ const rows: readonly {
     cycle: { status: 'stopped', attention: undefined },
     expected: { kind: 'refuse', code: 'cycle-ended' },
   },
+  // Increment 6 review, LOW-3: the rows below pin a condition each.
+  {
+    name: 'a completed cycle takes no command either',
+    stage: 'command',
+    cycle: { status: 'completed', attention: undefined },
+    expected: { kind: 'refuse', code: 'cycle-ended' },
+  },
   {
     name: 'a retired finalization never resumes',
     stage: 'command',
@@ -119,6 +127,13 @@ const rows: readonly {
     stage: 'command',
     facts: { mergeReserved: () => true },
     expected: { kind: 'refuse', code: 'merge-reserved' },
+  },
+  {
+    name: 'a pause is taken while a merge is reserved',
+    stage: 'command',
+    action: 'pause',
+    facts: { mergeReserved: () => true },
+    expected: { kind: 'write', changes: { status: 'paused' } },
   },
   {
     name: 'a stop that owns its resolution pauses with its edits',
@@ -160,6 +175,21 @@ const rows: readonly {
     cycle: { providerRecovery: recovery },
     facts: { providerRoadmapPaused: () => true },
     expected: { kind: 'refuse', code: 'provider-retry-held' },
+  },
+  {
+    name: 'a provider retry is bounded to three attempts',
+    stage: 'command',
+    action: 'retry-provider',
+    cycle: { providerRecovery: { ...recovery, attempts: 3 } },
+    expected: { kind: 'refuse', code: 'no-provider-retry' },
+  },
+  {
+    name: 'a retired attempt takes no provider retry',
+    stage: 'command',
+    action: 'retry-provider',
+    cycle: { providerRecovery: recovery },
+    facts: { amendmentRetired: () => true },
+    expected: { kind: 'refuse', code: 'amendment-retired' },
   },
   {
     name: 'a provider retry refuses a newer run',
@@ -255,6 +285,38 @@ const rows: readonly {
     expected: { kind: 'launch', step: 'implement', action: 'resume-with-guidance' },
   },
   {
+    name: 'guidance replaces a finished step’s, and opens a new progress window',
+    stage: 'step',
+    guidance: 'Use the queue.',
+    cycle: { stepGuidance: 'Earlier guidance.', stalledReviews: 2 },
+    expected: {
+      kind: 'launch',
+      changes: { stepGuidance: 'Use the queue.', stalledReviews: 0 },
+    },
+  },
+  {
+    name: 'guidance joins an unfinished step’s',
+    stage: 'step',
+    guidance: 'Use the queue.',
+    cycle: { stepGuidance: 'Earlier guidance.' },
+    facts: { newestRun: () => runOf({ status: 'failed' }) },
+    expected: {
+      kind: 'launch',
+      changes: { stepGuidance: 'Earlier guidance.\n\nUse the queue.' },
+    },
+  },
+  {
+    name: 'guidance at an unfinished review continues it, without remediating',
+    stage: 'step',
+    guidance: 'Fix it.',
+    cycle: { step: 'review' },
+    facts: {
+      newestRun: () => runOf({ role: 'review', status: 'failed' }),
+      reviewAsksRemediation: () => true,
+    },
+    expected: { kind: 'launch', step: 'review', action: 'resume-with-guidance' },
+  },
+  {
     name: 'review guidance needs an idle independent review',
     stage: 'step',
     cycle: { step: 'review', executionScope: reviewScope },
@@ -276,6 +338,15 @@ const rows: readonly {
     stage: 'step',
     facts: { liveRuns: () => [runOf({ id: 'run-9' })] },
     expected: { kind: 'refuse', code: 'sessions-open' },
+  },
+  {
+    name: 'the live run a resume adopts is not another session',
+    stage: 'step',
+    facts: {
+      newestRun: () => runOf({ id: 'run-2', status: 'running' }),
+      liveRuns: () => [runOf({ id: 'run-2', status: 'running' })],
+    },
+    expected: { kind: 'write', changes: { currentRunId: 'run-2' } },
   },
   {
     name: 'a newer run outside the lineage is not adopted',
@@ -308,6 +379,22 @@ const rows: readonly {
     expected: { kind: 'launch', step: 'implement' },
   },
   {
+    name: 'an interrupted step is relaunched',
+    stage: 'step',
+    facts: { newestRun: () => runOf({ status: 'interrupted' }) },
+    expected: { kind: 'launch', step: 'implement' },
+  },
+  {
+    name: 'an adopted implementation sets the step and clears the design wait',
+    stage: 'step',
+    cycle: { step: 'design', designWait: { startedAt: EARLIER, requirements: [] } },
+    facts: { newestRun: () => runOf({ id: 'run-2', role: 'implement' }) },
+    expected: {
+      kind: 'write',
+      changes: { step: 'implement', currentRunId: 'run-2', designWait: null },
+    },
+  },
+  {
     name: 'a finished review asking for remediation remediates',
     stage: 'step',
     cycle: { step: 'review' },
@@ -322,6 +409,18 @@ const rows: readonly {
     facts: { newestRun: () => runOf({ role: 'review' }), reviewAsksRemediation: () => true },
     expected: { kind: 'refuse', code: 'round-limit', control: 'authorize-remediation' },
   },
+  // Increment 6 review: a report the scope rejects reaches the review's own stop, as before.
+  {
+    name: 'a finished review at the round limit whose report the scope rejects remediates',
+    stage: 'step',
+    cycle: { step: 'review', ...spent },
+    facts: {
+      newestRun: () => runOf({ role: 'review' }),
+      reviewAsksRemediation: () => true,
+      reviewScopeIssue: () => true,
+    },
+    expected: { kind: 'remediate' },
+  },
   {
     name: 'a finished review is reviewed again',
     stage: 'step',
@@ -330,9 +429,13 @@ const rows: readonly {
     expected: { kind: 'launch', step: 'review' },
   },
   {
-    name: 'a finished step resumes its window',
+    name: 'a finished step resumes its window, its phase wait cleared',
     stage: 'step',
-    expected: { kind: 'write', changes: { status: 'running', runDeadlineAt: LATER } },
+    cycle: { phaseWait: { startedAt: EARLIER, blockers: [] } },
+    expected: {
+      kind: 'write',
+      changes: { status: 'running', runDeadlineAt: LATER, phaseWait: null },
+    },
   },
 ];
 
@@ -463,6 +566,20 @@ const actorRows: readonly {
     expected: { kind: 'review-again' },
   },
   {
+    name: 'an independent review awaiting its merge is reviewed again',
+    run: () =>
+      decideReviewAgain(
+        cycleOf({
+          status: 'awaiting-merge',
+          step: 'review',
+          executionScope: reviewScope,
+          attention: cycleAttention('merge-approval'),
+        }),
+        { unstarted: false, treeMatches: true },
+      ),
+    expected: { kind: 'review-again' },
+  },
+  {
     name: 'a slice is not reviewed again',
     run: () =>
       decideReviewAgain(
@@ -488,6 +605,19 @@ const actorRows: readonly {
   {
     name: 'a clean stop leaves a running cycle running',
     run: () => decideRestart(cycleOf({ status: 'running', attention: undefined }), true),
+    expected: {},
+  },
+  {
+    name: 'a crash leaves a cycle waiting on its design’s dependencies waiting',
+    run: () =>
+      decideRestart(
+        cycleOf({
+          status: 'running',
+          attention: undefined,
+          designWait: { startedAt: EARLIER, requirements: [] },
+        }),
+        false,
+      ),
     expected: {},
   },
   {

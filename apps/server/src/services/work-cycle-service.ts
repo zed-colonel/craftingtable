@@ -124,6 +124,7 @@ import {
   type ResumeStep,
   restoredStatus,
   resumeAdopts,
+  resumeAtRoundLimit,
 } from './cycle-commands.js';
 import { reviewCapture } from './review-capture.js';
 import { type CycleChanges, type CycleFieldChanges, checkTransition } from './cycle-transitions.js';
@@ -402,6 +403,11 @@ export class WorkCycleService {
         changed: worktreeChangeOpen(c),
       },
       latestOutsideLineage(tx, c, latestRunId),
+      resumeAtRoundLimit(
+        c,
+        latestRunId && tx.execution.runs.find(c.workspaceId, latestRunId),
+        reviewFacts(tx, c),
+      ),
     );
     const routes =
       c.status === 'needs-attention' &&
@@ -1807,11 +1813,10 @@ export class WorkCycleService {
       unstarted,
       treeMatches: !!tree && sameExecutionScope(tree.executionScope, cycle.executionScope),
     });
-    if (reviewable.kind === 'refuse' || !tree)
-      throw new ExecutionRequestError(
-        'conflict',
-        reviewable.kind === 'refuse' ? reviewable.message : '',
-      );
+    if (reviewable.kind === 'refuse')
+      throw new ExecutionRequestError('conflict', reviewable.message);
+    // Without a tree `treeMatches` refused above.
+    if (!tree) throw new NotFoundError();
     const check = () => {
       delegationCheck?.();
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -1963,6 +1968,9 @@ export class WorkCycleService {
   private commandFacts(cycle: WorkCycle): CommandFacts {
     const ws = cycle.workspaceId;
     const runs = () => this.storage.execution.runs.listForWorktree(ws, cycle.worktreeId);
+    // Read once: the resume decides on the run it read before its gate's await, as it did
+    // before the core (increment 6 review, NIT-2).
+    let newest: { readonly run: AgentRun | undefined } | undefined;
     return {
       now: this.now(),
       retiredFinalization: () =>
@@ -1971,20 +1979,17 @@ export class WorkCycleService {
       mergeReserved: () =>
         this.storage.execution.merges.latest(ws, cycle.worktreeId)?.status === 'reserved',
       providerRoadmapPaused: () => this.providerRoadmapPaused(cycle),
-      newestRun: () => runs()[0],
+      newestRun: () => {
+        newest ??= { run: runs()[0] };
+        return newest.run;
+      },
       runCount: () => runs().length,
       amendmentRetired: () => this.storage.amendments.retired(ws, cycle.worktreeId),
       attestationInputsChanged: () => this.attestationInputsChanged(cycle),
       needsGuidance: () => this.resumeNeedsGuidance(cycle),
       liveRuns: () => this.storage.execution.runs.liveForWorktree(ws, cycle.worktreeId),
       continuesLineage: (run) => continuesLineage(this.storage.execution, cycle, run),
-      reviewAsksRemediation: (run) => {
-        const assessment = latestReviewReport(this.storage.execution, run);
-        return (
-          assessment?.status === 'complete' &&
-          evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
-        );
-      },
+      ...reviewFacts(this.storage, cycle),
       deadline: () => this.deadline(cycle.policy.maxRunMinutes),
     };
   }
@@ -2746,6 +2751,7 @@ export class WorkCycleService {
     ) {
       cycle = this.change(cycle, {
         workflow: { ...cycle.workflow, activeReview: null, waiting: null },
+        reason: `${active.checkpointId}: the checkpoint changed during its review; deciding its obligation again.`,
       });
       active = null;
     }
@@ -4794,6 +4800,26 @@ export class WorkCycleService {
       },
     });
   }
+}
+
+/** What a finished review's report asks, for the resume's round-limit rule (R-B4, decision 14). */
+function reviewFacts(
+  tx: StorageRepositories,
+  cycle: WorkCycle,
+): Pick<CommandFacts, 'reviewAsksRemediation' | 'reviewScopeIssue'> {
+  return {
+    reviewAsksRemediation: (run) => {
+      const assessment = latestReviewReport(tx.execution, run);
+      return (
+        assessment?.status === 'complete' &&
+        evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
+      );
+    },
+    reviewScopeIssue: (run) => {
+      const tree = tx.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+      return !!tree && !!scopedReviewIssue(tx, tree, latestReviewReport(tx.execution, run));
+    },
+  };
 }
 
 /**

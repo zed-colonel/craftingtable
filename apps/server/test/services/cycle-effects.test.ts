@@ -33,6 +33,7 @@ import {
   decideStageOutcome,
   ledgerFull,
   nitsParked,
+  questionsHoldGrant,
   reassessmentFailure,
   refreshFailure,
   RETIRED_STOPS,
@@ -534,6 +535,21 @@ const rows: readonly {
     run: () => decideHousekeeping(cycleOf(), 'x'),
     expected: { kind: 'remediate' },
   },
+  // questionsHoldGrant: a finalization's review requires its checkpoint; a slice review does not.
+  ...(
+    [
+      ['a finalization review with no checkpoint', 'Reviewed.', true, true],
+      ['a finalization review with a broken one', '## Open questions\nNone.', true, true],
+      ['a finalization review that says none', '## Open questions\nnone', true, false],
+      ['a slice review with no checkpoint', 'Reviewed.', false, false],
+      ['a slice review with questions', '## Open questions\n- Which queue?', false, true],
+      ['a slice review that says none', '## Open questions\nnone', false, false],
+    ] as const
+  ).map(([what, report, finalization, holds]) => ({
+    name: `the grant ${holds ? 'is held' : 'goes on'} for ${what}`,
+    run: () => questionsHoldGrant(report, finalization),
+    expected: holds,
+  })),
   // R-B4, decision 4: the operator's grant at housekeeping's limit stop.
   {
     name: 'a grant at housekeeping’s limit remediates',

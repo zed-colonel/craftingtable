@@ -128,3 +128,34 @@ describe('design recovery source discovery', () => {
     expect(() => readDesignRecoverySource(tx, cycle, source.source)).toThrow('preserved identity');
   });
 });
+
+/**
+ * The questions the preview shows (R-B4 increment 3 review, finding 1): a checkpoint's own body
+ * only when it stands (questions, or a concluding `none`); otherwise the whole report, so a
+ * plain Continue is never offered on a `none` that did not conclude the design.
+ */
+describe('design recovery questions', () => {
+  const withReport = (resultText: string) => {
+    const { tx, cycle } = fixture();
+    (tx.execution.runEvents as unknown as { latestOfKind: () => unknown }).latestOfKind = () => ({
+      kind: 'turn-completed',
+      payload: { resultText },
+    });
+    return collectDesignRecovery(tx, cycle).questions;
+  };
+  it.each([
+    ['questions listed', 'Design.\n\n## Open questions\n- Which queue?', '- Which queue?'],
+    ['a concluding none', 'Design.\n\n## Open questions\nnone', 'none'],
+    [
+      'a repeated section',
+      '## Open questions\nnone\n## Open questions\n- Which queue owns retries?',
+      '## Open questions\nnone\n## Open questions\n- Which queue owns retries?',
+    ],
+    [
+      'none followed by another section',
+      'Design.\n## Open questions\nnone\n## Risks\nShould retries be capped?',
+      'Design.\n## Open questions\nnone\n## Risks\nShould retries be capped?',
+    ],
+    ['no section', 'Design without a checkpoint.', 'Design without a checkpoint.'],
+  ])('%s', (_name, report, questions) => expect(withReport(report)).toBe(questions));
+});

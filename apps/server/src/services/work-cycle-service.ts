@@ -131,6 +131,7 @@ import {
   decideStageOutcome,
   ledgerFull,
   nitsParked,
+  questionsHoldGrant,
   reassessmentFailure,
   type RefusalDecision,
   refreshFailure,
@@ -1661,10 +1662,7 @@ export class WorkCycleService {
       turn?.kind !== 'turn-completed' ||
       turn.payload.outcome !== 'success' ||
       turn.payload.truncated ||
-      (!guidedContinuation &&
-        (cycle.finalizationId
-          ? !noOpenQuestions(turn.payload.resultText)
-          : raisesOpenQuestions(turn.payload.resultText)))
+      (!guidedContinuation && questionsHoldGrant(turn.payload.resultText, !!cycle.finalizationId))
     )
       return 'Resolve the questions or incomplete outcome before authorizing remediation.';
     const assessment = latestReviewReport(this.storage.execution, run);

@@ -125,6 +125,37 @@ const rows: readonly {
     raises: false,
     design: true,
   },
+  // A closing fence must be at least as long as the opening one (R-B4 increment 3 review, P02).
+  {
+    name: 'a shorter fence inside a longer one does not close it',
+    text: '````\n```\n## Open questions\n- fenced\n````\n## Open questions\nnone',
+    status: 'none',
+    raises: false,
+    design: true,
+  },
+  // A fence left open hides the headings after it; an implementation's or slice review's
+  // questions under one are still raised (review finding 2), though the checkpoint is malformed.
+  {
+    name: 'a fence left open before the section',
+    text: 'Example:\n```ts\nconst a = 1;\n## Open questions\n- Should the cache be shared?',
+    status: 'malformed',
+    raises: true,
+    design: false,
+  },
+  {
+    name: 'a longer fence closed by a shorter one before the section',
+    text: '````md\nsnippet\n```\n## Open questions\n- Which queue?',
+    status: 'malformed',
+    raises: true,
+    design: false,
+  },
+  {
+    name: 'a fence left open after the section raises nothing',
+    text: '## Open questions\nnone\n\n## Notes\n```\ntrailing',
+    status: 'none',
+    raises: false,
+    design: false,
+  },
   {
     name: 'a fenced heading inside the section is its text',
     text: '## Open questions\n- Which?\n```\n## Not a heading\n```',
@@ -160,6 +191,13 @@ describe('openQuestionsSection', () => {
     ]);
     expect(openQuestionsSection('## Open questions\nnone').items).toEqual([]);
     expect(openQuestionsSection('none here')).toMatchObject({ count: 0, body: '', last: false });
+    // A repeated section's body is the first one's (P06); empty items are dropped (P13).
+    expect(
+      openQuestionsSection('## Open questions\nfirst\n## Open questions\nsecond'),
+    ).toMatchObject({ count: 2, body: 'first', status: 'malformed' });
+    expect(openQuestionsSection('## Open questions\n- \n- Which queue?').items).toEqual([
+      'Which queue?',
+    ]);
   });
 });
 

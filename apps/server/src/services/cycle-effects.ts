@@ -4,10 +4,12 @@ import {
   type CycleAttentionCode,
   type FinalizationProgress,
   heldOnlyByParkedNits,
+  noOpenQuestions,
   optionalFinding,
   parkedFollowUp,
   type PhaseBlocker,
   phaseBlockerCode,
+  raisesOpenQuestions,
   remediationAllowance,
   remediationUsed,
   type ReviewFinding,
@@ -433,6 +435,15 @@ export function reassessmentFailure(error: unknown): EffectStop | undefined {
         : 'unexpected controller error. Inspect the worktree before resuming.'
     }`,
   );
+}
+
+/**
+ * Whether a finished review's questions hold an operator's grant of remediation back
+ * (`remediationBlocker`, R-B4 decision 13): a plan finalization's review requires its checkpoint,
+ * so a missing or broken one holds it; a slice review raises questions only through one.
+ */
+export function questionsHoldGrant(report: string, requiresCheckpoint: boolean): boolean {
+  return requiresCheckpoint ? !noOpenQuestions(report) : raisesOpenQuestions(report);
 }
 
 // ---------------------------------------------------------------------------------------------

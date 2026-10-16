@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import {
   type AgentRunId,
   type DesignRecoverySource,
+  designHasNoOpenQuestions,
   openQuestionsSection,
   type WorkCycle,
 } from '@craftingtable/domain';
@@ -36,9 +37,13 @@ export function collectDesignRecovery(
   const event = tx.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
   const report =
     event?.kind === 'turn-completed' ? event.payload.resultText : (run.outcomeSummary ?? '');
+  // The checkpoint's own text only when it stands: its questions, or a `none` that concludes the
+  // design. A broken one shows the whole report, so the refusal of a plain Continue, which reads
+  // this text, never sees a `none` that did not conclude (R-B4 increment 3 review).
   const checkpoint = openQuestionsSection(report);
+  const stands = checkpoint.status === 'questions' || designHasNoOpenQuestions(report);
   const questions =
-    (checkpoint.count ? checkpoint.body : '') ||
+    (stands ? checkpoint.body : '') ||
     report ||
     'No final design report was recorded. Inspect the run before continuing.';
   // Exact contract/requirement IDs are useful cross-package lookup keys; prose is not authority.

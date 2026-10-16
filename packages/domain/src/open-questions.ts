@@ -9,8 +9,9 @@
  *
  * - a section is a line `## Open questions` (trailing blanks allowed) outside fenced blocks, and
  *   it runs to the next `## ` heading outside fenced blocks, or to the end of the text;
- * - a fence opens with three or more backticks or tildes indented at most three spaces, and
- *   closes with the same character at least as long (CommonMark's rule);
+ * - a fence opens with three or more backticks or tildes after at most three characters of
+ *   whitespace, and closes with the same character at least as long, whatever follows it
+ *   (CommonMark's rule, but for tabs and a closer's trailing text);
  * - the checkpoint is `none` only when there is exactly one section and its text, trimmed and in
  *   any case, is `none`; `questions` when there is exactly one section with any other text that
  *   does not begin with `none`; anything else is `malformed` (no section, several, an empty one,
@@ -31,6 +32,8 @@ interface ReportSection {
   readonly lines: readonly { readonly text: string; readonly fenced: boolean }[];
   /** No `## ` heading follows the first section outside fenced blocks. */
   readonly last: boolean;
+  /** A line with this heading lies inside a fence still open at the end of the report. */
+  readonly hidden: boolean;
 }
 
 /** The `## <heading>` sections of a report, read with the fences rule above. */
@@ -40,14 +43,19 @@ function reportSection(text: string, heading: string): ReportSection {
   let count = 0;
   let collecting = false;
   let last = true;
+  // A heading line seen inside the fence that is open now.
+  let hidden = false;
   const lines: { text: string; fenced: boolean }[] = [];
   for (const line of text.split(/\r?\n/)) {
     const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
     const fenced = fence !== undefined || marker !== undefined;
     if (marker !== undefined) {
-      if (fence === undefined) fence = marker;
-      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
-    } else if (!fenced && line.startsWith('## ')) {
+      if (fence === undefined) {
+        fence = marker;
+        hidden = false;
+      } else if (marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
+    } else if (fenced && line.replace(/[ \t]+$/, '') === title) hidden = true;
+    else if (!fenced && line.startsWith('## ')) {
       // Any heading ends the first section; only the first is collected.
       if (collecting) last = false;
       const opens = line.replace(/[ \t]+$/, '') === title;
@@ -65,6 +73,7 @@ function reportSection(text: string, heading: string): ReportSection {
       .trim(),
     lines,
     last: count > 0 && last,
+    hidden: fence !== undefined && hidden,
   };
 }
 
@@ -75,6 +84,11 @@ interface OpenQuestionsSection {
   readonly body: string;
   /** No `## ` heading follows the first section outside fenced blocks. */
   readonly last: boolean;
+  /**
+   * A section heading lies inside a fence left open to the end of the report: an unclosed
+   * snippet swallowed it, so it is not a section, but it is not nothing either.
+   */
+  readonly hidden: boolean;
   /**
    * `none`: exactly one section, containing only "none". `questions`: exactly one section
    * listing something. `malformed`: no section, several, an empty one, or "none" followed by
@@ -112,6 +126,7 @@ export function openQuestionsSection(text: string): OpenQuestionsSection {
     count: section.count,
     body: section.body,
     last: section.last,
+    hidden: section.hidden,
     status,
     items: items.filter((q) => q.trim()),
   };
@@ -124,12 +139,13 @@ export function noOpenQuestions(text: string): boolean {
 
 /**
  * The report raises questions for the operator: it has a checkpoint and the checkpoint is not
- * `none` alone. A report without the section raises none; the step that requires it reads that
- * as `malformed` instead.
+ * `none` alone, or a fence left open swallowed its checkpoint's heading (R-B4 increment 3
+ * review). A report without the section raises none; the step that requires it reads that as
+ * `malformed` instead.
  */
 export function raisesOpenQuestions(text: string): boolean {
   const section = openQuestionsSection(text);
-  return section.count > 0 && section.status !== 'none';
+  return (section.count > 0 && section.status !== 'none') || section.hidden;
 }
 
 /**

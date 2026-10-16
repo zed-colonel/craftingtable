@@ -15,6 +15,7 @@ import {
 } from '../../src/services/branch-service.js';
 import {
   approvalGate,
+  APPROVAL_CHANGED_WORKTREE,
   commitFailure,
   continueDesignFailure,
   decideApproval,
@@ -24,6 +25,7 @@ import {
   decideLaunch,
   decideRefusal,
   decideFinalized,
+  decideGrant,
   decideHousekeeping,
   decideObligations,
   decideRefresh,
@@ -31,6 +33,7 @@ import {
   decideStageCompletion,
   decideStageInput,
   decideStageOutcome,
+  FILES_REMAIN_AFTER_FINALIZATION,
   ledgerFull,
   nitsParked,
   questionsHoldGrant,
@@ -38,6 +41,7 @@ import {
   refreshFailure,
   RETIRED_STOPS,
   securityReviewerStop,
+  STAGE_REVIEW_CHANGED_WORKTREE,
   securityReviewNotCurrent,
   stageFindings,
   stageReportInvalid,
@@ -534,6 +538,30 @@ const rows: readonly {
     name: 'housekeeping within the limit remediates',
     run: () => decideHousekeeping(cycleOf(), 'x'),
     expected: { kind: 'remediate' },
+  },
+  // R-B4, decision 4 at every step (operator decision 2026-10-16): a grant relaunches the
+  // review's remediation where the review asks for one, otherwise the housekeeping its limit
+  // stop held back, with that housekeeping's reason read from the step.
+  {
+    name: 'a grant at a review asking for remediation remediates the review',
+    run: () => decideGrant(cycleOf({ step: 'review' }), true),
+    expected: { kind: 'review' },
+  },
+  {
+    name: 'a grant after a passing review relaunches the approval’s housekeeping',
+    run: () => decideGrant(cycleOf({ step: 'review' }), false),
+    expected: { kind: 'housekeeping', reason: APPROVAL_CHANGED_WORKTREE },
+  },
+  {
+    name: 'a grant after a passing stage review relaunches the stage’s housekeeping',
+    run: () =>
+      decideGrant(cycleOf({ step: 'review', finalizationProgress: { stageIndex: 0 } }), false),
+    expected: { kind: 'housekeeping', reason: STAGE_REVIEW_CHANGED_WORKTREE },
+  },
+  {
+    name: 'a grant at an implement or remediate step relaunches the checkpoint’s housekeeping',
+    run: () => decideGrant(cycleOf({ step: 'remediate' }), false),
+    expected: { kind: 'housekeeping', reason: FILES_REMAIN_AFTER_FINALIZATION },
   },
   // Mixed conditions (R-B4 increment 2 review, LOW-2): where two branches apply, the first wins.
   {

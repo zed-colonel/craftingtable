@@ -204,6 +204,14 @@ export type ApprovalDecision =
   | { readonly kind: 'housekeeping'; readonly reason: string }
   | { readonly kind: 'continue' };
 
+/** Housekeeping's reasons, one per place that finds a worktree untidy after its step. */
+export const FILES_REMAIN_AFTER_FINALIZATION =
+  'Files remain after implementation finalization. Classify and reconcile them before a fresh review.';
+export const APPROVAL_CHANGED_WORKTREE =
+  'Verification changed the worktree. Inspect these changes and generated files, restore a reviewable state, and commit intended source changes. The prior approval is invalid.';
+export const STAGE_REVIEW_CHANGED_WORKTREE =
+  'Review changed the worktree. Reconcile artifacts, commit intended edits and obtain a fresh stage review.';
+
 /** The reviewed worktree as Git reports it, before the approval is recorded. */
 export function decideApproval(input: {
   readonly reviewOnly: boolean;
@@ -231,11 +239,7 @@ export function decideApproval(input: {
           'scope-review-snapshot-changed',
           'Scope review changed its snapshot. Restore the reviewed integration state before resuming.',
         )
-      : {
-          kind: 'housekeeping',
-          reason:
-            'Verification changed the worktree. Inspect these changes and generated files, restore a reviewable state, and commit intended source changes. The prior approval is invalid.',
-        };
+      : { kind: 'housekeeping', reason: APPROVAL_CHANGED_WORKTREE };
   return { kind: 'continue' };
 }
 
@@ -487,6 +491,26 @@ export function decideRemediation(input: {
       'Two remediation rounds left the same open findings and gate result. Operator attention is required.',
     );
   return { kind: 'remediate', stalledReviews };
+}
+
+/**
+ * What an operator's grant of more remediation relaunches (R-B4, decision 4): the review's
+ * remediation where the finished review asks for one; otherwise the housekeeping whose limit stop
+ * the grant answers, at any step (operator decision 2026-10-16), with that housekeeping's reason
+ * read from the step: the implementation checkpoint's, a finalization stage review's, or an
+ * approval's. Staged finalizations never reach an approval, so their review step is the stage's.
+ */
+export function decideGrant(
+  cycle: Pick<WorkCycle, 'step' | 'finalizationProgress'>,
+  reviewAsksRemediation: boolean,
+): { readonly kind: 'review' } | { readonly kind: 'housekeeping'; readonly reason: string } {
+  if (cycle.step !== 'review')
+    return { kind: 'housekeeping', reason: FILES_REMAIN_AFTER_FINALIZATION };
+  if (reviewAsksRemediation) return { kind: 'review' };
+  return {
+    kind: 'housekeeping',
+    reason: cycle.finalizationProgress ? STAGE_REVIEW_CHANGED_WORKTREE : APPROVAL_CHANGED_WORKTREE,
+  };
 }
 
 /**

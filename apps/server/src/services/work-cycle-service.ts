@@ -140,6 +140,7 @@ import {
   decideLaunch,
   decideRefusal,
   decideFinalized,
+  decideGrant,
   decideHousekeeping,
   decideObligations,
   decideRefresh,
@@ -147,6 +148,7 @@ import {
   decideStageCompletion,
   decideStageInput,
   decideStageOutcome,
+  FILES_REMAIN_AFTER_FINALIZATION,
   ledgerFull,
   nitsParked,
   questionsHoldGrant,
@@ -156,6 +158,7 @@ import {
   securityReviewNotCurrent,
   securityReviewerStop,
   stageFindings,
+  STAGE_REVIEW_CHANGED_WORKTREE,
   stageReportInvalid,
   workflowAuthorityStop,
   workflowHeldGate,
@@ -199,8 +202,6 @@ interface RemediationGrant {
 }
 
 /** What housekeeping tells the remediation after the implementation checkpoint left files. */
-const FILES_REMAIN_AFTER_FINALIZATION =
-  'Files remain after implementation finalization. Classify and reconcile them before a fresh review.';
 
 /**
  * The tree's newest run is newer than the cycle's own and outside its handoff lineage, so a
@@ -1682,9 +1683,15 @@ export class WorkCycleService {
         : undefined;
     if (tree?.status !== 'active' || scopeIssue)
       return scopeIssue ?? 'The managed worktree must be active before authorizing remediation.';
+    if (assessment?.status !== 'complete')
+      return 'A valid review requiring remediation is needed before extending the allowance.';
+    // A complete report that asks for no remediation, stopped at the limit, is housekeeping's
+    // limit stop after the review passed (an approval or a stage completion that found the
+    // worktree untidy): the grant relaunches that housekeeping, as at an implement or remediate
+    // step (R-B4, decision 4; operator decision 2026-10-16).
     if (
-      assessment?.status !== 'complete' ||
-      evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action !== 'remediate'
+      evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action !== 'remediate' &&
+      stopCode(cycle) !== 'remediation-exhausted'
     )
       return 'A valid review requiring remediation is needed before extending the allowance.';
     return undefined;
@@ -3013,11 +3020,7 @@ export class WorkCycleService {
         'Stage completion requires the managed branch without a pending Git operation.',
       );
     if (!changes.value.clean || changes.value.headSha !== run.reviewBranchContext?.headSha) {
-      await this.housekeeping(
-        cycle,
-        run,
-        'Review changed the worktree. Reconcile artifacts, commit intended edits and obtain a fresh stage review.',
-      );
+      await this.housekeeping(cycle, run, STAGE_REVIEW_CHANGED_WORKTREE);
       return false;
     }
     if (await this.refreshIntegration(cycle, run)) return false;
@@ -3507,9 +3510,8 @@ export class WorkCycleService {
   }
 
   /**
-   * An operator's grant of more remediation: a review's remediation, or at an implement or
-   * remediate step the housekeeping remediation its limit stop held back (R-B4, decision 4).
-   * There the stop can come only from the implementation checkpoint's housekeeping.
+   * An operator's grant of more remediation: a review's remediation, or the housekeeping
+   * remediation its limit stop held back, at any step (R-B4, decision 4; `decideGrant`).
    */
   private grantRemediation(
     cycle: WorkCycle,
@@ -3517,9 +3519,13 @@ export class WorkCycleService {
     context: CommandContext,
     grant: RemediationGrant,
   ): Promise<WorkCycle> {
-    return cycle.step === 'review'
+    const granted = decideGrant(
+      cycle,
+      cycle.step === 'review' && reviewFacts(this.storage, cycle).reviewAsksRemediation(run),
+    );
+    return granted.kind === 'review'
       ? this.reviewRemediation(cycle, run, context, grant)
-      : this.housekeeping(cycle, run, FILES_REMAIN_AFTER_FINALIZATION, context, grant);
+      : this.housekeeping(cycle, run, granted.reason, context, grant);
   }
 
   /**

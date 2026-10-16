@@ -399,6 +399,73 @@ it('relaunches the housekeeping remediation when more is authorized at its limit
   });
 });
 
+// Operator decision 2026-10-16 (R-B4, decision 4 at every step): housekeeping's limit stop after
+// a passing review, whose approval found the worktree changed, takes the grant too, and the grant
+// relaunches that housekeeping rather than leaving Stop as the only control.
+it('relaunches the approval’s housekeeping when more is authorized at its limit stop at a review step', async () => {
+  const { state, backend, worktree } = await cycleFixture([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([]) },
+    implementationDone,
+    { resultText: reviewText([]) },
+  ]);
+  let reviews = 0;
+  backend.onLaunch = (request) => {
+    if (request.model === 'review-model' && ++reviews === 1)
+      writeFileSync(join(worktree.path, 'review.wal'), 'left by the review');
+    if (request.model === 'remediate-model') rmSync(join(worktree.path, 'review.wal'));
+  };
+  const cycle = await startCycle(state, worktree.id, {
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+  });
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'limit stop');
+  const limit = currentCycle(state, cycle);
+  expect(limit).toMatchObject({
+    step: 'review',
+    attention: { code: 'remediation-exhausted' },
+    reason: expect.stringContaining('Verification changed the worktree.'),
+  });
+  const grant = () =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: {
+        action: 'authorize-remediation',
+        expectedVersion: currentCycle(state, cycle).version,
+        additionalRounds: 1,
+        instructions: 'Remove what the review left behind.',
+      },
+    });
+  // Only the limit stop: the same passing review at another stop asks for no remediation.
+  const replace = (fields: Record<string, unknown>) => {
+    const current = currentCycle(state, cycle);
+    state.context.storage.execution.cycles.replace(
+      { ...current, ...fields, version: current.version + 1 },
+      current.version,
+    );
+  };
+  replace({ attention: cycleAttention('restart-resume') });
+  const elsewhere = await grant();
+  expect(elsewhere.statusCode).toBe(409);
+  expect(elsewhere.body).toContain('A valid review requiring remediation is needed');
+  replace({ attention: limit.attention });
+  const granted = await grant();
+  expect(granted.statusCode, granted.body).toBe(200);
+  await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'remediated');
+  expect(backend.launches.map((r) => r.model)).toEqual([
+    'design-model',
+    'implement-model',
+    'review-model',
+    'remediate-model',
+    'review-model',
+  ]);
+  const remediation = backend.launches[3]!.prompt;
+  expect(remediation).toContain('Verification changed the worktree.');
+  expect(remediation).toContain('Remove what the review left behind.');
+});
+
 // R-B4 increment 4 review: the grant at housekeeping's limit is refused where it would not help.
 it('refuses the housekeeping grant at another stop, too few rounds, or an unsettled worktree', async () => {
   const { state, backend, worktree } = await cycleFixture([

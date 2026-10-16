@@ -28,6 +28,7 @@ import {
 afterEach(cleanupExecutionFixtures);
 
 type Internals = {
+  authority: (...args: unknown[]) => unknown;
   blocker: (...args: unknown[]) => unknown;
   assertRunnable: (...args: unknown[]) => void;
   execution: { branches: { missingPredecessorMerge: (...args: unknown[]) => Promise<unknown> } };
@@ -126,6 +127,45 @@ it('keeps the holds that stay the operator’s: one stored before the build, and
     [entryIds[0], entryIds[1]].toSorted(),
   );
   expect(auditRows(state, 'release-hold')).toEqual([]);
+});
+
+it('asks a round’s hold of its owner as a round, and keeps it while the capacity is circular', async () => {
+  // The source entry depends on nothing, so the pass reaches its hold.
+  const { state, input } = await parallelFixture({ independentThird: true });
+  expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  // A round's capacity hold on its source entry names the owner whose blocker refused it.
+  const [source, owner] = [input.entries[2]!.id, entryIds[0]!];
+  storeHold(state, source, roadmapAttention('entry-blocked', { entryId: owner }));
+  let circular = true;
+  const asked: unknown[] = [];
+  const scheduler = internals(state);
+  const real = scheduler.blocker.bind(scheduler);
+  const spy = vi.spyOn(scheduler, 'blocker').mockImplementation((...args: unknown[]) => {
+    if ((args[1] as { id: string }).id !== owner) return real(...args);
+    asked.push(args[4]);
+    return circular
+      ? {
+          reason: 'All slots are held by work that waits on this slice.',
+          needsAttention: false,
+          kind: 'capacity-blocked',
+          circular: true,
+        }
+      : undefined;
+  });
+  await tick(state);
+  expect(storedRoadmap(state).entryHolds?.[source]).toBeDefined();
+  expect(asked).toContain(true);
+  circular = false;
+  await tick(state);
+  expect(storedRoadmap(state).entryHolds?.[source]).toBeUndefined();
+  expect(auditRows(state, 'release-hold').at(-1)?.metadata.release).toEqual({
+    entryId: source,
+    code: 'entry-blocked',
+    gatedEntryId: owner,
+    fact: 'blocker',
+  });
+  spy.mockRestore();
 });
 
 it('releases a stored hold for a predecessor’s missing merge once no merge is missing', async () => {
@@ -242,6 +282,13 @@ it('leaves a sequential stop to the operator while the roadmap is paused or Resu
   await tick(state);
   expect(storedRoadmap(state).status).toBe('needs-attention');
   refused.mockRestore();
+  // The delegating user lost their authority: the stop stays the operator's.
+  const authority = vi.spyOn(internals(state), 'authority').mockImplementation(() => {
+    throw new Error('The initiating user no longer has permission to run this roadmap.');
+  });
+  await tick(state);
+  expect(storedRoadmap(state).status).toBe('needs-attention');
+  authority.mockRestore();
   // A pause carries no code: the operator resumes what they paused.
   await roadmapControl(state, 'pause');
   await tick(state);

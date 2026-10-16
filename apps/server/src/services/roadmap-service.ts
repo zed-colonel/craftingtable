@@ -136,7 +136,14 @@ import {
   sameEntryWaits,
   waiting,
 } from './entry-waits.js';
-import { holdCheck, type ReleaseCheck, roadmapHeld, stopCheck } from './entry-holds.js';
+import {
+  gatePhase,
+  holdCheck,
+  phaseGateClears,
+  type ReleaseCheck,
+  roadmapHeld,
+  stopCheck,
+} from './entry-holds.js';
 import type { ExecutionService } from './execution-service.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { PhaseGateError } from './phase-resources.js';
@@ -2510,10 +2517,9 @@ export class RoadmapService {
             // Adoption is retried on the next pass.
           }
           // A stop whose typed fact cleared resumes by itself; a pause never does (decision 2).
-          if (roadmap.status === 'needs-attention')
-            await this.resumeCleared(this.find(roadmap.workspaceId, roadmap.id)).catch(
-              () => undefined,
-            );
+          await this.resumeCleared(this.find(roadmap.workspaceId, roadmap.id)).catch(
+            () => undefined,
+          );
           continue;
         }
         if (roadmap.status !== 'running') continue;
@@ -3336,24 +3342,16 @@ export class RoadmapService {
         const scope = entry.executionScope;
         if (!scope) return false;
         const cycle = attempt && this.storage.execution.cycles.find(ws, attempt.cycleId);
-        // A slice's gate is its start before its cycle exists, its merge after (review L-2).
-        const phase =
-          scope.kind === 'slice'
-            ? cycle
-              ? 'merge'
-              : 'start'
-            : scope.kind === 'slice-verification'
-              ? 'verify'
-              : 'accept';
-        const blockers = scopePhaseBlockers(
-          this.storage,
-          ws,
-          entry.workItemId,
-          scope,
-          phase,
-          cycle && scope.kind !== 'slice' ? { ownerId: cycle.currentRunId } : {},
+        return phaseGateClears(
+          scopePhaseBlockers(
+            this.storage,
+            ws,
+            entry.workItemId,
+            scope,
+            gatePhase(scope, !!cycle),
+            cycle && scope.kind !== 'slice' ? { ownerId: cycle.currentRunId } : {},
+          ),
         );
-        return blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].waits);
       }
       case 'predecessor-merge':
         return !(await this.execution.branches.missingPredecessorMerge(

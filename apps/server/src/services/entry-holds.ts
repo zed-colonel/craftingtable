@@ -1,12 +1,16 @@
-import type {
-  CycleAttentionCode,
-  PlanVersionId,
-  Roadmap,
-  RoadmapAttention,
-  RoadmapAttentionCode,
-  RoadmapDefinition,
-  RoadmapEntryHold,
-  WorkCycleId,
+import {
+  type CycleAttentionCode,
+  type ExecutionScope,
+  PHASE_BLOCKERS,
+  type PhaseBlocker,
+  phaseBlockerCode,
+  type PlanVersionId,
+  type Roadmap,
+  type RoadmapAttention,
+  type RoadmapAttentionCode,
+  type RoadmapDefinition,
+  type RoadmapEntryHold,
+  type WorkCycleId,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import type { RefusalStop } from './errors.js';
@@ -187,6 +191,24 @@ export function stopCheck(attention: RoadmapAttention | undefined): ReleaseCheck
     asRound: false,
     ...(refs.cycleId ? { cycleId: refs.cycleId } : {}),
   };
+}
+
+/**
+ * The phase whose gate a hold's `phase-gate` cause is asked again of (increment 2 review L-2): a
+ * slice's start before its cycle exists and its merge after, a slice verification's verify, a
+ * parent acceptance's accept.
+ */
+export function gatePhase(
+  scope: Pick<ExecutionScope, 'kind'>,
+  hasCycle: boolean,
+): 'start' | 'merge' | 'verify' | 'accept' {
+  if (scope.kind === 'slice') return hasCycle ? 'merge' : 'start';
+  return scope.kind === 'slice-verification' ? 'verify' : 'accept';
+}
+
+/** A phase gate clears a hold once it names nothing that stops: every blocker left waits. */
+export function phaseGateClears(blockers: readonly PhaseBlocker[]): boolean {
+  return blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].waits);
 }
 
 /**

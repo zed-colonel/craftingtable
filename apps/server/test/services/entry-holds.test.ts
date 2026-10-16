@@ -2,12 +2,14 @@ import { ROADMAP_ATTENTION_CODES, roadmapAttention } from '@craftingtable/domain
 import { describe, expect, it } from 'vitest';
 import { REFUSAL_STOPS } from '../../src/services/errors.js';
 import {
+  gatePhase,
   HOLD_RELEASE,
   type HoldOrigin,
   heldEntry,
   holdCheck,
   holdOrigin,
   holdRelease,
+  phaseGateClears,
   roadmapHeld,
   stopCheck,
 } from '../../src/services/entry-holds.js';
@@ -76,12 +78,35 @@ describe('HOLD_RELEASE', () => {
     expect(
       holdRelease({ kind: 'stop', code: 'entry-blocked', cause: 'item-unavailable' }),
     ).toMatchObject({ operator: true });
+    // A code with its own fact does not release on a cause the table does not know.
+    expect(
+      holdRelease({ kind: 'stop', code: 'entry-blocked', cause: 'step-incomplete' }),
+    ).toMatchObject({ operator: true });
   });
 
   it('leaves a refusal without a typed cause to the operator', () =>
     expect(holdRelease({ kind: 'stop', code: 'entry-preparation-failed' })).toMatchObject({
       operator: true,
     }));
+});
+
+describe('the phase gate a hold asks again (increment 4)', () => {
+  it('asks a slice’s start before its cycle exists, its merge after', () => {
+    expect(gatePhase({ kind: 'slice' }, false)).toBe('start');
+    expect(gatePhase({ kind: 'slice' }, true)).toBe('merge');
+    expect(gatePhase({ kind: 'slice-verification' }, true)).toBe('verify');
+    expect(gatePhase({ kind: 'parent-acceptance' }, false)).toBe('accept');
+  });
+  it('clears once every blocker left waits, and not while one stops', () => {
+    const blocker = (code: 'binding-changed' | 'slice-not-merged') => ({
+      kind: 'dependency' as const,
+      code,
+      message: code,
+    });
+    expect(phaseGateClears([])).toBe(true);
+    expect(phaseGateClears([blocker('slice-not-merged')])).toBe(true);
+    expect(phaseGateClears([blocker('slice-not-merged'), blocker('binding-changed')])).toBe(false);
+  });
 });
 
 describe('holdOrigin (increment 2 review M-2)', () => {

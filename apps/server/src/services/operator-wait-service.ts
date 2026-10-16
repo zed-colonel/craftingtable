@@ -107,7 +107,10 @@ export function roadmapWaitAudit(
     ...(attention ? { attention: auditedStop(attention) } : {}),
     holds: Object.entries(roadmap.entryHolds ?? {}).map(([entryId, hold]) => {
       const held = effectiveHoldAttention(hold);
-      return { entryId, status: hold.status, ...(held ? auditedStop(held) : {}) };
+      // A hold's `refs.entryId` names the gate's entry, not the hold's (R-C10's follow-up): the
+      // record keeps the hold's own key.
+      const { entryId: _gated, ...stop } = held ? auditedStop(held) : {};
+      return { ...stop, entryId, status: hold.status };
     }),
   };
 }
@@ -154,9 +157,9 @@ const LIVE: ReadonlySet<unknown> = new Set(['running', 'paused', 'needs-attentio
  * Each audited roadmap write as the waits it records: the roadmap's own (its pause, or its stop
  * at attention the operator owns) and each entry's hold, while the roadmap has not ended. Each
  * names the cycles whose own stops are the same wait: the stop's cycle where it names one, else
- * the entry's attempts' cycles (a recovery round's repair of it included), else, for the
- * roadmap's own stop, every cycle it started. A row without the record, one an older release
- * wrote, records no wait.
+ * the entry's attempts' cycles (retired ones and a recovery round's repair of it included), else,
+ * for the roadmap's own stop, every cycle it started; a hold is also within its roadmap's own
+ * wait. A row without the record, one an older release wrote, records no wait.
  */
 export function roadmapWaitRecords(
   rows: readonly {
@@ -199,6 +202,7 @@ export function roadmapWaitRecords(
       held.set(entryId, {
         waitId: `${row.roadmapId}:${entryId}`,
         at: row.occurredAt,
+        within: row.roadmapId,
         ...(holdKind ? { kind: holdKind } : {}),
         cycleIds: [
           ...entryCycles(entryId),

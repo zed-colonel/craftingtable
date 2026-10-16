@@ -15,7 +15,8 @@ import type { WorkCycleId } from './ids.js';
  * while one of its entries is held (R-C10's follow-up, decision 5). Such a wait often stands for
  * the same fact as a cycle's stop (a hold over a round's repair cycle that needs attention, a
  * sequential roadmap stopped behind its cycle), so where one of its own cycles waits on the
- * operator at the same time, that time is counted once, as the cycle's.
+ * operator at the same time, that time is counted once, as the cycle's; and an entry's hold
+ * inside its roadmap's own wait is counted once, as the roadmap's.
  */
 
 /** One recorded cycle transition: the state the cycle entered at `at`. */
@@ -48,12 +49,17 @@ export interface RoadmapWaitRecord {
   readonly kind?: OperatorWaitKind;
   /** The cycles whose operator stops are this same wait; time they wait too counts as theirs. */
   readonly cycleIds: readonly WorkCycleId[];
+  /**
+   * An entry hold's roadmap wait (its `waitId`): while the roadmap itself waits on the operator,
+   * the hold's time is the roadmap's.
+   */
+  readonly within?: string;
 }
 
 export interface OperatorWaitReport {
   readonly from: string;
   readonly to: string;
-  /** Wall hours with at least one cycle waiting on the operator. */
+  /** Wall hours with at least one cycle or roadmap waiting on the operator. */
   readonly waitingHours: number;
   /** Of those, the wall hours in which no agent was running (the HIST-02 headline). */
   readonly idleWaitingHours: number;
@@ -173,11 +179,24 @@ export function summarizeOperatorWait(
     list.push(record);
     byWait.set(record.waitId, list);
   }
-  for (const records of byWait.values())
-    count(
-      records,
-      (record) => record.kind,
-      (record) => union(record.cycleIds.flatMap((id) => cycleWaits.get(id) ?? [])),
+  // A roadmap's own waits first: they cover the time of the holds within them.
+  const waited = new Map<string, Interval[]>();
+  const groups = [...byWait.values()];
+  for (const records of [
+    ...groups.filter((g) => g[0]?.within === undefined),
+    ...groups.filter((g) => g[0]?.within !== undefined),
+  ])
+    waited.set(
+      records[0]!.waitId,
+      count(
+        records,
+        (record) => record.kind,
+        (record) =>
+          union([
+            ...record.cycleIds.flatMap((id) => cycleWaits.get(id) ?? []),
+            ...(record.within === undefined ? [] : (waited.get(record.within) ?? [])),
+          ]),
+      ),
     );
   const waitingUnion = union(waiting);
   const agentUnion = union(

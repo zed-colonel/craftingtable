@@ -186,4 +186,18 @@ describe('operator wait (R-C1)', () => {
       { kind: 'paused', stops: 2, cycleHours: 8 },
     ]);
   });
+
+  it('counts a hold within its roadmap’s own wait once, as the roadmap’s (R-C10 review L-2)', () => {
+    const report = summarizeOperatorWait([], [], window, [
+      { waitId: 'r', at: at(1), kind: 'restart-resume', cycleIds: [] },
+      { waitId: 'r', at: at(4), cycleIds: [] },
+      { waitId: 'r:e', at: at(2), kind: 'entry-preparation-failed', cycleIds: [], within: 'r' },
+      { waitId: 'r:e', at: at(6), cycleIds: [], within: 'r' },
+    ]);
+    expect(report.waitingHours).toBe(5);
+    expect(report.kinds).toEqual([
+      { kind: 'restart-resume', stops: 1, cycleHours: 3 },
+      { kind: 'entry-preparation-failed', stops: 1, cycleHours: 2 },
+    ]);
+  });
 });

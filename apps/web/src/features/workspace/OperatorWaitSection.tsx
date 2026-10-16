@@ -35,7 +35,8 @@ const STALE_MS = 5 * 60_000;
 /**
  * How long work waited on the operator over the last week, and which stops cost the most
  * (R-C1). It reloads when a stop begins or ends and when a hidden tab returns after a
- * while, not on every workspace event and not on a timer, so an idle tab makes no requests. The time it was measured is shown, since an open stop keeps accruing.
+ * while, not on every workspace event and not on a timer, so an idle tab makes no requests.
+ * The time it was measured is shown, since an open stop keeps accruing.
  */
 export function OperatorWaitSection({
   workspaceId,

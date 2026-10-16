@@ -314,7 +314,8 @@ describe('operator wait (R-C1)', () => {
             attention: {
               code: 'entry-preparation-failed',
               owner: 'operator',
-              refs: { cause: 'predecessor-merge-missing' },
+              // The gated entry a round's hold names is not the hold's own (review M-1).
+              refs: { cause: 'predecessor-merge-missing', entryId: asRoadmapEntryId('owner') },
             },
           },
           b: { status: 'needs-attention', reason: 'Stored before codes.' },
@@ -339,5 +340,118 @@ describe('operator wait (R-C1)', () => {
     expect(roadmapWaitAudit({ status: 'running', reason: '', entryHolds: {} })).toEqual({
       holds: [],
     });
+  });
+
+  // Increment 1 review M-2: each rule of what a roadmap wait counts once, pinned.
+  it('merges a roadmap stop by its refs, a pause with every cycle it started, and a hold with its roadmap’s wait (R-C10)', () => {
+    const at = (hour: number) => new Date(Date.UTC(2026, 8, 20, hour)).toISOString();
+    const e1 = asRoadmapEntryId('e1');
+    const e2 = asRoadmapEntryId('e2');
+    const e3 = asRoadmapEntryId('e3');
+    const c1 = asWorkCycleId('c1');
+    const c2 = asWorkCycleId('c2');
+    const c3 = asWorkCycleId('c3');
+    const adopted = asWorkCycleId('c-adopted');
+    const roadmap = {
+      id: asRoadmapId('r'),
+      attempts: [
+        { entryId: e1, cycleId: c1 },
+        { entryId: e3, cycleId: c3 },
+      ],
+      // An attempt the operator retired for re-verification is still one the roadmap started.
+      retiredAttempts: [{ entryId: e2, cycleId: c2 }],
+    } as unknown as Roadmap;
+    const cycle = (cycleId: string, hour: number, status: string, code?: string) => ({
+      cycleId,
+      occurredAt: at(hour),
+      metadata: { status, ...(code ? { attention: { code, owner: 'operator' } } : {}) },
+    });
+    const row = (hour: number, metadata: Record<string, unknown>) => ({
+      roadmapId: roadmap.id,
+      occurredAt: at(hour),
+      metadata,
+    });
+    const storage = {
+      roadmaps: { list: () => [roadmap] },
+      audit: {
+        listCycleTransitions: () => [
+          cycle(c2, 1, 'paused'),
+          cycle(c2, 2, 'running'),
+          cycle(c2, 6, 'paused'),
+          cycle(c2, 7, 'running'),
+          cycle(c1, 2, 'needs-attention', 'work-item-questions'),
+          cycle(c1, 4, 'running'),
+          cycle(c1, 7, 'needs-attention', 'work-item-questions'),
+          cycle(c1, 8, 'running'),
+          cycle(c3, 3, 'needs-attention', 'step-incomplete'),
+          cycle(c3, 5, 'running'),
+          cycle(c3, 8, 'needs-attention', 'step-incomplete'),
+          cycle(c3, 9, 'running'),
+          cycle(c3, 11, 'needs-attention', 'step-incomplete'),
+          cycle(c3, 13, 'running'),
+          // The operator's own repair cycle an adoption hold names; not an attempt.
+          cycle(adopted, 9, 'needs-attention', 'work-item-questions'),
+          cycle(adopted, 10, 'running'),
+        ],
+        listRoadmapTransitions: () => [
+          // Paused from 1 to 5, while its three cycles wait (two overlapping): counted once.
+          row(1, { status: 'paused', holds: [{ entryId: e3, status: 'paused' }] }),
+          // A stop naming a cycle merges with that cycle only (c2 from 6 to 7, not c1 from 7).
+          row(5, {
+            status: 'needs-attention',
+            attention: { code: 'scheduler-error', owner: 'operator', cycleId: c2 },
+            holds: [],
+          }),
+          // A stop naming an entry merges with that entry's cycles (c1), not c3 from 8 to 9.
+          row(8, {
+            status: 'needs-attention',
+            attention: { code: 'entry-blocked', owner: 'operator', entryId: e1 },
+            holds: [],
+          }),
+          // A hold naming a cycle merges with it and with its entry's cycles.
+          row(9, {
+            status: 'running',
+            holds: [
+              {
+                entryId: e3,
+                status: 'needs-attention',
+                code: 'entry-preparation-failed',
+                owner: 'operator',
+                cycleId: adopted,
+              },
+            ],
+          }),
+          row(13, { status: 'running', holds: [] }),
+          // Attention the operator does not own is no wait.
+          row(14, {
+            status: 'needs-attention',
+            attention: { code: 'scheduler-error', owner: 'controller' },
+            holds: [],
+          }),
+          row(15, { status: 'running', holds: [] }),
+        ],
+      },
+      execution: {
+        cycles: { listForWorkspace: () => [] },
+        runs: { activityBetween: () => [] },
+      },
+    } as unknown as CraftingTableStorage;
+    const report = operatorWaitReport(storage, 'w' as never, {
+      from: new Date(at(0)),
+      to: new Date(at(24)),
+    });
+    expect(report.waitingHours).toBe(12);
+    expect(report.kinds).toHaveLength(6);
+    expect(report.kinds).toEqual(
+      expect.arrayContaining([
+        { kind: 'step-incomplete', stops: 3, cycleHours: 5 },
+        { kind: 'work-item-questions', stops: 3, cycleHours: 4 },
+        // c2's two pauses; the roadmap's pause and its item pause are its cycles' and its own.
+        { kind: 'paused', stops: 4, cycleHours: 2 },
+        { kind: 'scheduler-error', stops: 1, cycleHours: 2 },
+        { kind: 'entry-blocked', stops: 1, cycleHours: 1 },
+        { kind: 'entry-preparation-failed', stops: 1, cycleHours: 1 },
+      ]),
+    );
   });
 });

@@ -137,6 +137,7 @@ import {
   waiting,
 } from './entry-waits.js';
 import {
+  cycleCarriesOn,
   gatePhase,
   holdCheck,
   phaseGateClears,
@@ -3294,16 +3295,31 @@ export class RoadmapService {
   }
 
   /**
-   * Decision 2's guards, then the fact: never while something holds the whole roadmap (it ended,
-   * a wind-down settles it, an amendment awaits, the entry's plan version is retired or being
-   * retired), while a roadmap command runs or admissions are held, or once the delegating user
-   * lost their authority. A read that fails keeps the hold.
+   * Decision 2's guards, then the fact, then the guards again: a fact read can wait on Git, and a
+   * command that has not written yet (a Stop's start, a Resume awaiting its cycle) leaves the
+   * roadmap's version alone, so the version check alone would miss it (increment 4 review LOW-1).
+   * A read that fails keeps the hold.
    */
   private async releasable(
     roadmap: Roadmap,
     entry: RoadmapEntry,
     check: ReleaseCheck,
   ): Promise<boolean> {
+    if (!this.releaseGuarded(roadmap, entry)) return false;
+    try {
+      if (!(await this.cleared(roadmap, check))) return false;
+    } catch {
+      return false;
+    }
+    return this.releaseGuarded(this.find(roadmap.workspaceId, roadmap.id), entry);
+  }
+
+  /**
+   * Never while something holds the whole roadmap (it ended, a wind-down settles it, an amendment
+   * awaits, the entry's plan version is retired or being retired), while a roadmap command runs or
+   * admissions are held, or once the delegating user lost their authority.
+   */
+  private releaseGuarded(roadmap: Roadmap, entry: RoadmapEntry): boolean {
     if (
       roadmapHeld(this.storage, roadmap, entry) ||
       this.controlling.has(roadmap.id) ||
@@ -3313,7 +3329,7 @@ export class RoadmapService {
       return false;
     try {
       this.authority(roadmap);
-      return await this.cleared(roadmap, check);
+      return true;
     } catch {
       return false;
     }
@@ -3327,15 +3343,19 @@ export class RoadmapService {
     const entry = roadmap.definition.entries.find((e) => e.id === check.entryId);
     if (!entry) return false;
     const ws = roadmap.workspaceId;
-    // A round's owner is asked with the round's attempt; any other entry with its own.
+    // A round's owner is asked with the round's attempt; any other entry with its own. A review
+    // entry is never a round's owner (a round's target review is gated with its own id), so it is
+    // asked with its own attempt (increment 4 review NIT-1).
+    const asRound =
+      check.asRound && (!entry.executionScope || entry.executionScope.kind === 'slice');
     const attempt = roadmap.attempts.find((a) =>
-      check.asRound
+      asRound
         ? a.entryId === entry.id && a.recovery !== undefined && a.recovery.phase !== 'completed'
         : a.entryId === entry.id && !a.recovery,
     );
     switch (check.fact) {
       case 'blocker': {
-        const blocked = this.blocker(roadmap, entry, attempt, this.storage, check.asRound);
+        const blocked = this.blocker(roadmap, entry, attempt, this.storage, asRound);
         return !blocked?.needsAttention && !blocked?.circular;
       }
       case 'phase-gate': {
@@ -3353,6 +3373,8 @@ export class RoadmapService {
           ),
         );
       }
+      // A required predecessor that is not complete counts as no missing merge here, as at an
+      // attempt; the merge's phase gate waits on it first, so nothing loops (review NIT-2).
       case 'predecessor-merge':
         return !(await this.execution.branches.missingPredecessorMerge(
           ws,
@@ -3362,11 +3384,10 @@ export class RoadmapService {
           entry.executionScope,
         ));
       case 'cycle': {
-        const cycle = check.cycleId && this.storage.execution.cycles.find(ws, check.cycleId);
-        return (
-          (!!cycle && (cycle.status === 'running' || cycle.status === 'awaiting-merge')) ||
-          this.complete(roadmap, entry)
-        );
+        const cycle = check.cycleId
+          ? this.storage.execution.cycles.find(ws, check.cycleId)
+          : undefined;
+        return cycleCarriesOn(cycle?.status, this.complete(roadmap, entry));
       }
       // The scheduler's own re-verification under the roadmap's grant is decision 4's.
       case 'reverify':

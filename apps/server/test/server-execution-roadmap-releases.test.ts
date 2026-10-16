@@ -28,6 +28,7 @@ import {
 afterEach(cleanupExecutionFixtures);
 
 type Internals = {
+  controlling: Set<string>;
   authority: (...args: unknown[]) => unknown;
   blocker: (...args: unknown[]) => unknown;
   assertRunnable: (...args: unknown[]) => void;
@@ -188,6 +189,89 @@ it('releases a stored hold for a predecessor’s missing merge once no merge is 
     cause: 'predecessor-merge-missing',
     fact: 'predecessor-merge',
   });
+});
+
+it('keeps a hold whose fact cleared while a roadmap command began during its read (review LOW-1)', async () => {
+  const { state, input } = await parallelFixture({ independentThird: true });
+  expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  await waitFor(() => storedRoadmap(state).attempts.length > 0, 'the first attempt');
+  const third = input.entries[2]!;
+  storeHold(
+    state,
+    third.id,
+    roadmapAttention('entry-preparation-failed', { cause: 'predecessor-merge-missing' }),
+  );
+  const scheduler = internals(state);
+  const branches = scheduler.execution.branches;
+  const real = branches.missingPredecessorMerge.bind(branches);
+  let began = false;
+  const spy = vi
+    .spyOn(branches, 'missingPredecessorMerge')
+    .mockImplementation(async (...args: unknown[]) => {
+      if (began || args[1] !== third.workItemId) return real(...args);
+      // A Stop's start, or a Resume awaiting its cycle, takes the lock and writes no roadmap row.
+      began = true;
+      scheduler.controlling.add(roadmapId);
+      return undefined;
+    });
+  await tick(state);
+  expect(began).toBe(true);
+  expect(storedRoadmap(state).entryHolds?.[third.id]).toBeDefined();
+  expect(auditRows(state, 'release-hold')).toEqual([]);
+  // Once the command is done, the next pass releases it.
+  scheduler.controlling.delete(roadmapId);
+  await tick(state);
+  expect(storedRoadmap(state).entryHolds?.[third.id]).toBeUndefined();
+  spy.mockRestore();
+});
+
+it('resumes a sequential stop for a predecessor’s merge once it is in, not while a command began during the read', async () => {
+  const { state } = await roadmapFixture();
+  await saveRoadmapRequest(state);
+  await roadmapControl(state, 'start');
+  await waitFor(() => storedRoadmap(state).attempts.length > 0, 'the first attempt');
+  const running = storedRoadmap(state);
+  state.context.storage.transaction((tx) =>
+    tx.roadmaps.save(
+      {
+        ...running,
+        version: running.version + 1,
+        status: 'needs-attention',
+        reason: 'Held for the predecessor.',
+        attention: roadmapAttention('scheduler-error', {
+          entryId: entryIds[0]!,
+          cause: 'predecessor-merge-missing',
+        }),
+      },
+      running.version,
+    ),
+  );
+  const scheduler = internals(state);
+  let began = false;
+  const spy = vi
+    .spyOn(scheduler.execution.branches, 'missingPredecessorMerge')
+    .mockImplementation(async () => {
+      if (!began) {
+        began = true;
+        scheduler.controlling.add(roadmapId);
+      }
+      return undefined;
+    });
+  await tick(state);
+  expect(began).toBe(true);
+  expect(storedRoadmap(state).status).toBe('needs-attention');
+  expect(auditRows(state, 'resume-cleared')).toEqual([]);
+  scheduler.controlling.delete(roadmapId);
+  await tick(state);
+  expect(storedRoadmap(state).status).toBe('running');
+  expect(auditRows(state, 'resume-cleared').at(-1)?.metadata.release).toEqual({
+    entryId: entryIds[0],
+    code: 'scheduler-error',
+    cause: 'predecessor-merge-missing',
+    fact: 'predecessor-merge',
+  });
+  spy.mockRestore();
 });
 
 it('waits on a predecessor’s merge missing at the roadmap’s own merge instead of holding, and merges once it is in', async () => {
@@ -358,5 +442,32 @@ itNeedsCargo(
       cause: 'phase-gate',
       fact: 'phase-gate',
     });
+  },
+);
+
+itNeedsCargo(
+  'asks a hold naming a review entry with that review’s own attempt, not as a round (review NIT-1)',
+  async () => {
+    const f = await supervisedMapFixture(false, 'automatic');
+    const { state } = f;
+    f.service.save(f.auth, state.workspaceId, f.input);
+    await adoptSupervisedMap(f);
+    await roadmapControl(state, 'start');
+    const { entries } = storedRoadmap(state).definition;
+    const slice = entries.find((e) => e.executionScope?.kind === 'slice')!;
+    const review = entries.find((e) => e.executionScope?.kind === 'slice-verification')!;
+    // A round's target review is gated with its own id; only a round's owner borrows a slot.
+    const asked: unknown[] = [];
+    const scheduler = internals(state);
+    const real = scheduler.blocker.bind(scheduler);
+    const spy = vi.spyOn(scheduler, 'blocker').mockImplementation((...args: unknown[]) => {
+      if ((args[1] as { id: string }).id === review.id) asked.push(args[4]);
+      return real(...args);
+    });
+    storeHold(state, slice.id, roadmapAttention('entry-blocked', { entryId: review.id }));
+    await tick(state);
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked).not.toContain(true);
+    spy.mockRestore();
   },
 );

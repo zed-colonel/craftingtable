@@ -1,5 +1,6 @@
 import {
   type CycleAttentionCode,
+  type CycleStatus,
   type ExecutionScope,
   PHASE_BLOCKERS,
   type PhaseBlocker,
@@ -204,6 +205,14 @@ export function gatePhase(
 ): 'start' | 'merge' | 'verify' | 'accept' {
   if (scope.kind === 'slice') return hasCycle ? 'merge' : 'start';
   return scope.kind === 'slice-verification' ? 'verify' : 'accept';
+}
+
+/**
+ * A stored `cycle-needs-attention` stop clears once its cycle runs or is at its merge again, or its
+ * entry completed (decision 2).
+ */
+export function cycleCarriesOn(status: CycleStatus | undefined, entryComplete: boolean): boolean {
+  return entryComplete || status === 'running' || status === 'awaiting-merge';
 }
 
 /** A phase gate clears a hold once it names nothing that stops: every blocker left waits. */

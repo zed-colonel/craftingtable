@@ -2,6 +2,7 @@ import { ROADMAP_ATTENTION_CODES, roadmapAttention } from '@craftingtable/domain
 import { describe, expect, it } from 'vitest';
 import { REFUSAL_STOPS } from '../../src/services/errors.js';
 import {
+  cycleCarriesOn,
   gatePhase,
   HOLD_RELEASE,
   type HoldOrigin,
@@ -106,6 +107,18 @@ describe('the phase gate a hold asks again (increment 4)', () => {
     expect(phaseGateClears([])).toBe(true);
     expect(phaseGateClears([blocker('slice-not-merged')])).toBe(true);
     expect(phaseGateClears([blocker('slice-not-merged'), blocker('binding-changed')])).toBe(false);
+  });
+});
+
+describe('the cycle a stored cycle-needs-attention stop waits on (increment 4 review LOW-2)', () => {
+  it('carries on once its cycle runs or is at its merge, or its entry completed', () => {
+    expect(cycleCarriesOn('running', false)).toBe(true);
+    expect(cycleCarriesOn('awaiting-merge', false)).toBe(true);
+    expect(cycleCarriesOn(undefined, true)).toBe(true);
+    expect(cycleCarriesOn('stopped', true)).toBe(true);
+    for (const status of ['needs-attention', 'paused', 'stopped', 'completed'] as const)
+      expect(cycleCarriesOn(status, false)).toBe(false);
+    expect(cycleCarriesOn(undefined, false)).toBe(false);
   });
 });
 

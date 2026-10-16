@@ -6,6 +6,7 @@ import type {
   ReviewFinding,
   ReviewReportAssessment,
   RunHandoffSource,
+  WorkCycle,
 } from '@craftingtable/domain';
 import { stagedFollowUpIds } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
@@ -35,6 +36,21 @@ export function* runEvents(
     }
     after = page.at(-1)?.sequence ?? after;
   }
+}
+
+/**
+ * Whether a run continues a cycle's handoff lineage from the cycle's own run (its current one,
+ * or the parent it was reserved from), so a resume may adopt it. The command and the offer read
+ * the same answer (R-B4, decision 14).
+ */
+export function continuesLineage(
+  execution: Execution,
+  cycle: Pick<WorkCycle, 'workspaceId' | 'currentRunId' | 'parentRunId'>,
+  run: AgentRun,
+): boolean {
+  const anchor =
+    execution.runs.find(cycle.workspaceId, cycle.currentRunId)?.id ?? cycle.parentRunId;
+  return anchor === undefined || runLineage(execution, run).some((source) => source.id === anchor);
 }
 
 /** The newest run first; lineage must stay inside the worktree and workspace. */

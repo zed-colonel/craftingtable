@@ -42,7 +42,6 @@ import {
   type AttentionRefs,
   currentFinalizationStage,
   cycleActions,
-  type CycleAttention,
   cycleAttention,
   type CycleAttentionCode,
   type CycleInvestigation,
@@ -66,7 +65,6 @@ import {
   raisesOpenQuestions,
   remediationAllowance,
   remediationUsed,
-  resumeRedirect,
   sameExecutionScope,
   stagedFollowUps,
   stopCode,
@@ -110,6 +108,24 @@ import { assessStageReport, recordStageEvidence } from './finalization-stage-pol
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { cycleOwnership } from './cycle-ownership.js';
 import { cycleFacts, type KernelFacts, refreshOwner, requireReady } from './cycle-facts.js';
+import {
+  type CommandFacts,
+  type CommandRefusal,
+  type CommandWrite,
+  decideCommand,
+  decideDeclaredChecksReview,
+  decideLeaveMerge,
+  decideRefreshReservation,
+  decideRestart,
+  decideResume,
+  decideResumeStep,
+  decideReviewAgain,
+  decideWindDownStop,
+  type ResumeStep,
+  restoredStatus,
+  resumeAdopts,
+} from './cycle-commands.js';
+import { type CycleChanges, type CycleFieldChanges, checkTransition } from './cycle-transitions.js';
 import { type CycleDecision, type CycleEffect, type CycleGuard, decide } from './cycle-machine.js';
 import {
   approvalGate,
@@ -144,7 +160,7 @@ import {
   workflowHeldGate,
 } from './cycle-effects.js';
 import { drainInterrupted } from './restart-resume.js';
-import { latestReviewReport, runLineage } from './run-handoff.js';
+import { continuesLineage, latestReviewReport } from './run-handoff.js';
 import type { StepOutcomeDecision } from './step-outcome.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
@@ -174,32 +190,6 @@ const ATTENTION_STATUSES: ReadonlySet<WorkCycle['status']> = new Set([
   'awaiting-merge',
 ]);
 
-/** Field changes that keep the cycle's status and attention as they are. */
-type CycleFieldChanges = Omit<Partial<WorkCycle>, 'status' | 'attention'>;
-
-/**
- * A cycle write. Entering `needs-attention` or `awaiting-merge` must declare its attention,
- * so a new stop cannot be written without a code; attention alone may be refreshed while
- * the status stays; a pause taken at a stop keeps that stop's attention, so resuming can
- * return to it (R-A7); any other status clears it.
- */
-type CycleChanges = CycleFieldChanges &
-  (
-    | {
-        readonly status: 'needs-attention' | 'awaiting-merge';
-        readonly attention: CycleAttention;
-      }
-    | { readonly status: 'paused'; readonly attention?: CycleAttention }
-    | {
-        readonly status?: Exclude<
-          WorkCycle['status'],
-          'needs-attention' | 'awaiting-merge' | 'paused'
-        >;
-        readonly attention?: undefined;
-      }
-    | { readonly status?: undefined; readonly attention: CycleAttention }
-  );
-
 /** An operator's grant of more remediation rounds, with its instructions. */
 interface RemediationGrant {
   readonly additionalRounds: number;
@@ -211,14 +201,24 @@ interface RemediationGrant {
 const FILES_REMAIN_AFTER_FINALIZATION =
   'Files remain after implementation finalization. Classify and reconcile them before a fresh review.';
 
-/** Puts a cycle back in the status (and stop) it had before an undone reservation. */
-function restoredStatus(cycle: WorkCycle): CycleChanges {
-  if (cycle.status !== 'needs-attention' && cycle.status !== 'awaiting-merge')
-    return { status: cycle.status };
-  return {
-    status: cycle.status,
-    attention: effectiveCycleAttention(cycle) ?? cycleAttention('legacy-attention'),
-  };
+/**
+ * The tree's newest run is newer than the cycle's own and outside its handoff lineage, so a
+ * resume would refuse to adopt it (`decideResumeStep`); a lineage it cannot follow counts too.
+ */
+function latestOutsideLineage(
+  tx: StorageRepositories,
+  cycle: WorkCycle,
+  latestRunId: AgentRunId | undefined,
+): boolean {
+  if (!latestRunId || latestRunId === cycle.currentRunId || latestRunId === cycle.parentRunId)
+    return false;
+  const latest = tx.execution.runs.find(cycle.workspaceId, latestRunId);
+  if (!latest) return false;
+  try {
+    return !continuesLineage(tx.execution, cycle, latest);
+  } catch {
+    return true;
+  }
 }
 
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
@@ -390,16 +390,18 @@ export class WorkCycleService {
       currentRun &&
       tx.execution.runEvents.latestOfKind(c.workspaceId, currentRun.id, 'turn-completed');
     // The browser offers what the daemon would accept: the same rule, with the tree's
-    // newest run, which a resume adopts.
+    // newest run, which a resume adopts when it continues the cycle's lineage.
+    const latestRunId = tx.execution.runs.latestIdForWorktree(c.workspaceId, c.worktreeId);
     const actions = cycleActions(
       { ...c, ...(unsettled.length ? { unsettledDecisions: unsettled } : {}) },
-      tx.execution.runs.latestIdForWorktree(c.workspaceId, c.worktreeId),
+      latestRunId,
       reviewNeedsRounds(tx, c, currentRun),
       {
         questions: !!stopQuestions(tx, c),
         live: investigationLive(c),
         changed: worktreeChangeOpen(c),
       },
+      latestOutsideLineage(tx, c, latestRunId),
     );
     const routes =
       c.status === 'needs-attention' &&
@@ -1801,18 +1803,14 @@ export class WorkCycleService {
       ['paused', 'needs-attention'].includes(cycle.status) &&
       !this.storage.execution.runs.find(workspaceId, cycle.currentRunId) &&
       this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId).length === 0;
-    if (
-      (!['completed', 'awaiting-merge'].includes(cycle.status) && !unstarted) ||
-      cycle.step !== 'review' ||
-      !cycle.workItemId ||
-      !cycle.executionScope ||
-      cycle.executionScope.kind === 'slice' ||
-      !tree ||
-      !sameExecutionScope(tree.executionScope, cycle.executionScope)
-    )
+    const reviewable = decideReviewAgain(cycle, {
+      unstarted,
+      treeMatches: !!tree && sameExecutionScope(tree.executionScope, cycle.executionScope),
+    });
+    if (reviewable.kind === 'refuse' || !tree)
       throw new ExecutionRequestError(
         'conflict',
-        'Only a completed or unstarted independent scope review can be reviewed again.',
+        reviewable.kind === 'refuse' ? reviewable.message : '',
       );
     const check = () => {
       delegationCheck?.();
@@ -1884,26 +1882,15 @@ export class WorkCycleService {
    */
   windDownStop(context: CommandContext | undefined, cycle: WorkCycle): WorkCycle {
     const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-    if (!current || ['stopped', 'completed'].includes(current.status)) return current ?? cycle;
-    if (
-      this.storage.execution.merges.latest(current.workspaceId, current.worktreeId)?.status ===
-      'reserved'
-    )
-      throw new ExecutionRequestError(
-        'conflict',
-        'Recover the pending merge before stopping this cycle.',
-      );
-    if (ownsIntegrationResolution(current))
-      throw new ExecutionRequestError(
-        'conflict',
-        'Abandon the integration resolution before stopping this cycle.',
-      );
-    const stopped = this.change(
+    if (!current) return cycle;
+    const decided = decideWindDownStop(
       current,
-      { status: 'stopped', reason: 'Roadmap stopped. Manual flow is available.' },
-      'roadmap-wound-down',
-      context,
+      this.storage.execution.merges.latest(current.workspaceId, current.worktreeId)?.status ===
+        'reserved',
     );
+    if (decided.kind === 'none') return current;
+    if (decided.kind === 'refuse') throw new ExecutionRequestError(decided.status, decided.message);
+    const stopped = this.change(current, decided.changes, 'roadmap-wound-down', context);
     this.runs.finishCycleTurn(stopped, true);
     return stopped;
   }
@@ -1923,384 +1910,152 @@ export class WorkCycleService {
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
     this.requireNoInvestigation(cycle, action === 'stop');
-    if (cycle.version !== expectedVersion)
-      throw new ExecutionRequestError(
-        'conflict',
-        'Cycle changed; refresh before issuing this command',
-      );
-    if (['stopped', 'completed'].includes(cycle.status))
-      throw new ExecutionRequestError('conflict', 'This cycle has ended');
-    // Improvement-round finalizations are retired (R-B10): their cycles never run again.
-    if (
-      (action === 'resume' || action === 'retry-provider') &&
-      cycle.finalizationId &&
-      !this.storage.execution.finalizations.find(workspaceId, cycle.finalizationId)?.stages
-    )
-      throw new ExecutionRequestError(
-        'conflict',
-        'This finalization uses retired improvement rounds. Stop it and start a staged finalization.',
-      );
-    if (
-      action !== 'pause' &&
-      this.storage.execution.merges.latest(workspaceId, cycle.worktreeId)?.status === 'reserved'
-    )
-      throw new ExecutionRequestError(
-        'conflict',
-        'Recover the pending merge before resuming or stopping this cycle.',
-      );
-    if (action === 'stop' && ownsIntegrationResolution(cycle)) {
-      const paused = this.change(
-        cycle,
-        {
-          status: 'paused',
-          reason:
-            'Resolution stopped with edits preserved. Resume or explicitly abandon the integration resolution.',
-        },
-        action,
-        context,
-      );
-      this.runs.finishCycleTurn(paused, true);
-      return paused;
-    }
-    if (action === 'stop') {
-      const stopped = this.change(
-        cycle,
-        { status: 'stopped', reason: 'Automation stopped by operator. Manual flow is available.' },
-        action,
-        context,
-      );
-      this.runs.finishCycleTurn(stopped, true);
-      return stopped;
-    }
-    if (action === 'pause') {
-      // Pausing a stop holds it: the stop is kept so Resume returns to it rather than
-      // relaunching a step the controller would stop again (R-A7, cycle d148f0a4).
-      const held = cycle.status === 'needs-attention' ? effectiveCycleAttention(cycle) : undefined;
-      // A review still in its adopted checks has no session to keep: its checks stop (R-G13).
-      this.runs.cancelStartingChecks(cycle.currentRunId);
-      return this.change(
-        cycle,
-        {
-          status: 'paused',
-          ...(held ? { attention: held } : {}),
-          reason:
-            'Automation paused by operator. The current session remains available for manual work.',
-        },
-        action,
-        context,
-      );
-    }
-    if (
-      action === 'retry-provider' ||
-      (action === 'resume' &&
-        cycle.providerRecovery?.nextRetryAt &&
-        this.now().getTime() < Date.parse(cycle.runDeadlineAt))
-    ) {
-      if (
-        !cycle.providerRecovery?.nextRetryAt ||
-        !['running', 'paused', 'needs-attention'].includes(cycle.status) ||
-        cycle.providerRecovery.attempts >= 3 ||
-        this.now().getTime() >= Date.parse(cycle.runDeadlineAt)
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'No bounded provider retry is available. Inspect the outcome and explicitly resume for a new step window.',
-        );
-      if (action === 'retry-provider' && this.providerRoadmapPaused(cycle))
-        throw new ExecutionRequestError(
-          'conflict',
-          'Resume roadmap scheduling before retrying this provider failure.',
-        );
-      if (
-        this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId)[0]?.id !==
-        cycle.currentRunId
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'The worktree has a newer run. Inspect it before resuming.',
-        );
-      if (this.storage.amendments.retired(workspaceId, cycle.worktreeId))
-        throw new ExecutionRequestError(
-          'conflict',
-          'This attempt was retired by a planning amendment.',
-        );
-      // Guidance for a pending retry joins the guidance the retried step already carries.
-      const stepGuidance = [cycle.stepGuidance, reviewGuidance?.trim()]
-        .filter(Boolean)
-        .join('\n\n');
-      if (stepGuidance.length > 16000)
-        throw new ExecutionRequestError(
-          'invalid-request',
-          'Combined guidance for this step exceeds 16000 characters.',
-        );
-      return this.change(
-        cycle,
-        {
-          status: 'running',
-          ...(stepGuidance ? { stepGuidance } : {}),
-          providerRecovery: {
-            ...cycle.providerRecovery,
-            nextRetryAt:
-              action === 'retry-provider'
-                ? this.now().toISOString()
-                : cycle.providerRecovery.nextRetryAt,
+    // The command through the core (R-B4 increment 6): each stage decides from the cycle and
+    // its facts, and the gates that are effects run between the stages, in today's order.
+    const facts = this.commandFacts(cycle);
+    const decided = decideCommand(
+      cycle,
+      facts,
+      action === 'pause' || action === 'stop'
+        ? { action, expectedVersion }
+        : {
+            action,
+            expectedVersion,
+            ...(reviewGuidance === undefined ? {} : { guidance: reviewGuidance }),
           },
-          reason:
-            'Provider retry authorized; current phase gates, process cleanup and the original deadline still apply.',
-        },
-        action,
-        context,
-      );
-    }
-    if (this.storage.amendments.retired(workspaceId, cycle.worktreeId))
-      throw new ExecutionRequestError(
-        'conflict',
-        'This attempt was retired by a planning amendment.',
-      );
-    if (!['paused', 'needs-attention'].includes(cycle.status))
-      throw new ExecutionRequestError('conflict', 'Only a paused cycle can resume');
+    );
+    if (decided.kind !== 'resume') return this.applyCommand(cycle, decided, action, context);
     await this.assertPinsRefreshed(cycle);
     this.assertDecisionsSettled(cycle);
-    // A plain resume that would only reproduce this stop is refused with the control that
-    // can resolve it (R-A7, CTRL-04); guided resumes carry the missing input.
-    const redirect =
-      reviewGuidance === undefined && !this.attestationInputsChanged(cycle)
-        ? resumeRedirect(
-            cycle,
-            this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId)[0]?.id,
-          )
-        : undefined;
-    if (redirect) {
-      // A paused stop that a plain resume would only reproduce returns to the stop, where
-      // its own control resolves it.
-      if (cycle.status === 'paused' && cycle.attention)
-        return this.change(
-          cycle,
-          {
-            status: 'needs-attention',
-            attention: cycle.attention,
-            reason: `Pause lifted. ${redirect.message}`,
-          },
-          action,
-          context,
-        );
-      throw new ExecutionRequestError('conflict', redirect.message);
-    }
-    if (cycle.integrationResolution?.status === 'detected')
-      throw new ExecutionRequestError(
-        'conflict',
-        'Use Resolve integration conflicts to delegate the detected conflict.',
-      );
-    if (ownsIntegrationResolution(cycle)) {
+    const resumed = decideResume(cycle, facts, reviewGuidance);
+    if (resumed.kind === 'resolution')
       // resolveIntegration runs the launch gates itself.
       return this.resolveIntegration(context, workspaceId, id, {
         action: 'resume',
         expectedVersion,
       });
-    }
+    if (resumed.kind !== 'gates') return this.applyCommand(cycle, resumed, action, context);
     this.mutations.requireAvailable(cycle.worktreeId);
     if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     else finalizationForCycle(this.storage, cycle);
-    const allRuns = this.storage.execution.runs.listForWorktree(workspaceId, cycle.worktreeId);
-    const run = allRuns[0];
     // Adopting a newer manual run launches nothing, so the launch gates do not apply.
-    if (!run || run.id === cycle.currentRunId || run.id === cycle.parentRunId)
-      await this.transitionGate(cycle);
-    if (reviewGuidance === undefined && this.resumeNeedsGuidance(cycle))
-      throw new ExecutionRequestError(
-        'conflict',
-        'This step has open questions. Use Continue with guidance to supply answers before resuming.',
-      );
-    if (
-      reviewGuidance !== undefined &&
-      !cycle.finalizationId &&
-      (!cycle.executionScope || cycle.executionScope.kind === 'slice')
-    ) {
-      if (
-        !reviewGuidance.trim() ||
-        !['implement', 'remediate', 'review'].includes(cycle.step) ||
-        !run ||
-        run.id !== cycle.currentRunId ||
-        this.storage.execution.runs.liveForWorktree(workspaceId, cycle.worktreeId).length > 0
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'Guided continuation requires answers or guidance and the ended current implementation or review.',
-        );
-      // A step that failed or was interrupted (a service stop asks for guidance) never acted
-      // on its guidance to completion, so the retry carries it forward with the new guidance.
-      const stepGuidance = [
-        run.status === 'finished' ? undefined : cycle.stepGuidance,
-        reviewGuidance,
-      ]
-        .map((text) => text?.trim())
-        .filter(Boolean)
-        .join('\n\n');
-      if (stepGuidance.length > 16000)
-        throw new ExecutionRequestError(
-          'invalid-request',
-          'Combined guidance for this step exceeds 16000 characters.',
-        );
-      if (cycle.step === 'review' && run.status === 'finished') {
+    if (!resumeAdopts(cycle, facts.newestRun())) await this.transitionGate(cycle);
+    const step = decideResumeStep(cycle, facts, reviewGuidance);
+    if (step.clearsEnding) this.ending.delete(cycle.currentRunId);
+    const run = facts.newestRun();
+    switch (step.kind) {
+      case 'refuse':
+      case 'write':
+        return this.applyCommand(cycle, step, action, context);
+      case 'launch':
+        return this.next(cycle, step.step, step.parent, context, step.changes, step.action);
+      case 'remediate':
+        return this.reviewRemediation(cycle, run!, context, step.grant);
+      case 'review-scope':
+        return this.reviewScopeAgain(context, cycle, run, step, expectedVersion, {
+          ...(delegationCheck ? { check: delegationCheck } : {}),
+          ...(onReviewReserved ? { attach: onReviewReserved } : {}),
+        });
+    }
+  }
+
+  /** The facts an operator command reads (`decideCommand`), each read when a stage asks. */
+  private commandFacts(cycle: WorkCycle): CommandFacts {
+    const ws = cycle.workspaceId;
+    const runs = () => this.storage.execution.runs.listForWorktree(ws, cycle.worktreeId);
+    return {
+      now: this.now(),
+      retiredFinalization: () =>
+        !!cycle.finalizationId &&
+        !this.storage.execution.finalizations.find(ws, cycle.finalizationId)?.stages,
+      mergeReserved: () =>
+        this.storage.execution.merges.latest(ws, cycle.worktreeId)?.status === 'reserved',
+      providerRoadmapPaused: () => this.providerRoadmapPaused(cycle),
+      newestRun: () => runs()[0],
+      runCount: () => runs().length,
+      amendmentRetired: () => this.storage.amendments.retired(ws, cycle.worktreeId),
+      attestationInputsChanged: () => this.attestationInputsChanged(cycle),
+      needsGuidance: () => this.resumeNeedsGuidance(cycle),
+      liveRuns: () => this.storage.execution.runs.liveForWorktree(ws, cycle.worktreeId),
+      continuesLineage: (run) => continuesLineage(this.storage.execution, cycle, run),
+      reviewAsksRemediation: (run) => {
         const assessment = latestReviewReport(this.storage.execution, run);
-        if (
+        return (
           assessment?.status === 'complete' &&
           evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
-        )
-          return this.reviewRemediation(cycle, run, context, {
-            additionalRounds: 0,
-            instructions: stepGuidance,
-          });
-      }
-      // After two remediations that changed nothing, the guidance is for a fresh review of the
-      // same commit: another remediation would change nothing again (LIVE-27 review).
-      const noChange = effectiveCycleAttention(cycle)?.code === 'remediation-no-change';
-      return this.next(
-        cycle,
-        noChange ? 'review' : cycle.step,
-        run,
-        context,
-        {
-          stepGuidance,
-          stalledReviews: 0,
-          reason: noChange
-            ? 'A fresh review of the unchanged commit, with operator guidance; existing allowance retained.'
-            : 'Continuing the current step with operator guidance; existing allowance retained.',
-        },
-        'resume-with-guidance',
-      );
-    }
-    if (
-      reviewGuidance !== undefined ||
-      (cycle.step === 'review' && cycle.executionScope && cycle.executionScope.kind !== 'slice')
-    ) {
-      if (
-        cycle.step !== 'review' ||
-        !cycle.executionScope ||
-        cycle.executionScope.kind === 'slice' ||
-        (run ? run.id !== cycle.currentRunId : allRuns.length !== 0) ||
-        this.storage.execution.runs.liveForWorktree(workspaceId, cycle.worktreeId).length > 0
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'Review guidance requires an idle verification or parent-acceptance cycle with its current review run.',
         );
-      const stepGuidance = reviewGuidance?.trim() ?? '';
-      const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
-      if (!tree || !this.branches)
-        throw new ExecutionRequestError('unavailable', 'Review snapshot is unavailable.');
-      // Reviewing the same integration snapshot again reproduces the same findings (CTRL-04,
-      // cycle 10dbc912): a plain resume waits until the owning slice has changed it.
-      const reviewed = run?.reviewBranchContext;
-      const stop = effectiveCycleAttention(cycle)?.code;
-      if (
-        reviewGuidance === undefined &&
-        reviewed &&
-        this.git &&
-        (stop === 'scope-review-recovery' || stop === 'scope-review-open-questions')
-      ) {
-        const target = await this.git.resolveBranch(tree.path, reviewed.targetBranch);
-        if (target.ok && target.value === reviewed.targetSha)
-          throw new ExecutionRequestError(
-            'conflict',
-            'The integration snapshot has not changed since this review, so resuming would repeat it. Repair the findings in the owning slice, or give review guidance.',
-          );
-      }
-      const check = () => {
-        delegationCheck?.();
-        if (this.storage.execution.cycles.find(workspaceId, id)?.version !== expectedVersion)
-          throw new ExecutionRequestError('conflict', 'Cycle changed; refresh before resuming.');
-        this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
-      };
-      return this.duringTransition(id, async () => {
-        await this.branches!.changeWorktree(
-          context,
-          workspaceId,
-          tree.id,
-          { expectedVersion: tree.version },
-          true,
-          { cycleId: id, check },
-        );
-        return this.mutations.during(tree.id, async () => {
-          check();
-          return this.next(cycle, 'review', run, context, { stepGuidance }, 'resume', {
-            check: delegationCheck,
-            attach: onReviewReserved,
-          });
-        });
-      });
-    }
-    if (
-      this.storage.execution.runs
-        .liveForWorktree(workspaceId, cycle.worktreeId)
-        .some((candidate) => candidate.id !== run?.id)
-    ) {
-      throw new ExecutionRequestError(
-        'conflict',
-        'End other open sessions before resuming automation',
-      );
-    }
-    this.ending.delete(cycle.currentRunId);
-    // Manual work is adopted only by this explicit operator command. A manually completed
-    // review is reviewed again because the controller did not record its starting commit.
-    if (run && run.id !== cycle.currentRunId && run.id !== cycle.parentRunId) {
-      const anchor =
-        this.storage.execution.runs.find(workspaceId, cycle.currentRunId)?.id ?? cycle.parentRunId;
-      if (
-        anchor !== undefined &&
-        !runLineage(this.storage.execution, run).some((source) => source.id === anchor)
-      ) {
-        throw new ExecutionRequestError(
-          'conflict',
-          'The latest manual run does not continue this cycle’s handoff lineage. Continue from the cycle run, or stop this cycle before starting a new one.',
-        );
-      }
-      if (run.role === 'review' && isTerminalAgentRunStatus(run.status))
-        return this.next(cycle, 'review', run, context);
-      if (run.role === 'review')
-        throw new ExecutionRequestError(
-          'conflict',
-          'End the manual review before resuming automation',
-        );
-      return this.change(
-        cycle,
-        {
-          status: 'running',
-          step: run.role,
-          currentRunId: run.id,
-          runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
-          reason: 'Resumed with the latest manual run.',
-          designWait: null,
-        },
-        action,
-        context,
-      );
-    }
-    if (!run || ['failed', 'cancelled', 'interrupted'].includes(run.status)) {
-      return this.next(cycle, cycle.step, run, context);
-    }
-    if (cycle.step === 'review' && run.status === 'finished') {
-      const assessment = latestReviewReport(this.storage.execution, run);
-      if (
-        !cycle.finalizationProgress &&
-        (!cycle.executionScope || cycle.executionScope.kind === 'slice') &&
-        assessment?.status === 'complete' &&
-        evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
-      )
-        return this.reviewRemediation(cycle, run, context);
-      return this.next(cycle, 'review', run, context);
-    }
-    return this.change(
-      cycle,
-      {
-        status: 'running',
-        runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
-        reason: 'Automation resumed by operator.',
-        phaseWait: null,
       },
-      action,
-      context,
-    );
+      deadline: () => this.deadline(cycle.policy.maxRunMinutes),
+    };
+  }
+
+  /** A command's refusal or write, applied: the write goes through `change()`. */
+  private applyCommand(
+    cycle: WorkCycle,
+    decision: CommandRefusal | CommandWrite,
+    action: string,
+    context: CommandContext,
+  ): WorkCycle {
+    if (decision.kind === 'refuse')
+      throw new ExecutionRequestError(decision.status, decision.message);
+    if (decision.cancelChecks) this.runs.cancelStartingChecks(cycle.currentRunId);
+    const written = this.change(cycle, decision.changes, action, context);
+    if (decision.endTurn) this.runs.finishCycleTurn(written, true);
+    return written;
+  }
+
+  /** Resumes an independent review: the same integration snapshot is not reviewed again. */
+  private async reviewScopeAgain(
+    context: CommandContext,
+    cycle: WorkCycle,
+    run: AgentRun | undefined,
+    step: Extract<ResumeStep, { kind: 'review-scope' }>,
+    expectedVersion: number,
+    reservation: { check?: () => void; attach?: () => void },
+  ): Promise<WorkCycle> {
+    const { workspaceId, id } = cycle;
+    const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
+    if (!tree || !this.branches)
+      throw new ExecutionRequestError('unavailable', 'Review snapshot is unavailable.');
+    // Reviewing the same integration snapshot again reproduces the same findings (CTRL-04,
+    // cycle 10dbc912): a plain resume waits until the owning slice has changed it.
+    const reviewed = run?.reviewBranchContext;
+    if (step.snapshotCheck && reviewed && this.git) {
+      const target = await this.git.resolveBranch(tree.path, reviewed.targetBranch);
+      if (target.ok && target.value === reviewed.targetSha)
+        throw new ExecutionRequestError(
+          'conflict',
+          'The integration snapshot has not changed since this review, so resuming would repeat it. Repair the findings in the owning slice, or give review guidance.',
+        );
+    }
+    const check = () => {
+      reservation.check?.();
+      if (this.storage.execution.cycles.find(workspaceId, id)?.version !== expectedVersion)
+        throw new ExecutionRequestError('conflict', 'Cycle changed; refresh before resuming.');
+      this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
+    };
+    return this.duringTransition(id, async () => {
+      await this.branches!.changeWorktree(
+        context,
+        workspaceId,
+        tree.id,
+        { expectedVersion: tree.version },
+        true,
+        { cycleId: id, check },
+      );
+      return this.mutations.during(tree.id, async () => {
+        check();
+        return this.next(
+          cycle,
+          'review',
+          run,
+          context,
+          { stepGuidance: step.guidance },
+          'resume',
+          reservation,
+        );
+      });
+    });
   }
 
   /**
@@ -2312,25 +2067,12 @@ export class WorkCycleService {
   recoverInterrupted(options: { readonly cleanStop?: boolean } = {}): string[] {
     const stopped: string[] = [];
     for (let cycle of this.storage.execution.cycles.listActive()) {
-      if (cycle.baselinePreparation?.status === 'preparing')
-        cycle = this.change(
-          cycle,
-          {
-            baselinePreparation: {
-              ...cycle.baselinePreparation,
-              status: 'failed',
-              message:
-                'Preparation interrupted by restart. Inspect local tags and retry explicitly; existing tags will never be moved.',
-            },
-          },
-          'baseline-preparation-interrupted',
-        );
-      if (cycle.status === 'running' && !cycle.designWait && !options.cleanStop) {
-        this.attention(
-          cycle,
-          'restart-resume',
-          'Daemon restarted. Inspect the interrupted step and resume explicitly; no process was relaunched.',
-        );
+      const { baseline } = decideRestart(cycle, !!options.cleanStop);
+      if (baseline)
+        cycle = this.change(cycle, baseline.changes, 'baseline-preparation-interrupted');
+      const { stop } = decideRestart(cycle, !!options.cleanStop);
+      if (stop) {
+        this.change(cycle, stop.changes);
         stopped.push(cycle.id);
       }
     }
@@ -3930,11 +3672,7 @@ export class WorkCycleService {
       this.attention(cycle, allowed.code, allowed.message);
       return true;
     }
-    const reserved = this.change(cycle, {
-      status: 'running',
-      integrationRefreshes: (cycle.integrationRefreshes ?? 0) + 1,
-      reason: 'Updating from integration before a fresh review of the combined changes.',
-    });
+    const reserved = this.change(cycle, decideRefreshReservation(cycle).changes);
     const check = () => {
       const latest = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
       if (
@@ -4023,24 +3761,18 @@ export class WorkCycleService {
     const review = this.storage.execution.runs.find(ws, cycle.currentRunId);
     const head = review?.reviewBranchContext?.headSha;
     const key = `${cycle.id}:${head}`;
-    if (
-      cycle.status !== 'awaiting-merge' ||
-      cycle.step !== 'review' ||
-      !review ||
-      !head ||
-      this.declaredReviews.has(key) ||
-      this.abort.signal.aborted ||
-      this.storage.execution.runs.liveForWorktree(ws, cycle.worktreeId).length > 0
-    )
-      return false;
+    const decided = decideDeclaredChecksReview(cycle, {
+      review,
+      alreadyAsked: this.declaredReviews.has(key),
+      stopping: this.abort.signal.aborted,
+      live: this.storage.execution.runs.liveForWorktree(ws, cycle.worktreeId).length > 0,
+    });
+    if (decided.kind === 'none' || !review) return false;
     check();
     const current = this.storage.execution.cycles.find(ws, cycle.id);
     if (current?.version !== cycle.version) return false;
     this.declaredReviews.add(key);
-    const reserved = this.change(cycle, {
-      status: 'running',
-      reason: 'The last review did not run every adopted check; a fresh review runs them.',
-    });
+    const reserved = this.change(cycle, decided.changes);
     try {
       await this.next(reserved, 'review', review, undefined, {}, 'advance', { check });
     } catch (error) {
@@ -4058,13 +3790,8 @@ export class WorkCycleService {
    * slice approved before the rule, or whose stored attention does not say so.
    */
   leaveMergeToOperator(cycle: WorkCycle, repositoryId: SourceRepositoryId): void {
-    if (cycle.status !== 'awaiting-merge' || mergeAdoptsChecks(cycle.attention)) return;
-    this.change(cycle, {
-      status: 'awaiting-merge',
-      attention: cycleAttention('merge-approval', { repositoryId }),
-      reason:
-        'The slice changes adopted check definitions: approving its merge adopts them, so review them with the merge.',
-    });
+    const decided = decideLeaveMerge(cycle, repositoryId, mergeAdoptsChecks(cycle.attention));
+    if (decided.kind === 'write') this.change(cycle, decided.changes);
   }
 
   /** The owned merge's worktree; aborting it needs no binding, only the worktree (R-B11 N2). */
@@ -4872,6 +4599,8 @@ export class WorkCycleService {
     const attended: WorkCycle = attention ? merged : unattended;
     const { investigation: ended, ...uninvestigated } = attended;
     const updated: WorkCycle = investigationEnded ? uninvestigated : attended;
+    // The one write path checks every write against the state machine (R-B4 increment 6).
+    checkTransition(cycle, updated, action);
     // A controller write that changes nothing is not a transition: no version, audit entry
     // or work-cycle-changed event (each event costs every open browser a refetch round).
     // Operator commands are always recorded, and a stale snapshot still fails below.

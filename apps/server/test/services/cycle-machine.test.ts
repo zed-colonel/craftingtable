@@ -13,6 +13,8 @@ import {
   decide,
   decisionSummary,
   GUARD_CODES,
+  IDLE_REASONS,
+  WAIT_CHANGES,
 } from '../../src/services/cycle-machine.js';
 import type { StepOutcomeFacts } from '../../src/services/step-outcome.js';
 
@@ -458,6 +460,14 @@ describe('decide', () => {
   it('has a row for every guard', () => {
     const covered = new Set(rows.map((row) => row.expected.guard));
     expect(CYCLE_GUARDS.filter((guard) => !covered.has(guard))).toEqual([]);
+  });
+
+  it('has a row for every idle reason and every wait the guards record or clear', () => {
+    const decided = rows.map((row) => decisionSummary(run(row)));
+    const codes = (kind: string) =>
+      new Set(decided.filter((d) => d.kind === kind).map((d) => d.code));
+    expect(IDLE_REASONS.filter((reason) => !codes('idle').has(reason))).toEqual([]);
+    expect(WAIT_CHANGES.filter((change) => !codes('wait').has(change))).toEqual([]);
   });
 
   it('has a row for every code the guards produce', () => {

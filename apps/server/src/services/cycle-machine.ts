@@ -92,19 +92,27 @@ export type CycleWait =
   | { readonly change: 'clear-phase'; readonly runDeadlineAt: string; readonly reason: string };
 
 /** Why a guard left the cycle as it is. */
-export type IdleReason =
-  | 'settling'
-  | 'busy'
-  | 'reassessment-not-ready'
-  | 'not-reassessable'
-  | 'not-active'
-  | 'operator-merge-only'
-  | 'merge-reserved'
-  | 'dependencies-pending'
-  | 'roadmap-paused'
-  | 'retry-not-due'
-  | 'retry-held'
-  | 'draining';
+export const IDLE_REASONS = [
+  'settling',
+  'busy',
+  'reassessment-not-ready',
+  'not-reassessable',
+  'not-active',
+  'operator-merge-only',
+  'merge-reserved',
+  'dependencies-pending',
+  'roadmap-paused',
+  'retry-not-due',
+  'retry-held',
+  'draining',
+] as const;
+export type IdleReason = (typeof IDLE_REASONS)[number];
+
+/** The controller-owned waits a guard records or clears. */
+export const WAIT_CHANGES = [
+  'record-phase',
+  'clear-phase',
+] as const satisfies readonly CycleWait['change'][];
 
 export type CycleDecisionBody =
   | {

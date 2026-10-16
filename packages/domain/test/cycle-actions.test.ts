@@ -211,3 +211,17 @@ describe('investigation actions (R-C16)', () => {
     ).toEqual(['pause', 'stop']);
   });
 });
+
+// R-B4, decision 14: a newer manual run outside the cycle's handoff lineage cannot be adopted,
+// so Resume is not offered for it, as the daemon refuses it; one inside the lineage still is.
+describe('the newer run’s lineage', () => {
+  it('offers no resume for a newer run the cycle cannot adopt', () => {
+    const stopped = { ...cycle('needs-attention', 'step-incomplete'), currentRunId: 'run-1' };
+    const newer = asAgentRunId('run-2');
+    expect(cycleActions(stopped as WorkCycle, newer)).toEqual(['resume', 'stop']);
+    expect(cycleActions(stopped as WorkCycle, newer, false, undefined, true)).toEqual(['stop']);
+    expect(
+      cycleActions({ ...stopped, status: 'paused' } as WorkCycle, newer, false, undefined, true),
+    ).toEqual(['stop']);
+  });
+});

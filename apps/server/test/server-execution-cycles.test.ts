@@ -2,6 +2,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, AgentSession } from '@craftingtable/agents';
 import {
+  cycleAttention,
   asPlanVersionId,
   asProjectId,
   asWorkItemDependencyId,
@@ -325,7 +326,9 @@ it('does not lose earlier cycle findings when an unrelated manual run is resumed
   });
   await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'policy stop');
   // The daemon returns the actions it offers with the cycle (R-A6): a newer manual run in the
-  // worktree is new input that a resume adopts, so the offer follows the tree's newest run.
+  // worktree is new input that a resume adopts, so the offer follows the tree's newest run. One
+  // outside the cycle's handoff lineage cannot be adopted, so Resume is not offered for it either
+  // (R-B4, decision 14): the offer and the command agree.
   const listedActions = async () =>
     (
       await state.context.app.inject({
@@ -338,7 +341,7 @@ it('does not lose earlier cycle findings when an unrelated manual run is resumed
       .cycles.find((v: { cycle: { id: string } }) => v.cycle.id === cycle.id)?.projection.actions;
   expect(await listedActions()).toEqual(['authorize-remediation', 'stop']);
   await runToFinish(state, worktree.id, { role: 'implement' });
-  expect(await listedActions()).toEqual(['resume', 'stop']);
+  expect(await listedActions()).toEqual(['stop']);
   const response = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
@@ -348,6 +351,39 @@ it('does not lose earlier cycle findings when an unrelated manual run is resumed
   expect(response.statusCode).toBe(409);
   expect(response.body).toContain('handoff lineage');
   expect(backend.launches).toHaveLength(4);
+});
+
+// R-B4, decision 14: a plain resume at the round limit, from a stop with no redirect of its own,
+// is refused toward Authorize more remediation instead of recording the limit stop itself.
+it('refuses a plain resume at the round limit toward Authorize more remediation', async () => {
+  const { state, worktree } = await cycleFixture([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([structuredFinding]) },
+  ]);
+  const cycle = await startCycle(state, worktree.id, {
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+  });
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'policy stop');
+  // A daemon restart stopped the cycle at the finished review instead (no redirect).
+  const limit = currentCycle(state, cycle);
+  expect(limit).toMatchObject({ step: 'review', attention: { code: 'remediation-exhausted' } });
+  const restarted = {
+    ...limit,
+    attention: cycleAttention('restart-resume'),
+    reason: 'Daemon restarted. Inspect the interrupted step and resume explicitly.',
+    version: limit.version + 1,
+  };
+  expect(state.context.storage.execution.cycles.replace(restarted, limit.version)).toBeTruthy();
+  const response = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+    headers: mutationHeaders(state),
+    payload: { action: 'resume', expectedVersion: restarted.version },
+  });
+  expect(response.statusCode, response.body).toBe(409);
+  expect(response.body).toContain('Authorize more remediation');
+  expect(currentCycle(state, cycle)).toEqual(restarted);
 });
 
 it('refreshes a phase wait when its blockers change and records nothing for a controller write that changes nothing', async () => {

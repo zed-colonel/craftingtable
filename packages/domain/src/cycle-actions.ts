@@ -168,6 +168,21 @@ export function cycleActions(
     questions: false,
     live: false,
   },
+  /**
+   * The tree's newest run is newer than the cycle's own and does not continue its handoff
+   * lineage: a resume cannot adopt it, so Resume is not offered (R-B4, decision 14).
+   */
+  latestOutsideLineage = false,
+): readonly CycleAction[] {
+  const offered = cycleActionsAt(cycle, latestRunId, reviewNeedsRounds, investigation);
+  return latestOutsideLineage ? offered.filter((action) => action !== 'resume') : offered;
+}
+
+function cycleActionsAt(
+  cycle: Parameters<typeof cycleActions>[0],
+  latestRunId: AgentRunId | undefined,
+  reviewNeedsRounds: boolean,
+  investigation: Parameters<typeof cycleActions>[3] & object,
 ): readonly CycleAction[] {
   const atStop = ['paused', 'needs-attention'].includes(cycle.status);
   if (atStop && investigation.live) return ['end-investigation'];

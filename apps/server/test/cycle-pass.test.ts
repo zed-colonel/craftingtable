@@ -1,4 +1,6 @@
+import type { WorkCycle } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
+import { CycleTransitionError } from '../src/services/cycle-transitions.js';
 import { createCycleFixture, storedCycle } from './cycle-test-support.js';
 import { cleanupExecutionFixtures, startCycle } from './execution-test-support.js';
 import {
@@ -85,4 +87,17 @@ it('writes nothing when the cycle changed while its reconciliation failed', asyn
     reason: 'Changed elsewhere.',
   });
   expect(storedCycle(f, cycle.id).attention).toBeUndefined();
+});
+
+it('refuses a write outside the cycle state machine as a programming error (R-B4 increment 6)', async () => {
+  const f = await createCycleFixture();
+  const cycle = await startCycle(f, f.worktreeId);
+  const service = f.services.workCycleService as unknown as {
+    change: (cycle: WorkCycle, changes: Record<string, unknown>, action?: string) => WorkCycle;
+  };
+  const stopped = service.change(cycle, { status: 'stopped', reason: 'Stopped.' }, 'stop');
+  expect(() => service.change(stopped, { status: 'running', reason: 'Again.' }, 'resume')).toThrow(
+    CycleTransitionError,
+  );
+  expect(storedCycle(f, cycle.id)).toEqual(stopped);
 });

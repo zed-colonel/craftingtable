@@ -63,10 +63,11 @@ export function CycleRemediationRecovery({
       </label>
       <About label="About more remediation">
         <p>
-          Remediation continues from the current review and keeps the worktree, findings, agent
-          settings and completed-round history. Guidance is added to the existing cycle
-          instructions; answer any open questions in it. A valid completed review is required.
-          Invalid reports and integration conflicts use their own recovery controls.
+          Remediation continues from the current review, or, where the limit was reached while
+          tidying the worktree a step left behind, tidies it again. It keeps the worktree, findings,
+          agent settings and completed-round history. Guidance is added to the existing cycle
+          instructions; answer any open questions in it. A review step needs a valid completed
+          review. Invalid reports and integration conflicts use their own recovery controls.
         </p>
       </About>
       {valid && (

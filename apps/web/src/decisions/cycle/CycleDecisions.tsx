@@ -73,8 +73,8 @@ export function continuationOf(
       ? 'scope-review'
       : undefined;
   // More rounds only where the daemon grants them: a review that used its allowance, or
-  // housekeeping's limit stop at an implement or remediate step (R-B4, decision 4), with no
-  // integration resolution open (R-A6 review; the old form's rule).
+  // housekeeping's limit stop at any step (R-B4, decision 4; a review step's stop is shown with
+  // the review's), with no integration resolution open (R-A6 review; the old form's rule).
   if (
     actions.includes('authorize-remediation') &&
     (cycle.step === 'review' ||

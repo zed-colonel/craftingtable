@@ -201,8 +201,6 @@ interface RemediationGrant {
   readonly agentOverride?: WorkCycle['finalizationAgentOverride'];
 }
 
-/** What housekeeping tells the remediation after the implementation checkpoint left files. */
-
 /**
  * The tree's newest run is newer than the cycle's own and outside its handoff lineage, so a
  * resume would refuse to adopt it (`decideResumeStep`); a lineage it cannot follow counts too.
@@ -3489,6 +3487,11 @@ export class WorkCycleService {
       run,
       context,
       {
+        // A separate review that passed ends with it, as a review's own remediation ends it
+        // (LIVE-33): the reviewer is read-only and could not tidy (review of 1a5c6d2, MEDIUM-1).
+        ...(cycle.workflow?.activeReview
+          ? { workflow: { ...cycle.workflow, activeReview: null, waiting: null } }
+          : {}),
         remediationRounds: cycle.remediationRounds + 1,
         housekeepingInstructions: `${reason}\n\n${this.housekeepingGuidance()}`,
         ...(grant

@@ -204,7 +204,11 @@ export type ApprovalDecision =
   | { readonly kind: 'housekeeping'; readonly reason: string }
   | { readonly kind: 'continue' };
 
-/** Housekeeping's reasons, one per place that finds a worktree untidy after its step. */
+/**
+ * Housekeeping's reasons, one per place that finds a worktree untidy after its step: what it
+ * tells the remediation after the implementation checkpoint left files, after an approval found
+ * the worktree changed, and after a finalization stage review changed it.
+ */
 export const FILES_REMAIN_AFTER_FINALIZATION =
   'Files remain after implementation finalization. Classify and reconcile them before a fresh review.';
 export const APPROVAL_CHANGED_WORKTREE =

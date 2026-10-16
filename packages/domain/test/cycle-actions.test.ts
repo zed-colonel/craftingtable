@@ -24,7 +24,6 @@ describe('cycle actions (R-A7)', () => {
       'phase-gate',
       'item-unavailable',
       'item-not-admitted',
-      'item-completed-unmerged',
       'predecessors-incomplete',
       'predecessor-merge-missing',
       'worktree-state',
@@ -37,6 +36,10 @@ describe('cycle actions (R-A7)', () => {
       'service-unavailable',
     ] as const)
       expect(cycleActions(cycle('needs-attention', code))).toEqual(['resume', 'stop']);
+    // An item marked complete cannot be made incomplete, so no resume can pass its gate: the
+    // stop offers Stop, after which the worktree merges by hand (R-B4 increment 5 review).
+    expect(cycleActions(cycle('needs-attention', 'item-completed-unmerged'))).toEqual(['stop']);
+    expect(cycleActions(cycle('paused', 'item-completed-unmerged'))).toEqual(['stop']);
     expect(cycleActions(cycle('paused'))).toEqual(['resume', 'stop']);
     expect(cycleActions(cycle('running'))).toEqual(['pause', 'stop']);
   });

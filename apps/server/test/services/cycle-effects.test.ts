@@ -535,6 +535,38 @@ const rows: readonly {
     run: () => decideHousekeeping(cycleOf(), 'x'),
     expected: { kind: 'remediate' },
   },
+  // Mixed conditions (R-B4 increment 2 review, LOW-2): where two branches apply, the first wins.
+  {
+    name: 'a stage with open questions and a plan change asks for the answers first (E2)',
+    run: () => decideStageInput(false, [{ status: 'change-requested' }]),
+    expected: { kind: 'attention', code: 'finalization-needs-input' },
+  },
+  {
+    name: 'the same waiting text on a running cycle is a change of gate (E3)',
+    run: () =>
+      decideObligations(
+        {
+          status: 'running',
+          workflow: { ...workflow, waiting: 'adr-1: x' },
+        } as never,
+        [checkpoint({ supported: true, assigned: false, pending: ['x'] })] as never,
+      ),
+    expected: { kind: 'gate', unchanged: false },
+  },
+  {
+    name: 'a clean discovery stage with a selection open discovers first (E8)',
+    run: () =>
+      decideStageOutcome(
+        cycleOf(),
+        {
+          status: 'complete',
+          report: { exitGate: { met: true }, verdict: 'mergeable', findings: [] },
+        } as never,
+        { required: [], checksFail: false, gaps: false },
+        { discovery: true, selectedOpen: true, finalReview: false },
+      ),
+    expected: { kind: 'discovery' },
+  },
   // questionsHoldGrant: a finalization's review requires its checkpoint; a slice review does not.
   ...(
     [

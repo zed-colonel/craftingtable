@@ -1,4 +1,4 @@
-import type { WorkCycle } from '@craftingtable/domain';
+import { cycleAttention, type WorkCycle } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import { CycleTransitionError } from '../src/services/cycle-transitions.js';
 import { createCycleFixture, storedCycle } from './cycle-test-support.js';
@@ -117,4 +117,24 @@ it('stores a phase gate that does not wait with its blockers named (R-B4 increme
     attention: { code: 'phase-gate', owner: 'operator', refs: { blockers: ['binding-changed'] } },
     reason: 'The binding changed.',
   });
+});
+
+it('leaves an operator’s stop as it is when an unexpected error meets it (R-B4 increment 2 review, E7)', async () => {
+  const f = await createCycleFixture();
+  const cycle = await startCycle(f, f.worktreeId);
+  const service = f.services.workCycleService as unknown as {
+    change: (cycle: WorkCycle, changes: Record<string, unknown>, action?: string) => WorkCycle;
+  };
+  const stopped = service.change(cycle, {
+    status: 'needs-attention',
+    attention: cycleAttention('step-incomplete'),
+    reason: 'Inspect the step.',
+  });
+  // An exception in a guard before `not-active` reaches the pass, which writes only while the
+  // cycle is still driven: a stop is the operator's.
+  f.services.agentRunService.isCleaningRun = () => {
+    throw new TypeError('x is undefined');
+  };
+  await f.services.workCycleService.tick();
+  expect(storedCycle(f, cycle.id)).toEqual(stopped);
 });

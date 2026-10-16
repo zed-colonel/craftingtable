@@ -20,8 +20,9 @@ import { scopeAllowsEarlyDevelopment } from './execution-scope.js';
  * - a caller may also count a predecessor as pending while its own work is still in flight.
  *
  * Callers keep their own wording and outcome (a refused command, a stopped launch, a waiting
- * roadmap entry). Moving the launch's Git check ahead of the scheduler's attempt creation
- * would change when stops happen, and is left to R-B4's decision core.
+ * roadmap entry). The launch's Git check, the ancestry of each completed predecessor's recorded
+ * merge, is `BranchService.predecessorMerges`; the scheduler asks it before it creates an attempt
+ * (R-B4, decision 1).
  */
 export interface PredecessorGate {
   /** Every required predecessor edge, in plan order, with whether it is completed. */
@@ -68,9 +69,10 @@ export type ItemRefusal = Extract<
  * - a missing item, or for the scheduler one outside the entry's bound plan version, is
  *   `item-unavailable`;
  * - a completed item takes an independent review of a scope of it (a slice verification or a
- *   parent acceptance), and a slice of it only if a merge completed it: a recovery round then
- *   repairs a merged slice. Its other work, a slice of an item marked complete by hand
- *   included, is `item-completed-unmerged` (completed while its worktree is unmerged);
+ *   parent acceptance), and a slice of it only if its completion recorded an integration commit
+ *   (a merge, or the parent acceptance, which records the head it accepted): a recovery round
+ *   then repairs an accepted item's slice. Its other work, a slice of an item marked complete by
+ *   hand included, is `item-completed-unmerged`;
  * - a proposed item is `item-not-admitted`, unless the caller admits it itself (the scheduler).
  */
 export function itemGate(

@@ -3030,7 +3030,7 @@ export class RoadmapService {
         throw new SupersededRoadmapOperation();
       this.authority(current);
       const blocked = this.blocker(current, entry, reserved);
-      if (blocked) conflict(blocked.reason);
+      if (blocked) refuseBlocked(blocked);
     };
     check();
     this.items.admit(context, roadmap.workspaceId, entry.workItemId);
@@ -3443,7 +3443,7 @@ export class RoadmapService {
       const blocked = this.blocker(roadmap, decision.owner, undefined, this.storage, true);
       if (blocked) {
         if (blocked.circular) throw new EntryHoldError('entry-blocked', blocked.reason);
-        if (blocked.needsAttention) conflict(blocked.reason);
+        if (blocked.needsAttention) refuseBlocked(blocked);
         return blockerWait(blocked, decision.owner.id);
       }
       attempt = {
@@ -3530,7 +3530,7 @@ export class RoadmapService {
         const blocked = this.blocker(roadmap, owner, reserved, this.storage, true);
         if (blocked) {
           if (blocked.circular) throw new EntryHoldError('entry-blocked', blocked.reason);
-          if (blocked.needsAttention) conflict(blocked.reason);
+          if (blocked.needsAttention) refuseBlocked(blocked);
           return blockerWait(blocked, owner.id);
         }
         const preview = collectScopeRepair(mapReadSnapshot(this.storage), sourceCycle);
@@ -3564,7 +3564,7 @@ export class RoadmapService {
                 this.storage,
                 true,
               );
-              if (blocker) conflict(blocker.reason);
+              if (blocker) refuseBlocked(blocker);
             },
             attach: () =>
               this.updateRecovery(this.find(ws, roadmap.id), reserved, { status: 'active' }),

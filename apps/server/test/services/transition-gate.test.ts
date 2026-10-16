@@ -94,8 +94,9 @@ describe('itemGate (R-B4, decision 2)', () => {
       false,
       'item-completed-unmerged',
     ],
-    // A recovery round repairs a slice of an item its merge completed (2026-09-27, 2026-10-07).
-    ['a slice of an item completed by its merge', merged, slice, false, undefined],
+    // A recovery round repairs a slice of an item whose completion recorded an integration
+    // commit, there its parent acceptance (2026-09-27, 2026-10-07).
+    ['a slice of an item completed with an integration commit', merged, slice, false, undefined],
     ['a whole item completed by a merge', merged, undefined, true, 'item-completed-unmerged'],
     ['a verification of a completed item', at('completed'), verification, false, undefined],
     ['an acceptance of a completed item', at('completed'), acceptance, true, undefined],

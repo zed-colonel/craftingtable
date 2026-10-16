@@ -63,6 +63,25 @@ describe('the item gate (requireReady)', () => {
   ])('%s', async (_name, item, pending, stop) =>
     expect(await stopOf(ready(item, pending))).toBe(stop),
   );
+
+  it('says how to leave the stop of an item marked complete (increment 5 review)', () =>
+    expect(ready({ status: 'completed', planVersionId: 'p' })).toThrow(
+      'This work item was marked complete without merging its worktree. Stop this cycle, then merge the worktree by hand or reconcile the queue.',
+    ));
+
+  // The item before the scope's phase gate (increment 5 review, LOW-4): a tx without the
+  // map's records would fail the scope's read, so the item's refusal must come first.
+  it('answers with the item before the scope', async () =>
+    expect(
+      await stopOf(() =>
+        requireReady(
+          tx({ status: 'proposed', planVersionId: 'p' }),
+          'ws' as never,
+          'item-1' as never,
+          { kind: 'slice' } as never,
+        ),
+      ),
+    ).toBe('item-not-admitted'));
 });
 
 describe('the finalization and its authority', () => {

@@ -62,6 +62,8 @@ export class IntegrationUpdateConflict extends ExecutionRequestError {
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
+/** How long an absent predecessor merge is trusted before Git is asked again. */
+const ABSENT_MERGE_RECHECK_MS = 30_000;
 /** A completed predecessor's merge that no record names, or that the branch lacks. */
 const unrecordedMerge = (sourceId: string) =>
   `Required predecessor ${sourceId} has no recorded merge commit; record its integration commit in Plan branch settings before proceeding`;
@@ -472,14 +474,30 @@ export class BranchService {
     if (unrecorded) return unrecordedMerge(unrecorded.sourceId);
     if (!merges.length) return undefined;
     const repository = this.repository(workspaceId, repositoryId);
-    const contained = await this.mergesContained(
-      repository.rootPath,
-      branch,
-      merges.map((merge) => merge.commit!),
-    );
+    const commits = merges.map((merge) => merge.commit!);
+    // A waiting entry asks again on every scheduler pass, and GitFacts keeps only answers that
+    // stay true: an absent merge is asked of Git at most every 30 seconds (R-B4 increment 5
+    // review).
+    const key = `${repository.rootPath}\0${branch}\0${commits.join('\0')}`;
+    const now = this.now().getTime();
+    const known = this.absentMerges.get(key);
+    if (known && now - known.at < ABSENT_MERGE_RECHECK_MS) return known.reason;
+    const contained = await this.mergesContained(repository.rootPath, branch, commits);
     const absent = merges.find((_, index) => !contained[index]);
-    return absent && absentMerge(absent.sourceId);
+    if (!absent) {
+      this.absentMerges.delete(key);
+      return undefined;
+    }
+    const reason = absentMerge(absent.sourceId);
+    if (this.absentMerges.size >= 256) this.absentMerges.clear();
+    this.absentMerges.set(key, { at: now, reason });
+    return reason;
   }
+  /** Absent predecessor merges Git last reported, by repository, branch and commits. */
+  private readonly absentMerges = new Map<
+    string,
+    { readonly at: number; readonly reason: string }
+  >();
 
   async requirePredecessors(
     workspaceId: WorkspaceId,

@@ -255,20 +255,27 @@ const rows: readonly Row[] = [
     facts: { onlyOperatorCanAdvance: () => true },
     expected: { guard: 'operator-merge-only', kind: 'idle', code: 'operator-merge-only' },
   },
-  // R-B4, decision 2: an item completed or withdrawn under the merge is the cycle's own stop.
+  // R-B4, decision 2: a withdrawn item under the merge is the cycle's own stop; one completed by
+  // hand keeps the operator's merge, which reconciles it, as its exit (increment 5 review).
   {
-    name: 'a merge only the operator can advance stops when its item was completed by hand',
+    name: 'a merge only the operator can advance stops when its item was withdrawn',
     cycle: { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
     facts: {
       onlyOperatorCanAdvance: () => true,
-      itemRefusal: () => 'item-completed-unmerged',
+      itemRefusal: () => 'item-not-admitted',
       readiness: () => ({
         kind: 'refused',
-        code: 'item-completed-unmerged',
+        code: 'item-not-admitted',
         message: 'Automation requires an admitted, incomplete work item',
       }),
     },
-    expected: { guard: 'item-ready', kind: 'attention', code: 'item-completed-unmerged' },
+    expected: { guard: 'item-ready', kind: 'attention', code: 'item-not-admitted' },
+  },
+  {
+    name: 'a merge only the operator can advance waits for it when its item was completed by hand',
+    cycle: { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+    facts: { onlyOperatorCanAdvance: () => true, itemRefusal: () => 'item-completed-unmerged' },
+    expected: { guard: 'operator-merge-only', kind: 'idle', code: 'operator-merge-only' },
   },
   {
     name: 'a reserved merge leaves the cycle to it',
@@ -641,6 +648,141 @@ describe('decide', () => {
       ),
     ).toMatchObject({
       wait: { runDeadlineAt: LATER },
+    });
+  });
+});
+
+/**
+ * Precedence and conditions (R-B4 increment 2 review, MEDIUM-1 and MEDIUM-2): each table row
+ * above satisfies one guard, so swapping two guards, or dropping one condition of a guard, could
+ * pass it. These rows make two adjacent guards apply at once and expect the earlier one, and make
+ * one condition fail at a time; where a decision carries more than its code, they compare it
+ * whole.
+ */
+describe('which guard decides', () => {
+  const sliceRun = { executionScope: sliceScope };
+  const precedence: readonly (readonly [
+    string,
+    Record<string, unknown>,
+    Partial<Record<keyof CycleFacts, unknown>>,
+    Record<string, unknown>,
+  ])[] = [
+    [
+      // G1: a step that waited on a phase past its window has its deadline moved, not stopped.
+      'a cleared phase wait before the step deadline',
+      { phaseWait: { startedAt: EARLIER, blockers: [] }, runDeadlineAt: EARLIER },
+      { currentRun: () => undefined },
+      { guard: 'phase-wait-cleared', kind: 'wait', code: 'clear-phase' },
+    ],
+    [
+      // G2: past its deadline, a scheduled retry does not run.
+      'the step deadline before a due service retry',
+      { providerRecovery: recovery, runDeadlineAt: EARLIER },
+      { currentRun: () => runOf({ status: 'failed' }) },
+      { guard: 'step-deadline', kind: 'attention', code: 'step-time-limit' },
+    ],
+    [
+      // G3: a reserved merge is left to it; the boundary's workflow and refresh wait.
+      'a reserved merge before the merge boundary',
+      { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+      { mergeReserved: () => true },
+      { guard: 'merge-reserved', kind: 'idle', code: 'merge-reserved' },
+    ],
+    [
+      // G4: an operator-only merge idles before its gate is asked.
+      'an operator-only merge before the item gate',
+      { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+      {
+        onlyOperatorCanAdvance: () => true,
+        readiness: () => ({ kind: 'refused', code: 'predecessors-incomplete', message: 'Open.' }),
+      },
+      { guard: 'operator-merge-only', kind: 'idle', code: 'operator-merge-only' },
+    ],
+    [
+      // G5: shared decisions not yet accepted are not reassessed.
+      'shared decisions not yet accepted',
+      {
+        status: 'needs-attention',
+        attention: cycleAttention('shared-decision-required'),
+        workflow: { reassessments: 0, questions: [sharedQuestion] },
+      },
+      { delegationRunnable: () => true, sharedDecisionsAccepted: () => false },
+      { guard: 'not-active', kind: 'idle', code: 'not-active' },
+    ],
+    [
+      // G6: a retry whose source run is no longer the current one does not relaunch.
+      'a due retry whose source run is not the current run',
+      { providerRecovery: { ...recovery, sourceRunId: 'run-0' } },
+      {
+        currentRun: () => runOf({ status: 'failed' }),
+        newestRun: () => runOf({ status: 'failed' }),
+      },
+      { guard: 'provider-retry-due', kind: 'attention', code: 'service-retry-mismatch' },
+    ],
+    [
+      // G7: without a runnable delegation, a question stop is not sent to reassessment.
+      'a reassessable stop without a runnable delegation',
+      {
+        status: 'needs-attention',
+        executionScope: sliceScope,
+        attention: cycleAttention('workflow-report-invalid'),
+      },
+      {
+        currentRun: () => finished,
+        lastTurn: () => turnOf('No workflow block.'),
+        delegationRunnable: () => undefined,
+      },
+      { guard: 'reassessable-stop', kind: 'idle', code: 'not-reassessable' },
+    ],
+    [
+      // G8: a scoped slice at the merge boundary is gated even with a run.
+      'a scoped slice at the merge boundary whose gate refuses',
+      { ...sliceRun, status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+      {
+        currentRun: () => finished,
+        readiness: () => ({ kind: 'refused', code: 'predecessors-incomplete', message: 'Open.' }),
+      },
+      { guard: 'item-ready', kind: 'attention', code: 'predecessors-incomplete' },
+    ],
+    [
+      // G10: during a drain a reserved review still refreshes from integration first.
+      'a reserved review during a drain',
+      { step: 'review' },
+      { currentRun: () => undefined },
+      { guard: 'no-run', kind: 'start-run' },
+    ],
+  ];
+  it.each(precedence)('%s', (_name, cycle, facts, expected) =>
+    expect(
+      decisionSummary(decide(cycleOf(cycle), factsOf(facts), kernelOf({ draining: true }), NOW)),
+    ).toMatchObject(expected),
+  );
+
+  it('decides whole decisions where they carry more than their code', () => {
+    // G9: a creator who lost the permission ends the live turn with the stop.
+    expect(decide(cycleOf(), factsOf({ creatorAuthorized: () => false }), kernelOf(), NOW)).toEqual(
+      {
+        kind: 'attention',
+        guard: 'authority-lost',
+        code: 'authority-lost',
+        message: 'The initiating user no longer has permission to run this cycle.',
+        endTurn: true,
+      },
+    );
+    // G10: the drain does not take the review's refresh away.
+    expect(
+      decide(
+        cycleOf({ step: 'review' }),
+        factsOf({ currentRun: () => undefined, parentRun: () => finished }),
+        kernelOf({ draining: true }),
+        NOW,
+      ),
+    ).toEqual({ kind: 'start-run', guard: 'no-run', refreshFirst: true, parent: finished });
+    // The step deadline ends the turn too.
+    expect(decide(cycleOf({ runDeadlineAt: EARLIER }), factsOf(), kernelOf(), NOW)).toMatchObject({
+      kind: 'attention',
+      code: 'step-time-limit',
+      endTurn: true,
     });
   });
 });

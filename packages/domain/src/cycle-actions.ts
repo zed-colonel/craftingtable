@@ -170,12 +170,16 @@ export function cycleActions(
   },
   /**
    * The tree's newest run is newer than the cycle's own and does not continue its handoff
-   * lineage: a resume cannot adopt it, so Resume is not offered (R-B4, decision 14).
+   * lineage: a resume cannot adopt it, so Resume is not offered (R-B4, decision 14). Nor is it
+   * at `item-completed-unmerged`: no command makes an item incomplete again, so no resume could
+   * pass its gate; Stop is the way on (increment 5 review).
    */
   latestOutsideLineage = false,
 ): readonly CycleAction[] {
   const offered = cycleActionsAt(cycle, latestRunId, reviewNeedsRounds, investigation);
-  return latestOutsideLineage ? offered.filter((action) => action !== 'resume') : offered;
+  return latestOutsideLineage || stopCode(cycle) === 'item-completed-unmerged'
+    ? offered.filter((action) => action !== 'resume')
+    : offered;
 }
 
 function cycleActionsAt(

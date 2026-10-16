@@ -307,14 +307,18 @@ const GUARDS: Record<CycleGuard, Guard> = {
           'The initiating user no longer has permission to run this cycle.',
           true,
         ),
-  'operator-merge-only': ({ cycle, facts }) =>
+  'operator-merge-only': ({ cycle, facts }) => {
     // Its gate evaluation and projections are the idle controller's main cost, and cannot
     // change what happens next: the operator's merge evaluates its own gate. Only the item's own
-    // status, one read, is asked first: an item completed or withdrawn under the merge is the
-    // cycle's stop (`item-ready`), not a merge the operator would be refused (R-B4, decision 2).
-    cycle.status === 'awaiting-merge' && !facts.itemRefusal() && facts.onlyOperatorCanAdvance()
+    // status, one read, is asked first: an item withdrawn under the merge is the cycle's stop
+    // (`item-ready`). One completed by hand keeps the merge, which reconciles it, as the exit;
+    // the merge command does not read the item (R-B4, decision 2; increment 5 review).
+    if (cycle.status !== 'awaiting-merge') return undefined;
+    const refused = facts.itemRefusal();
+    return (!refused || refused === 'item-completed-unmerged') && facts.onlyOperatorCanAdvance()
       ? idle('operator-merge-only')
-      : undefined,
+      : undefined;
+  },
   'item-ready': ({ cycle, facts }) =>
     // A changed admission gate must not prevent supervision, cancellation or deadline
     // enforcement for a scoped process already launched: it is checked again before the next

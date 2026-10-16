@@ -218,8 +218,8 @@ export function cycleFacts(
 }
 
 /**
- * The gate a command or the controller passes before acting on a work item's cycle: the scope's
- * phase requirements, an admitted (or, scoped, completed) item, and its required predecessors.
+ * The gate a command or the controller passes before acting on a work item's cycle: the item's
+ * status (`itemGate`), then the scope's phase requirements, then its required predecessors.
  */
 export function requireReady(
   tx: StorageRepositories,
@@ -234,7 +234,11 @@ export function requireReady(
   if (refused || !item)
     throw new TypedRefusalError(
       refused ?? 'item-unavailable',
-      'Automation requires an admitted, incomplete work item',
+      // An item cannot be made incomplete again, so the stop says the way out (R-B4 increment 5
+      // review).
+      refused === 'item-completed-unmerged'
+        ? 'This work item was marked complete without merging its worktree. Stop this cycle, then merge the worktree by hand or reconcile the queue.'
+        : 'Automation requires an admitted, incomplete work item',
     );
   if (scope)
     requireScope(

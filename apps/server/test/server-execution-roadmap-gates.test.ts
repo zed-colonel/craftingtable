@@ -3,6 +3,7 @@ import {
   asProjectId,
   asWorkItemDependencyId,
   asWorkItemId,
+  ENTRY_WAIT,
 } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import { TypedRefusalError } from '../src/services/errors.js';
@@ -18,6 +19,7 @@ import {
   commitFile,
   entryIds,
   git,
+  mergeRoadmapAttempt,
   mutationHeaders,
   parallelFixture,
   type Ready,
@@ -106,8 +108,8 @@ it('waits without an attempt while a predecessor’s merge is unrecorded or abse
       path: `/workspaces/${encodeURIComponent(state.workspaceId)}/projects/project-1/plans/version-1#branches`,
     }),
   ]);
-  // Evidence on a branch the integration head lacks cannot be recorded; once merged it can, and
-  // the entry starts by itself.
+  // Once the prerequisite's commit is merged into the branch and recorded, the entry starts by
+  // itself.
   git(['checkout', '-b', 'unmerged-prior'], root);
   const evidence = commitFile(root, 'prerequisite.txt', 'prior work');
   git(['checkout', 'main'], root);
@@ -153,7 +155,7 @@ it('waits while a recorded predecessor merge is absent from the integration bran
   expect(backend.launches).toHaveLength(0);
 });
 
-it('stops only the cycle when its item is completed by hand, and the roadmap waits on it (decision 2)', async () => {
+it('keeps the operator’s merge as the one stop when its item is completed by hand under it (decision 2)', async () => {
   const { state } = await roadmapFixture();
   await saveRoadmapRequest(state);
   await roadmapControl(state, 'start');
@@ -165,19 +167,21 @@ it('stops only the cycle when its item is completed by hand, and the roadmap wai
     payload: { action: 'complete' },
   });
   expect(completed.statusCode, completed.body).toBe(200);
-  await waitFor(
-    () =>
-      state.context.storage.execution.cycles.find(state.workspaceId, first.cycleId)?.attention
-        ?.code === 'item-completed-unmerged',
-    'the cycle stop',
-  );
+  await state.context.services.workCycleService.tick();
   await state.context.services.roadmapService.tick();
-  // One fact, one stop: the roadmap carries the cycle's stop, not a scheduler error of its own.
-  expect(storedRoadmap(state)).toMatchObject({
-    status: 'needs-attention',
-    attention: { code: 'cycle-needs-attention', refs: { cycleId: first.cycleId } },
-  });
+  // One fact, one stop: the cycle's merge gate, which the operator's merge reconciles; the
+  // roadmap holds nothing beside it (the merge command does not read the item, review MEDIUM-1).
+  expect(
+    state.context.storage.execution.cycles.find(state.workspaceId, first.cycleId),
+  ).toMatchObject({ status: 'awaiting-merge', attention: { code: 'merge-approval' } });
+  expect(storedRoadmap(state)).toMatchObject({ status: 'running' });
+  expect(storedRoadmap(state).attention).toBeUndefined();
   expect(storedRoadmap(state).entryHolds ?? {}).toEqual({});
+  await mergeRoadmapAttempt(state, first.worktreeId);
+  await waitFor(
+    () => storedRoadmap(state).attempts[0]?.status === 'completed',
+    'the merged attempt',
+  );
 });
 
 it('keeps the typed cause of a refusal on the hold it records', async () => {
@@ -256,3 +260,34 @@ it('holds a sequential entry its blocker refuses with the typed cause', async ()
   });
   blocked.mockRestore();
 });
+
+// R-B4 increment 5 review, LOW-4: the scheduler's own item gate, unmocked.
+it('holds an entry whose bound item is unavailable with the item gate’s cause', async () => {
+  const { state } = await roadmapFixture();
+  expect((await saveRoadmapRequest(state)).statusCode).toBe(200);
+  // The entry's plan version no longer holds its item (the gate's `planVersionId` check).
+  const saved = storedRoadmap(state);
+  const entries = saved.definition.entries.map((entry, index) =>
+    index === 0 ? { ...entry, planVersionId: 'another-version' as never } : entry,
+  );
+  expect(
+    state.context.storage.roadmaps.save(
+      {
+        ...saved,
+        definition: { ...saved.definition, entries, revision: saved.definition.revision + 1 },
+        version: saved.version + 1,
+      },
+      saved.version,
+    ),
+  ).toBe(true);
+  await roadmapControl(state, 'start');
+  await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'entry hold');
+  expect(storedRoadmap(state)).toMatchObject({
+    attention: { code: 'entry-blocked', refs: { entryId: entryIds[0], cause: 'item-unavailable' } },
+    reason: expect.stringContaining('Bound plan item is unavailable'),
+  });
+  expect(storedRoadmap(state).attempts).toEqual([]);
+});
+
+it('owns the predecessor-merge wait as the operator’s', () =>
+  expect(ENTRY_WAIT['predecessor-merge-missing']).toBe('operator'));

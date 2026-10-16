@@ -77,6 +77,7 @@ function factsOf(overrides: Partial<Record<keyof CycleFacts, unknown>> = {}): Cy
     creatorAuthorized: () => true,
     onlyOperatorCanAdvance: () => false,
     readiness: () => ({ kind: 'ready' }),
+    itemRefusal: () => undefined,
     mergeReserved: () => false,
     controllerReviewRunnable: () => true,
     phaseBlockers: () => [],
@@ -251,6 +252,21 @@ const rows: readonly Row[] = [
     cycle: { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
     facts: { onlyOperatorCanAdvance: () => true },
     expected: { guard: 'operator-merge-only', kind: 'idle', code: 'operator-merge-only' },
+  },
+  // R-B4, decision 2: an item completed or withdrawn under the merge is the cycle's own stop.
+  {
+    name: 'a merge only the operator can advance stops when its item was completed by hand',
+    cycle: { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+    facts: {
+      onlyOperatorCanAdvance: () => true,
+      itemRefusal: () => 'item-completed-unmerged',
+      readiness: () => ({
+        kind: 'refused',
+        code: 'item-completed-unmerged',
+        message: 'Automation requires an admitted, incomplete work item',
+      }),
+    },
+    expected: { guard: 'item-ready', kind: 'attention', code: 'item-completed-unmerged' },
   },
   {
     name: 'a reserved merge leaves the cycle to it',
@@ -543,6 +559,27 @@ describe('decide', () => {
     // A cycle waiting for the operator reads nothing past the settle hold and its worktree.
     decide(cycleOf({ status: 'needs-attention' }), traced, kernelOf(), NOW);
     expect(read).toEqual(['settling', 'worktree', 'scopeEvidenceRecorded']);
+    // A merge only the operator can advance reads its item's status, never the full gate.
+    read.length = 0;
+    const merging = {
+      ...traced,
+      onlyOperatorCanAdvance: () => {
+        read.push('onlyOperatorCanAdvance');
+        return true;
+      },
+    };
+    expect(
+      decisionSummary(
+        decide(
+          cycleOf({ status: 'awaiting-merge', attention: cycleAttention('merge-approval') }),
+          merging,
+          kernelOf(),
+          NOW,
+        ),
+      ),
+    ).toEqual({ kind: 'idle', guard: 'operator-merge-only', code: 'operator-merge-only' });
+    expect(read).toContain('itemRefusal');
+    expect(read).not.toContain('readiness');
   });
 
   it('carries the launch a due service retry makes, as reconcile did', () => {

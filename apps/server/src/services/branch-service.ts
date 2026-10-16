@@ -62,6 +62,11 @@ export class IntegrationUpdateConflict extends ExecutionRequestError {
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
 }
+/** A completed predecessor's merge that no record names, or that the branch lacks. */
+const unrecordedMerge = (sourceId: string) =>
+  `Required predecessor ${sourceId} has no recorded merge commit; record its integration commit in Plan branch settings before proceeding`;
+const absentMerge = (sourceId: string) =>
+  `Required predecessor ${sourceId}'s merge is absent from the integration branch`;
 /** A refusal the controller stops a cycle on with its code (R-B4, decision 3). */
 function refuse(stop: RefusalStop, message: string): never {
   throw new TypedRefusalError(stop, message);
@@ -394,6 +399,83 @@ export class BranchService {
     return { headSha, branch: settings.integrationBranch };
   }
 
+  /**
+   * The ancestry fact of the predecessor rule (R-B4, decision 1), from stored records alone: the
+   * first required predecessor still incomplete, unless the early-start exception lets it pass,
+   * and each completed one's recorded merge commit (`commit` absent when none is recorded).
+   */
+  predecessorMerges(
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
+    repositoryId: SourceRepositoryId,
+    scope?: import('@craftingtable/domain').ExecutionScope,
+  ): {
+    readonly incomplete?: string;
+    readonly merges: readonly { readonly sourceId: string; readonly commit?: string }[];
+  } {
+    const gate = predecessorGate(this.storage, workspaceId, workItemId, scope);
+    const merges: { sourceId: string; commit?: string }[] = [];
+    for (const edge of gate.required) {
+      const predecessor = this.storage.planning.workItems.find(workspaceId, edge.workItemId);
+      if (predecessor?.status !== 'completed' && gate.early) continue;
+      if (predecessor?.status !== 'completed') return { incomplete: edge.sourceId, merges };
+      const commit =
+        predecessor.mergeSha ??
+        this.storage.execution.branchSettings.evidence(workspaceId, predecessor.id, repositoryId);
+      merges.push({ sourceId: edge.sourceId, ...(commit === undefined ? {} : { commit }) });
+    }
+    return { merges };
+  }
+
+  /**
+   * Whether the integration branch's head contains each commit, in order. The roadmap's check
+   * before an attempt asks it; the scheduler replay, which has no repositories, answers it.
+   */
+  async mergesContained(
+    repositoryPath: string,
+    branch: string,
+    commits: readonly string[],
+  ): Promise<readonly boolean[]> {
+    const head = value(await this.requireGit().resolveBranch(repositoryPath, branch));
+    const contained: boolean[] = [];
+    for (const commit of commits)
+      contained.push(value(await this.requireGit().isAncestor(repositoryPath, commit, head)));
+    return contained;
+  }
+
+  /**
+   * Why a new attempt of this item could not start for want of a predecessor's merge (R-B4,
+   * decision 1), or nothing: a completed required predecessor whose merge is unrecorded, or not
+   * in the integration branch. The roadmap asks before it creates an attempt; an incomplete
+   * predecessor is its blocker's, not this.
+   */
+  async missingPredecessorMerge(
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId,
+    repositoryId: SourceRepositoryId,
+    branch: string,
+    scope?: import('@craftingtable/domain').ExecutionScope,
+  ): Promise<string | undefined> {
+    const { incomplete, merges } = this.predecessorMerges(
+      workspaceId,
+      workItemId,
+      repositoryId,
+      scope,
+    );
+    if (incomplete !== undefined) return undefined;
+    const unrecorded = merges.find((merge) => merge.commit === undefined);
+    if (unrecorded) return unrecordedMerge(unrecorded.sourceId);
+    if (!merges.length) return undefined;
+    const repository = this.repository(workspaceId, repositoryId);
+    const contained = await this.mergesContained(
+      repository.rootPath,
+      branch,
+      merges.map((merge) => merge.commit!),
+    );
+    const absent = merges.find((_, index) => !contained[index]);
+    return absent && absentMerge(absent.sourceId);
+  }
+
   async requirePredecessors(
     workspaceId: WorkspaceId,
     workItemId: WorkItemId,
@@ -402,29 +484,23 @@ export class BranchService {
     repositoryId: SourceRepositoryId,
     scope?: import('@craftingtable/domain').ExecutionScope,
   ) {
-    const gate = predecessorGate(this.storage, workspaceId, workItemId, scope);
-    for (const edge of gate.required) {
-      const predecessor = this.storage.planning.workItems.find(workspaceId, edge.workItemId);
-      if (predecessor?.status !== 'completed' && gate.early) continue;
-      if (predecessor?.status !== 'completed')
-        refuse(
-          'predecessors-incomplete',
-          `Required predecessor ${edge.sourceId} has not been completed`,
-        );
-      const commit =
-        predecessor.mergeSha ??
-        this.storage.execution.branchSettings.evidence(workspaceId, predecessor.id, repositoryId);
-      if (commit === undefined)
-        refuse(
-          'predecessor-merge-missing',
-          `Required predecessor ${edge.sourceId} has no recorded merge commit; record its integration commit in Plan branch settings before proceeding`,
-        );
-      if (!value(await this.requireGit().isAncestor(repositoryPath, commit, targetSha)))
-        refuse(
-          'predecessor-merge-missing',
-          `Required predecessor ${edge.sourceId}'s merge is absent from the integration branch`,
-        );
+    const { incomplete, merges } = this.predecessorMerges(
+      workspaceId,
+      workItemId,
+      repositoryId,
+      scope,
+    );
+    for (const merge of merges) {
+      if (merge.commit === undefined)
+        refuse('predecessor-merge-missing', unrecordedMerge(merge.sourceId));
+      if (!value(await this.requireGit().isAncestor(repositoryPath, merge.commit, targetSha)))
+        refuse('predecessor-merge-missing', absentMerge(merge.sourceId));
     }
+    if (incomplete !== undefined)
+      refuse(
+        'predecessors-incomplete',
+        `Required predecessor ${incomplete} has not been completed`,
+      );
   }
 
   async validateResolutionLaunch(

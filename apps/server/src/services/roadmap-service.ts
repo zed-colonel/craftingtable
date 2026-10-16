@@ -7,7 +7,7 @@ import { roadmapPath } from './roadmap-paths.js';
 import { RoadmapSettlement, type SettlementObserver } from './roadmap-settlement.js';
 import { inRetiredVersion, retiredOrRetiring, retiredVersionIds } from './retired-versions.js';
 import { cycleOwnership, ownerOf } from './cycle-ownership.js';
-import { predecessorGate } from './transition-gate.js';
+import { itemGate, predecessorGate } from './transition-gate.js';
 import {
   currentDecisionPreparation,
   preparedDecisionAccepted,
@@ -38,6 +38,7 @@ import { roadmapEntryFieldsSchema } from '@craftingtable/contracts';
 import {
   asAgentAssignmentId,
   asAgentRunId,
+  type AttentionRefs,
   asAuditEventId,
   asCheckpointId,
   asDecisionPreparationId,
@@ -111,6 +112,7 @@ import {
   DeclaredChecksMissingError,
   ExecutionRequestError,
   NotFoundError,
+  TypedRefusalError,
   windDownRefused,
 } from './errors.js';
 import {
@@ -228,6 +230,16 @@ export function openRecoveries(roadmap: Roadmap): ReadonlyMap<string, RoadmapAtt
 /** How long a standing preparation that could not be reserved waits before a retry (R-C3b). */
 const PREPARATION_RETRY_MS = 10 * 60_000;
 /** An entry the scheduler holds for a typed reason the operator resolves (R-A5). */
+/** The typed cause a hold keeps from the refusal behind it (R-B4, decision 3). */
+const holdCause = (error: unknown): AttentionRefs | undefined =>
+  error instanceof TypedRefusalError ? { cause: error.stop } : undefined;
+
+/** A blocker that holds the entry, refused with its typed cause when it has one. */
+function refuseBlocked(blocker: EntryBlocker): never {
+  if (blocker.cause) throw new TypedRefusalError(blocker.cause, blocker.reason);
+  conflict(blocker.reason);
+}
+
 class EntryHoldError extends ExecutionRequestError {
   constructor(
     readonly attentionCode: 'evidence-not-current' | 'entry-blocked' | 'recovery-not-converging',
@@ -2393,7 +2405,7 @@ export class RoadmapService {
           if (current.status === 'running')
             this.change(current, {
               status: 'needs-attention',
-              attention: roadmapAttention('scheduler-error'),
+              attention: roadmapAttention('scheduler-error', holdCause(error)),
               reason:
                 error instanceof ExecutionRequestError
                   ? error.message
@@ -2535,7 +2547,7 @@ export class RoadmapService {
                   error instanceof EntryHoldError
                     ? error.attentionCode
                     : 'entry-preparation-failed',
-                  { entryId: entry.id },
+                  { entryId: entry.id, ...holdCause(error) },
                 ),
               },
             },
@@ -2787,13 +2799,23 @@ export class RoadmapService {
         });
         return MOVED;
       }
-      if (
-        this.storage.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status ===
-        'completed'
-      )
-        conflict(
-          `${entry.sourceId}: Marked complete without merging the roadmap worktree. Merge its reviewed branch or stop this roadmap to reconcile the queue.`,
+      const refused = itemGate(
+        this.storage.planning.workItems.find(roadmap.workspaceId, entry.workItemId),
+        entry.executionScope,
+        { admits: true, planVersionId: entry.planVersionId },
+      );
+      if (refused) {
+        // One fact, one stop (R-B4, decision 2): the cycle stops with the item gate's code and the
+        // entry waits on it; before its cycle exists, the entry holds with the gate's cause.
+        const stopping = this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
+        if (stopping) return this.leaveToCycle(roadmap, entry, stopping, parallel);
+        throw new TypedRefusalError(
+          refused,
+          refused === 'item-completed-unmerged'
+            ? `${entry.sourceId}: Marked complete without merging the roadmap worktree. Merge its reviewed branch or stop this roadmap to reconcile the queue.`
+            : `${entry.sourceId}: Bound plan item is unavailable.`,
         );
+      }
       const cycle = this.storage.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
       if (cycle) {
         const boundAttempt = attempt;
@@ -2938,35 +2960,22 @@ export class RoadmapService {
           }
           return MOVED;
         }
-        // The roadmap leaves this cycle to its own controller or to the operator.
-        if (parallel) return cycleStep(cycle);
-        if (['paused', 'needs-attention', 'stopped', 'completed'].includes(cycle.status))
-          this.change(roadmap, {
-            status: 'needs-attention',
-            attention: roadmapAttention('cycle-needs-attention', {
-              cycleId: cycle.id,
-              entryId: entry.id,
-            }),
-            reason: `${entry.sourceId}: ${cycle.reason} Inspect its cycle before resuming the roadmap.`,
-          });
-        else
-          this.reason(
-            roadmap,
-            `${entry.sourceId}: ${cycle.status === 'awaiting-merge' ? 'Awaiting your merge approval.' : cycle.reason}`,
-          );
-        return cycleStep(cycle);
+        return this.leaveToCycle(roadmap, entry, cycle, parallel);
       }
     }
     const blocker = this.blocker(roadmap, entry, attempt);
     if (blocker) {
       if (parallel) {
-        if (blocker.needsAttention) conflict(blocker.reason);
+        if (blocker.needsAttention) refuseBlocked(blocker);
         return blockerWait(blocker);
       }
       if (blocker.needsAttention)
         this.change(roadmap, {
           status: 'needs-attention',
-          attention: roadmapAttention('entry-blocked', { entryId: entry.id }),
+          attention: roadmapAttention('entry-blocked', {
+            entryId: entry.id,
+            ...(blocker.cause ? { cause: blocker.cause } : {}),
+          }),
           reason: blocker.reason,
         });
       else this.reason(roadmap, blocker.reason);
@@ -2980,6 +2989,21 @@ export class RoadmapService {
         const wait = phaseWait(new PhaseGateError(held));
         if (!parallel) this.reason(roadmap, `${entry.sourceId}: ${wait.reason}`);
         return { wait };
+      }
+      // A completed predecessor's merge that is unrecorded or not in the integration branch
+      // holds the new attempt back, as the operator's wait (R-B4, decision 1): the launch would
+      // only refuse it. It clears by itself once the merge is in the branch.
+      const missing = await this.execution.branches.missingPredecessorMerge(
+        roadmap.workspaceId,
+        entry.workItemId,
+        entry.repositoryId,
+        entry.integrationBranch,
+        entry.executionScope,
+      );
+      if (missing) {
+        const reason = `${entry.sourceId}: ${missing}.`;
+        if (!parallel) this.reason(roadmap, reason);
+        return waiting('predecessor-merge-missing', reason, { entryId: entry.id });
       }
     }
     this.cycles.validateSettings(entry);
@@ -3058,6 +3082,30 @@ export class RoadmapService {
       });
     });
     return MOVED;
+  }
+  /** The roadmap leaves this cycle to its own controller or to the operator. */
+  private leaveToCycle(
+    roadmap: Roadmap,
+    entry: RoadmapEntry,
+    cycle: WorkCycle,
+    parallel: boolean,
+  ): EntryStep {
+    if (parallel) return cycleStep(cycle);
+    if (['paused', 'needs-attention', 'stopped', 'completed'].includes(cycle.status))
+      this.change(roadmap, {
+        status: 'needs-attention',
+        attention: roadmapAttention('cycle-needs-attention', {
+          cycleId: cycle.id,
+          entryId: entry.id,
+        }),
+        reason: `${entry.sourceId}: ${cycle.reason} Inspect its cycle before resuming the roadmap.`,
+      });
+    else
+      this.reason(
+        roadmap,
+        `${entry.sourceId}: ${cycle.status === 'awaiting-merge' ? 'Awaiting your merge approval.' : cycle.reason}`,
+      );
+    return cycleStep(cycle);
   }
   private recoveryFor(roadmap: Roadmap, entry: RoadmapEntry) {
     return openRecoveries(roadmap).get(entry.workItemId);
@@ -3329,6 +3377,7 @@ export class RoadmapService {
           attention: roadmapAttention('entry-preparation-failed', {
             entryId: sourceEntry.id,
             cycleId: cycle.id,
+            ...holdCause(error),
           }),
         };
         roadmap =
@@ -3852,13 +3901,36 @@ export class RoadmapService {
       needsAttention = true,
       kind: EntryBlocker['kind'] = 'dependency-blocked',
       circular = false,
-    ): EntryBlocker => ({ reason, needsAttention, kind, ...(circular ? { circular } : {}) });
-    const item = tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId);
-    if (!item || item.planVersionId !== entry.planVersionId)
-      return blocked(`${entry.sourceId}: Bound plan item is unavailable.`);
-    if (item.status === 'completed' && attempt && !entry.executionScope)
+      cause?: EntryBlocker['cause'],
+    ): EntryBlocker => ({
+      reason,
+      needsAttention,
+      kind,
+      ...(circular ? { circular } : {}),
+      ...(cause ? { cause } : {}),
+    });
+    // The item-status rule every gate shares (R-B4, decision 2); the scheduler admits a proposed
+    // item itself.
+    const refused = itemGate(
+      tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId),
+      entry.executionScope,
+      { admits: true, planVersionId: entry.planVersionId },
+    );
+    if (refused === 'item-unavailable')
+      return blocked(
+        `${entry.sourceId}: Bound plan item is unavailable.`,
+        true,
+        'dependency-blocked',
+        false,
+        refused,
+      );
+    if (refused)
       return blocked(
         `${entry.sourceId}: Marked complete without merging the roadmap worktree. Inspect the item; the queue will not advance.`,
+        true,
+        'dependency-blocked',
+        false,
+        refused,
       );
     try {
       requireScopeOwnership(
@@ -4428,6 +4500,23 @@ export class RoadmapService {
           ...(cycle ? { cycleId: cycle.id } : {}),
         },
         ...(reverifiable ? { actions: ['reverify' as const] } : {}),
+      });
+    }
+    // An entry held back for a predecessor's missing merge (R-B4, decision 1): its merge is
+    // recorded, or merged, in Plan branch settings of the entry's plan.
+    for (const [entryId, wait] of Object.entries(roadmap.entryWaits ?? {})) {
+      if (wait.code !== 'predecessor-merge-missing') continue;
+      const entry = roadmap.definition.entries.find((e) => e.id === entryId);
+      const item = entry && tx.planning.workItems.find(workspaceId, entry.workItemId);
+      if (!entry || !item) continue;
+      items.push({
+        subjectKey: `roadmap:${roadmap.id}:entry:${entry.id}:predecessor-merge`,
+        code: 'predecessor-merge-missing',
+        kind: 'attention',
+        title: `${entry.sourceId} · Predecessor merge missing`,
+        message: `${entry.title}\n${wait.reason}`,
+        path: `/workspaces/${ws}/projects/${encodeURIComponent(item.projectId)}/plans/${encodeURIComponent(entry.planVersionId)}#branches`,
+        refs: { roadmapId: roadmap.id, entryId: entry.id, workItemId: entry.workItemId },
       });
     }
     return items;

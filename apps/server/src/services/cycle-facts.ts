@@ -23,7 +23,7 @@ import { mapReadSnapshot } from './map-read-snapshot.js';
 import { attemptDelegation } from './roadmap-delegation-policy.js';
 import { roadmapCarriesRound } from './scope-recovery-policy.js';
 import { type StepOutcomeFacts, stepOutcomeFacts } from './step-outcome.js';
-import { predecessorGate } from './transition-gate.js';
+import { type ItemRefusal, itemGate, predecessorGate } from './transition-gate.js';
 import {
   controllerReviewRunnable,
   securityReviewCurrent,
@@ -68,6 +68,8 @@ export interface CycleFacts {
   readonly onlyOperatorCanAdvance: () => boolean;
   /** The item's admission and predecessor gate, or the finalization's activity. */
   readonly readiness: () => Readiness;
+  /** The item's status alone, as the item gate reads it; nothing for a plan finalization. */
+  readonly itemRefusal: () => ItemRefusal | undefined;
   readonly mergeReserved: () => boolean;
   readonly controllerReviewRunnable: () => boolean;
   /** The worktree scope's phase blockers, for a scoped worktree. */
@@ -164,6 +166,15 @@ export function cycleFacts(
     }),
     creatorAuthorized: once(() => creatorAuthorized(tx, cycle)),
     onlyOperatorCanAdvance: once(() => onlyOperatorCanAdvance(storage, cycle)),
+    itemRefusal: once(() =>
+      cycle.workItemId
+        ? itemGate(
+            tx.planning.workItems.find(cycle.workspaceId, cycle.workItemId),
+            cycle.executionScope,
+            { admits: false },
+          )
+        : undefined,
+    ),
     readiness: once((): Readiness => {
       try {
         if (cycle.workItemId)
@@ -216,6 +227,15 @@ export function requireReady(
   workItemId: WorkItemId,
   scope?: ExecutionScope,
 ) {
+  // The item's own status first: a completed or withdrawn item is the stop, whatever its scope's
+  // phase says (R-B4, decision 2).
+  const item = tx.planning.workItems.find(workspaceId, workItemId);
+  const refused = itemGate(item, scope, { admits: false });
+  if (refused || !item)
+    throw new TypedRefusalError(
+      refused ?? 'item-unavailable',
+      'Automation requires an admitted, incomplete work item',
+    );
   if (scope)
     requireScope(
       tx,
@@ -227,16 +247,6 @@ export function requireReady(
         : scope.kind === 'slice-verification'
           ? 'verify'
           : 'start',
-    );
-  const item = tx.planning.workItems.find(workspaceId, workItemId);
-  if (item?.status !== 'admitted' && !(scope && item?.status === 'completed'))
-    throw new TypedRefusalError(
-      !item
-        ? 'item-unavailable'
-        : item.status === 'completed'
-          ? 'item-completed-unmerged'
-          : 'item-not-admitted',
-      'Automation requires an admitted, incomplete work item',
     );
   const predecessors = predecessorGate(tx, workspaceId, workItemId, scope);
   if (predecessors.blocked)

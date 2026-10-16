@@ -8,6 +8,7 @@ import {
   type WorkCycleId,
 } from '@craftingtable/domain';
 import type { PhaseGateError } from './phase-resources.js';
+import type { ItemRefusal } from './transition-gate.js';
 
 /**
  * Typed entry waits (R-C12). Every path through the scheduler's evaluation of an entry ends
@@ -23,6 +24,8 @@ export interface EntryBlocker {
   readonly kind: 'dependency-blocked' | 'capacity-blocked' | 'exclusion-blocked';
   /** A recovery round's capacity is held by work that waits on the slice it repairs. */
   readonly circular?: true;
+  /** The item gate's code, which a hold the blocker records keeps as its cause (R-B4). */
+  readonly cause?: ItemRefusal;
 }
 export type EntryWaitInput = Omit<RoadmapEntryWait, 'since'>;
 export type EntryStep = { readonly moved: true } | { readonly wait: EntryWaitInput };

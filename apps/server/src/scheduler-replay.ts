@@ -785,6 +785,11 @@ function intercept(
   // pass evaluates any entry: it decides nothing the replay compares, and its Git call would be
   // charged to whichever entry came first. The replay leaves those worktrees as they are.
   services.executionService.releaseDecisionWorktree = async () => false;
+  // The roadmap's ancestry check before an attempt (R-B4, decision 1) asks Git whether the
+  // integration head holds each recorded predecessor merge. The replay has no repositories, so
+  // every recorded merge counts as contained; a completed predecessor with none still waits.
+  services.executionService.branches.mergesContained = async (_repository, _branch, commits) =>
+    commits.map(() => true);
 }
 
 /** Checkpoint readiness of each roadmap-owned slice cycle, and what its packet lacks. */

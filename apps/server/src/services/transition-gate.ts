@@ -1,4 +1,11 @@
-import type { ExecutionScope, WorkItemId, WorkspaceId } from '@craftingtable/domain';
+import type {
+  CycleAttentionCode,
+  ExecutionScope,
+  PlanVersionId,
+  WorkItem,
+  WorkItemId,
+  WorkspaceId,
+} from '@craftingtable/domain';
 import type { StorageRepositories, WorkItemDependencySummary } from '@craftingtable/storage';
 import { scopeAllowsEarlyDevelopment } from './execution-scope.js';
 
@@ -44,4 +51,42 @@ export function predecessorGate(
   const early =
     pending.length > 0 && scopeAllowsEarlyDevelopment(tx, workspaceId, workItemId, scope);
   return { required, pending, early, blocked: pending.length > 0 && !early };
+}
+
+/** Why an item's status refuses its work (R-B4, decisions 2 and 3). */
+export type ItemRefusal = Extract<
+  CycleAttentionCode,
+  'item-unavailable' | 'item-not-admitted' | 'item-completed-unmerged'
+>;
+
+/**
+ * The item-status rule, in one place (R-B4, decision 2): commands and the cycle core
+ * (`requireReady`), the roadmap scheduler (`RoadmapService.blocker` and its started entries) and
+ * the launch read their verdict from here. Each caller keeps its own wording and outcome (a
+ * refused command, a stopped cycle, a held entry):
+ *
+ * - a missing item, or for the scheduler one outside the entry's bound plan version, is
+ *   `item-unavailable`;
+ * - a completed item takes an independent review of a scope of it (a slice verification or a
+ *   parent acceptance), and a slice of it only if a merge completed it: a recovery round then
+ *   repairs a merged slice. Its other work, a slice of an item marked complete by hand
+ *   included, is `item-completed-unmerged` (completed while its worktree is unmerged);
+ * - a proposed item is `item-not-admitted`, unless the caller admits it itself (the scheduler).
+ */
+export function itemGate(
+  item: Pick<WorkItem, 'status' | 'planVersionId' | 'mergeSha'> | undefined,
+  scope: Pick<ExecutionScope, 'kind'> | undefined,
+  options: { readonly admits: boolean; readonly planVersionId?: PlanVersionId },
+): ItemRefusal | undefined {
+  if (
+    !item ||
+    (options.planVersionId !== undefined && item.planVersionId !== options.planVersionId)
+  )
+    return 'item-unavailable';
+  if (item.status === 'completed')
+    return scope && (scope.kind !== 'slice' || item.mergeSha !== undefined)
+      ? undefined
+      : 'item-completed-unmerged';
+  if (item.status === 'proposed' && !options.admits) return 'item-not-admitted';
+  return undefined;
 }

@@ -300,8 +300,10 @@ const GUARDS: Record<CycleGuard, Guard> = {
         ),
   'operator-merge-only': ({ cycle, facts }) =>
     // Its gate evaluation and projections are the idle controller's main cost, and cannot
-    // change what happens next: the operator's merge evaluates its own gate.
-    cycle.status === 'awaiting-merge' && facts.onlyOperatorCanAdvance()
+    // change what happens next: the operator's merge evaluates its own gate. Only the item's own
+    // status, one read, is asked first: an item completed or withdrawn under the merge is the
+    // cycle's stop (`item-ready`), not a merge the operator would be refused (R-B4, decision 2).
+    cycle.status === 'awaiting-merge' && !facts.itemRefusal() && facts.onlyOperatorCanAdvance()
       ? idle('operator-merge-only')
       : undefined,
   'item-ready': ({ cycle, facts }) =>

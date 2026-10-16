@@ -193,6 +193,10 @@ export const ENTRY_WAIT = {
   // The entry's cycle ended (stopped, or completed without the entry completing).
   'cycle-ended': 'operator',
   'entry-held': 'operator',
+  // A completed required predecessor's merge is unrecorded or absent from the integration
+  // branch (R-B4, decision 1): no attempt starts, and its item points at Plan branch settings.
+  // It clears by itself once the merge is in the branch.
+  'predecessor-merge-missing': 'operator',
 } as const satisfies Record<string, AttentionOwner>;
 export type EntryWaitCode = keyof typeof ENTRY_WAIT;
 export const ENTRY_WAIT_CODES = Object.keys(ENTRY_WAIT) as EntryWaitCode[];
@@ -212,6 +216,11 @@ export interface AttentionRefs {
   readonly checkId?: string;
   /** The codes of the phase blockers a `phase-gate` stop is for (R-B4). */
   readonly blockers?: readonly PhaseBlockerCode[];
+  /**
+   * What a roadmap's hold is for, typed, when the refusal behind it says (R-B4, decision 3): the
+   * stop a cycle would have taken for the same fact, e.g. `predecessor-merge-missing`.
+   */
+  readonly cause?: CycleAttentionCode;
   /** The pins that moved, for the operator and for automation that may refresh them later. */
   readonly pins?: readonly {
     readonly alias: string;

@@ -45,6 +45,9 @@ const attentionRefsSchema = z
       .min(1)
       .max(100)
       .optional(),
+    cause: z
+      .enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]])
+      .optional(),
     pins: z
       .array(
         z.strictObject({

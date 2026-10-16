@@ -420,11 +420,21 @@ it('parallel scheduling cannot release successors from a manual completion of it
     completedByUserId: state.userId,
     projectId: asProjectId('project-1'),
   });
+  // One fact, one stop (R-B4, decision 2): the cycle stops with the item gate's code, and the
+  // entry waits on it rather than holding beside it. No successor is released either way.
+  const entryId = present(input.entries[0]).id;
+  const attempt = present(storedRoadmap(state).attempts[0]);
+  await state.context.services.workCycleService.tick();
   await state.context.services.roadmapService.tick();
+  expect(
+    state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId)?.attention,
+  ).toMatchObject({ code: 'item-completed-unmerged', owner: 'operator' });
   expect(storedRoadmap(state).attempts).toHaveLength(1);
-  expect(storedRoadmap(state).entryHolds?.[present(input.entries[0]).id]?.status).toBe(
-    'needs-attention',
-  );
+  expect(storedRoadmap(state).entryHolds?.[entryId]).toBeUndefined();
+  expect(storedRoadmap(state).entryWaits?.[entryId]).toMatchObject({
+    code: 'cycle-attention',
+    refs: { cycleId: attempt.cycleId },
+  });
 });
 
 it('reconciles a paused predecessor merge before selecting newly eligible work by priority', async () => {

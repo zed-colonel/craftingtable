@@ -811,7 +811,7 @@ describe('which guard decides', () => {
     }
   };
   /** Each pair's merged inputs under which both guards apply. */
-  const both = pairs.map(([earlier, later]) => {
+  const inputsOf = ([earlier, later]: readonly [CycleGuard, CycleGuard]) => {
     const rowsOf = (guard: CycleGuard) => rows.filter((row) => row.expected.guard === guard);
     const inputs = rowsOf(earlier).flatMap((a) =>
       rowsOf(later).flatMap((b) => [merged(a, b), merged(b, a)]),
@@ -821,8 +821,21 @@ describe('which guard decides', () => {
       later,
       inputs: inputs.filter((input) => applies(earlier, input) && applies(later, input)),
     };
+  };
+  const both = pairs.map(inputsOf);
+  // An exclusive pair breaks the chain, so each is bridged: the guard before it against its
+  // second, and its first against the guard after it (increment 2 re-check, LOW-4). Each bridge
+  // must have inputs under which both apply.
+  const bridges = exclusive.flatMap(([a, b]) => {
+    const at = order.indexOf(a);
+    return [
+      ...(at > 0 ? [[order[at - 1]!, b] as const] : []),
+      ...(at + 2 < order.length ? [[a, order[at + 2]!] as const] : []),
+    ].map(inputsOf);
   });
-  it.each(both.filter((pair) => pair.inputs.length))(
+  it('bridges each exclusive pair with guards that can both apply', () =>
+    expect(bridges.filter((pair) => !pair.inputs.length)).toEqual([]));
+  it.each([...both, ...bridges].filter((pair) => pair.inputs.length))(
     '$earlier decides before $later',
     ({ earlier, inputs }) => {
       for (const input of inputs)

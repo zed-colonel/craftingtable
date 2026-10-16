@@ -2,9 +2,11 @@ import type {
   CycleAttentionCode,
   PlanVersionId,
   Roadmap,
+  RoadmapAttention,
   RoadmapAttentionCode,
   RoadmapDefinition,
   RoadmapEntryHold,
+  WorkCycleId,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import type { RefusalStop } from './errors.js';
@@ -143,6 +145,48 @@ export function holdRelease(origin: HoldOrigin): HoldRelease {
   const byCode = HOLD_RELEASE.codes[origin.code];
   if (byCode !== 'by-cause') return cause && 'operator' in cause ? cause : byCode;
   return cause ?? UNCAUSED;
+}
+
+/**
+ * What the scheduler must read again to release one stored hold or stop: the fact
+ * `HOLD_RELEASE` names for it, and the entry whose gate it asks (R-C10's follow-up, decision 2).
+ * Undefined when the hold or stop stays the operator's.
+ */
+export interface ReleaseCheck {
+  readonly fact: ReleaseFact;
+  /** The entry whose gate is asked again: the hold's own, or the one its refs name. */
+  readonly entryId: string;
+  /** A round's owner is asked as a round, which may borrow one repository slot (LIVE-06). */
+  readonly asRound: boolean;
+  /** The cycle a `cycle` fact reads. */
+  readonly cycleId?: WorkCycleId;
+}
+
+/** A stored entry hold's check; `entryId` is the hold's own key. */
+export function holdCheck(entryId: string, hold: RoadmapEntryHold): ReleaseCheck | undefined {
+  const origin = holdOrigin(entryId, hold);
+  const release = holdRelease(origin);
+  if (!('fact' in release)) return undefined;
+  const gated = hold.attention?.refs?.entryId ?? entryId;
+  return { fact: release.fact, entryId: gated, asRound: gated !== entryId };
+}
+
+/**
+ * A roadmap's own stop's check: a sequential stop names its entry (decision 3), and a
+ * `cycle-needs-attention` stop its cycle too. A stop that names no entry stays the operator's.
+ */
+export function stopCheck(attention: RoadmapAttention | undefined): ReleaseCheck | undefined {
+  const refs = attention?.refs;
+  if (!attention || refs?.entryId === undefined) return undefined;
+  const release = holdRelease({ kind: 'stop', code: attention.code, cause: refs.cause });
+  if (!('fact' in release)) return undefined;
+  if (release.fact === 'cycle' && refs.cycleId === undefined) return undefined;
+  return {
+    fact: release.fact,
+    entryId: refs.entryId,
+    asRound: false,
+    ...(refs.cycleId ? { cycleId: refs.cycleId } : {}),
+  };
 }
 
 /**

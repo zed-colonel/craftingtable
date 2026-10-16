@@ -5,9 +5,11 @@ import {
   HOLD_RELEASE,
   type HoldOrigin,
   heldEntry,
+  holdCheck,
   holdOrigin,
   holdRelease,
   roadmapHeld,
+  stopCheck,
 } from '../../src/services/entry-holds.js';
 
 /** R-C10's follow-up: which stored stops and holds the scheduler may clear by itself. */
@@ -126,6 +128,69 @@ describe('holdOrigin (increment 2 review M-2)', () => {
       code: 'legacy-attention',
       cause: undefined,
     });
+  });
+});
+
+describe('holdCheck and stopCheck (increment 4)', () => {
+  const needs = (code: Parameters<typeof roadmapAttention>[0], refs?: object) => ({
+    status: 'needs-attention' as const,
+    reason: 'Held.',
+    attention: roadmapAttention(code, refs as never),
+  });
+  it('asks a hold’s gate of the entry it names, as a round for a round’s owner', () => {
+    expect(holdCheck('e', needs('entry-blocked'))).toEqual({
+      fact: 'blocker',
+      entryId: 'e',
+      asRound: false,
+    });
+    expect(holdCheck('e', needs('entry-blocked', { entryId: 'owner' }))).toEqual({
+      fact: 'blocker',
+      entryId: 'owner',
+      asRound: true,
+    });
+    expect(
+      holdCheck('e', needs('entry-preparation-failed', { cause: 'phase-gate', entryId: 'target' })),
+    ).toEqual({ fact: 'phase-gate', entryId: 'target', asRound: true });
+    // A predecessor's merge stored naming its own entry is asked of that entry.
+    expect(
+      holdCheck(
+        'e',
+        needs('entry-preparation-failed', { cause: 'predecessor-merge-missing', entryId: 'e' }),
+      ),
+    ).toEqual({ fact: 'predecessor-merge', entryId: 'e', asRound: false });
+    expect(holdCheck('e', needs('evidence-not-current'))?.fact).toBe('reverify');
+  });
+  it('asks nothing of what stays the operator’s', () => {
+    expect(holdCheck('e', needs('entry-blocked', { entryId: 'e' }))).toBeUndefined();
+    expect(
+      holdCheck('e', needs('entry-preparation-failed', { cause: 'phase-gate', cycleId: 'c' })),
+    ).toBeUndefined();
+    expect(holdCheck('e', { status: 'paused', reason: 'Paused.' })).toBeUndefined();
+    expect(holdCheck('e', needs('recovery-not-converging'))).toBeUndefined();
+    expect(holdCheck('e', needs('entry-preparation-failed'))).toBeUndefined();
+  });
+  it('asks a roadmap’s stop of the entry, and the cycle, it names', () => {
+    expect(stopCheck(roadmapAttention('entry-blocked', { entryId: 'e' as never }))).toEqual({
+      fact: 'blocker',
+      entryId: 'e',
+      asRound: false,
+    });
+    expect(
+      stopCheck(
+        roadmapAttention('cycle-needs-attention', { entryId: 'e' as never, cycleId: 'c' as never }),
+      ),
+    ).toEqual({ fact: 'cycle', entryId: 'e', asRound: false, cycleId: 'c' });
+    expect(
+      stopCheck(roadmapAttention('scheduler-error', { entryId: 'e' as never, cause: 'phase-gate' }))
+        ?.fact,
+    ).toBe('phase-gate');
+    // A stop that names no entry, or a cycle stop without its cycle, stays the operator's.
+    expect(stopCheck(roadmapAttention('scheduler-error', { cause: 'phase-gate' }))).toBeUndefined();
+    expect(stopCheck(roadmapAttention('restart-resume'))).toBeUndefined();
+    expect(
+      stopCheck(roadmapAttention('cycle-needs-attention', { entryId: 'e' as never })),
+    ).toBeUndefined();
+    expect(stopCheck(undefined)).toBeUndefined();
   });
 });
 

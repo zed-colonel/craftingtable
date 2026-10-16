@@ -27,14 +27,20 @@ import {
 import type { GitOperations, GitResult } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AuthContext, CommandContext } from './auth-service.js';
-import { ExecutionRequestError, NotFoundError } from './errors.js';
+import {
+  ExecutionRequestError,
+  NotFoundError,
+  type RefusalStop,
+  TypedRefusalError,
+} from './errors.js';
 import { retiredVersionIds } from './retired-versions.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
 
+/** A Git result's value; a failure is the worktree not as the step needs it (R-B4). */
 function value<T>(result: GitResult<T>): T {
-  if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
+  if (!result.ok) throw new TypedRefusalError('worktree-state', result.failure.message);
   return result.value;
 }
 export class IntegrationUpdateConflict extends ExecutionRequestError {
@@ -55,6 +61,10 @@ export class IntegrationUpdateConflict extends ExecutionRequestError {
 }
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
+}
+/** A refusal the controller stops a cycle on with its code (R-B4, decision 3). */
+function refuse(stop: RefusalStop, message: string): never {
+  throw new TypedRefusalError(stop, message);
 }
 
 export class RepositoryMutationBusyError extends ExecutionRequestError {
@@ -397,16 +407,21 @@ export class BranchService {
       const predecessor = this.storage.planning.workItems.find(workspaceId, edge.workItemId);
       if (predecessor?.status !== 'completed' && gate.early) continue;
       if (predecessor?.status !== 'completed')
-        conflict(`Required predecessor ${edge.sourceId} has not been completed`);
+        refuse(
+          'predecessors-incomplete',
+          `Required predecessor ${edge.sourceId} has not been completed`,
+        );
       const commit =
         predecessor.mergeSha ??
         this.storage.execution.branchSettings.evidence(workspaceId, predecessor.id, repositoryId);
       if (commit === undefined)
-        conflict(
+        refuse(
+          'predecessor-merge-missing',
           `Required predecessor ${edge.sourceId} has no recorded merge commit; record its integration commit in Plan branch settings before proceeding`,
         );
       if (!value(await this.requireGit().isAncestor(repositoryPath, commit, targetSha)))
-        conflict(
+        refuse(
+          'predecessor-merge-missing',
           `Required predecessor ${edge.sourceId}'s merge is absent from the integration branch`,
         );
     }
@@ -417,7 +432,7 @@ export class BranchService {
     resolution: IntegrationResolution,
   ): Promise<void> {
     if (worktree.integrationBranch !== resolution.targetBranch)
-      conflict('Resolution integration binding changed');
+      refuse('worktree-state', 'Resolution integration binding changed');
     const state = value(
       await this.requireGit().inspectIntegrationResolution({
         worktreePath: worktree.path,
@@ -427,7 +442,7 @@ export class BranchService {
       }),
     );
     if (state.headSha !== resolution.headSha || state.mergeHeadSha !== resolution.targetSha)
-      conflict('The pinned resolution merge is no longer pending');
+      refuse('worktree-state', 'The pinned resolution merge is no longer pending');
     const repo = this.repository(worktree.workspaceId, worktree.repositoryId);
     const target = value(
       await this.requireGit().resolveBranch(repo.rootPath, resolution.targetBranch),
@@ -470,7 +485,7 @@ export class BranchService {
     if (resolution.status === 'resolving')
       return this.validateResolutionLaunch(worktree, resolution);
     if (worktree.integrationBranch !== resolution.targetBranch)
-      conflict('Resolution integration binding changed');
+      refuse('worktree-state', 'Resolution integration binding changed');
     if (!worktree.workItemId) return;
     const repo = this.repository(worktree.workspaceId, worktree.repositoryId);
     await this.requirePredecessors(
@@ -485,12 +500,16 @@ export class BranchService {
 
   async validateLaunch(worktree: Worktree): Promise<void> {
     if (worktree.integrationBranch === undefined)
-      conflict('Adopt an integration branch for this existing worktree before launching an agent');
+      refuse(
+        'launch-refused',
+        'Adopt an integration branch for this existing worktree before launching an agent',
+      );
     const repo = this.repository(worktree.workspaceId, worktree.repositoryId);
     const git = this.requireGit();
     const target = value(await git.resolveBranch(repo.rootPath, worktree.integrationBranch));
     const state = value(await git.inspectRepository(worktree.path));
-    if (state.branch !== worktree.branchName) conflict('The worktree is not on its managed branch');
+    if (state.branch !== worktree.branchName)
+      refuse('worktree-state', 'The worktree is not on its managed branch');
     if (worktree.workItemId)
       await this.requirePredecessors(
         worktree.workspaceId,
@@ -526,7 +545,10 @@ export class BranchService {
   ): Promise<{ context: ReviewBranchContext; artifacts: readonly string[] }> {
     const targetBranch = worktree.integrationBranch;
     if (targetBranch === undefined)
-      conflict('Adopt an integration branch for this existing worktree before reviewing');
+      refuse(
+        'launch-refused',
+        'Adopt an integration branch for this existing worktree before reviewing',
+      );
     const repo = this.repository(worktree.workspaceId, worktree.repositoryId);
     const git = this.requireGit();
     const state = baseline
@@ -545,13 +567,15 @@ export class BranchService {
       state.paths.length > 0 ||
       (!state.clean && (!baseline || state.untracked.length === 0))
     )
-      conflict(
+      refuse(
+        'worktree-state',
         baseline
           ? 'Review continuation requires the original managed branch without tracked edits, staged source changes, or pending Git operations. Preserve those changes and resolve them before continuing.'
           : 'Review requires a clean worktree on its managed branch',
       );
     if (baseline && state.untracked.length > 100)
-      conflict(
+      refuse(
+        'worktree-state',
         'Review continuation found more than 100 untracked paths; inspect and classify them before resuming.',
       );
     const targetSha = value(await git.resolveBranch(repo.rootPath, targetBranch));
@@ -565,11 +589,12 @@ export class BranchService {
         (!worktree.planVersionId &&
           policyEvidence.policy.integrationBranch !== worktree.integrationBranch))
     )
-      conflict(
+      refuse(
+        'launch-refused',
         'Worktree destination differs from the adopted repository policy. Retarget or review the policy.',
       );
     if (policyEvidence?.policy && policyEvidence.issues.length)
-      conflict(policyEvidence.issues.join(' '));
+      refuse('launch-refused', policyEvidence.issues.join(' '));
     const context = {
       ...(policyEvidence?.policy ? { repositoryPolicyVersion: policyEvidence.policy.version } : {}),
       headSha: state.headSha,
@@ -585,7 +610,8 @@ export class BranchService {
         baseline.worktreeVersion !== context.worktreeVersion ||
         baseline.repositoryPolicyVersion !== context.repositoryPolicyVersion)
     )
-      conflict(
+      refuse(
+        'worktree-state',
         'The interrupted review baseline changed. Refresh and verify the changed branches before starting a fresh review.',
       );
     if (worktree.workItemId)
@@ -598,7 +624,8 @@ export class BranchService {
         worktree.executionScope,
       );
     if (!value(await git.isAncestor(repo.rootPath, targetSha, state.headSha)))
-      conflict(
+      refuse(
+        'worktree-state',
         'Integration branch advanced; update the worktree, verify the combined changes, and review again',
       );
     return { context, artifacts: baseline ? state.untracked : [] };
@@ -606,7 +633,8 @@ export class BranchService {
 
   async assertReview(worktree: Worktree, run: AgentRun | undefined): Promise<ReviewBranchContext> {
     const recorded = run?.reviewBranchContext;
-    if (recorded === undefined) conflict('A fresh review with recorded branch context is required');
+    if (recorded === undefined)
+      refuse('worktree-state', 'A fresh review with recorded branch context is required');
     const current = await this.captureReview(worktree);
     if (
       recorded.headSha !== current.headSha ||
@@ -615,7 +643,10 @@ export class BranchService {
       recorded.worktreeVersion !== current.worktreeVersion ||
       recorded.repositoryPolicyVersion !== current.repositoryPolicyVersion
     )
-      conflict('The reviewed branch context changed; update if needed and run a fresh review');
+      refuse(
+        'worktree-state',
+        'The reviewed branch context changed; update if needed and run a fresh review',
+      );
     return recorded;
   }
 

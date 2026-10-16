@@ -8,7 +8,7 @@ import type {
 import type { StorageRepositories } from '@craftingtable/storage';
 import { activeRuntime, parentAccepted } from './runtime-evidence-policy.js';
 import { mapAdopted } from './map-adoption-policy.js';
-import { ExecutionRequestError } from './errors.js';
+import { ExecutionRequestError, TypedRefusalError } from './errors.js';
 export function mapProjectReadiness(
   tx: StorageRepositories,
   ws: WorkspaceId,
@@ -137,8 +137,8 @@ export function assertFinalizationMap(tx: StorageRepositories, f: Finalization) 
     current.bindingRevision !== f.mapContext.bindingRevision ||
     current.runtimeId !== f.mapContext.runtimeId
   )
-    throw new ExecutionRequestError(
-      'conflict',
+    throw new TypedRefusalError(
+      'finalization-inactive',
       'Finalization map or pinned dependency environment changed. Stop and prepare a new finalization after reconciliation.',
     );
 }

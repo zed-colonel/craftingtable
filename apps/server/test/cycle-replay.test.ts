@@ -200,8 +200,9 @@ it('records each cycle’s own commands, ended turns, a reservation and the whol
   git(['commit', '--no-gpg-sign', '-m', 'change'], tree);
   f.backend.latest.release(implementationDone);
   await stepDaemon(f.services);
-  // A second cycle, later in the pass, on the second item: its predecessor gate refuses it, so
-  // it reaches no command, and one left over from the first cycle would show in its record.
+  // A second cycle, later in the pass, on the second item, which is not admitted: its item gate
+  // refuses it with its own code (R-B4, decision 3), so it reaches no command, and one left over
+  // from the first cycle would show in its record.
   const first = f.context.storage.execution.worktrees.find(f.workspaceId, f.worktreeId)!;
   const second = asWorktreeId('00000000-0000-4000-8000-000000000004');
   f.context.storage.execution.worktrees.insert({
@@ -227,8 +228,9 @@ it('records each cycle’s own commands, ended turns, a reservation and the whol
     after: { code: 'implementation-commit-failed' },
   });
   expect(ofCycle(two, other)?.pass).toMatchObject({
+    decision: { kind: 'attention', guard: 'item-ready', code: 'item-not-admitted' },
     actions: ['advance'],
-    after: { code: 'controller-error' },
+    after: { code: 'item-not-admitted' },
   });
   expect(ofCycle(two, other)?.pass).not.toHaveProperty('calls');
 });

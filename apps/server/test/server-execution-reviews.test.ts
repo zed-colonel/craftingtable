@@ -846,8 +846,13 @@ itNeedsCargo.each([
     });
     const cycle = stopped()!;
     if (!typed) {
-      // The refresh would not clear it, so it is not offered as the exit.
-      expect(cycle.attention?.code).toBe('controller-error');
+      // The refresh would not clear it, so it is not offered as the exit: the checkpoint could
+      // not attest with the evidence it has (R-B4, decision 3), not controller-error.
+      expect(cycle.attention).toMatchObject({
+        code: 'checkpoint-attestation-failed',
+        owner: 'operator',
+        refs: { checkpointId: 'LOCAL-REVIEW' },
+      });
       expect(cycle.reason).toContain(pinIssue ? issue : OTHER_ISSUE);
       return;
     }

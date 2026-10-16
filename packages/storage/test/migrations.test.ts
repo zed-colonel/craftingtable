@@ -112,6 +112,7 @@ const DEPLOYED_MIGRATIONS: readonly PinnedMigration[] = [
 // biome-ignore format: one row per migration, appended in order.
 const PENDING_MIGRATIONS: readonly PinnedMigration[] = [
   { version: 41, name: 'roadmap-wind-downs', checksum: '9a82f9411612cf73159a70e4b762b871b9bee36e931113892aca05c1b81c5134' },
+  { version: 42, name: 'stored-vocabulary', checksum: 'ad9b68f366a800354b24763fe719865475773eab2dfa3124a47d79e611b8d09b' },
 ];
 
 const PINNED_MIGRATIONS = [...DEPLOYED_MIGRATIONS, ...PENDING_MIGRATIONS];
@@ -211,7 +212,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(41);
+    ).toBe(42);
     second.close();
   });
 
@@ -233,7 +234,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(41);
+    ).toBe(42);
     database.close();
   });
 
@@ -293,10 +294,10 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 41,
+      supportedVersion: 42,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
       ],
     });
 
@@ -312,10 +313,10 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 41,
+      supportedVersion: 42,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
       ],
     });
     expect(existsSync(path)).toBe(false);

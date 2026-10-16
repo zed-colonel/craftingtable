@@ -1,5 +1,6 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, expect, it } from 'vitest';
 
@@ -18,6 +19,7 @@ import {
   fixtureRepository,
   git,
   implementationDone,
+  mutationHeaders,
   ready,
   registerAndWorktree,
   reviewText,
@@ -284,3 +286,54 @@ it.each(['untracked artifact', 'index-only change'])(
     expect(git(['status', '--porcelain'], worktree.path)).toBe('');
   },
 );
+
+// R-B4, decision 4: housekeeping's limit stop at an implement step is answered as every limit
+// stop is, with Authorize more remediation, which relaunches the housekeeping remediation.
+it('relaunches the housekeeping remediation when more is authorized at its limit stop', async () => {
+  const { state, backend, worktree } = await cycleFixture([
+    designDone,
+    implementationDone,
+    implementationDone,
+    { resultText: reviewText([]) },
+  ]);
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model')
+      writeFileSync(join(worktree.path, 'unknown.wal'), 'test artifact');
+    if (request.model === 'remediate-model') rmSync(join(worktree.path, 'unknown.wal'));
+  };
+  const cycle = await startCycle(state, worktree.id, {
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+  });
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'limit stop');
+  const stopped = currentCycle(state, cycle);
+  expect(stopped).toMatchObject({
+    step: 'implement',
+    attention: { code: 'remediation-exhausted' },
+  });
+  const grant = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+    headers: mutationHeaders(state),
+    payload: {
+      action: 'authorize-remediation',
+      expectedVersion: stopped.version,
+      additionalRounds: 1,
+      instructions: 'Remove the generated artifact.',
+    },
+  });
+  expect(grant.statusCode, grant.body).toBe(200);
+  await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'remediated');
+  expect(backend.launches.map((r) => r.model)).toEqual([
+    'design-model',
+    'implement-model',
+    'remediate-model',
+    'review-model',
+  ]);
+  const remediation = backend.launches[2]!.prompt;
+  expect(remediation).toContain('Files remain after implementation finalization.');
+  expect(remediation).toContain('Remove the generated artifact.');
+  expect(currentCycle(state, cycle)).toMatchObject({
+    remediationRounds: 1,
+    additionalRemediationRounds: 1,
+  });
+});

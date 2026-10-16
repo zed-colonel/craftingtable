@@ -1,6 +1,7 @@
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import {
   type AgentRun,
+  type AttentionRefs,
   type CycleAttentionCode,
   type CycleStep,
   effectiveCycleAttention,
@@ -11,6 +12,7 @@ import {
   type WorkCycle,
   type Worktree,
 } from '@craftingtable/domain';
+import type { Readiness } from './cycle-effects.js';
 import type { CycleFacts, KernelFacts } from './cycle-facts.js';
 import { investigationLive, worktreeChangeOpen } from './investigation.js';
 import { decideStepOutcome, type StepOutcomeDecision } from './step-outcome.js';
@@ -121,6 +123,7 @@ export type CycleDecisionBody =
       readonly kind: 'attention';
       readonly code: CycleAttentionCode;
       readonly message: string;
+      readonly refs?: AttentionRefs;
       /** The live turn is cancelled before the stop is written. */
       readonly endTurn?: boolean;
     }
@@ -148,13 +151,18 @@ export type CycleDecision = CycleDecisionBody & { readonly guard: CycleGuard };
 
 /**
  * The stops the guards write themselves; the step outcome's are `STEP_ATTENTION_CODES` and the
- * effects' are their sub-decisions' (`cycle-effects.ts`). A scope's phase gate that does not
- * wait is `controller-error`, as when it threw, until R-B4's increment 4 types it.
+ * effects' are their sub-decisions' (`cycle-effects.ts`). The item gate's and the finalization's
+ * refusals are typed (R-B4, decision 3), so no guard writes `controller-error`.
  */
 export const GUARD_CODES: readonly CycleAttentionCode[] = [
   'worktree-inactive',
   'authority-lost',
-  'controller-error',
+  'phase-gate',
+  'item-unavailable',
+  'item-not-admitted',
+  'item-completed-unmerged',
+  'predecessors-incomplete',
+  'finalization-inactive',
   'design-dependency-unsupported',
   'design-recheck-unavailable',
   'design-dependency-continuations-exhausted',
@@ -196,12 +204,29 @@ const attention = (
   code: CycleAttentionCode,
   message: string,
   endTurn = false,
+  refs?: AttentionRefs,
 ): CycleDecisionBody => ({
   kind: 'attention',
   code,
   message,
+  ...(refs ? { refs } : {}),
   ...(endTurn ? { endTurn } : {}),
 });
+
+/** A gate's readiness as a decision: nothing when ready, else its phase wait or its stop. */
+function readinessDecision(readiness: Readiness): CycleDecisionBody | undefined {
+  switch (readiness.kind) {
+    case 'ready':
+      return undefined;
+    case 'wait':
+      return {
+        kind: 'wait',
+        wait: { change: 'record-phase', blockers: readiness.blockers, reason: readiness.reason },
+      };
+    case 'refused':
+      return attention(readiness.code, readiness.message, false, readiness.refs);
+  }
+}
 const effect = (value: CycleEffect): CycleDecisionBody => ({ kind: 'effect', effect: value });
 
 const GUARDS: Record<CycleGuard, Guard> = {
@@ -279,19 +304,16 @@ const GUARDS: Record<CycleGuard, Guard> = {
     cycle.status === 'awaiting-merge' && facts.onlyOperatorCanAdvance()
       ? idle('operator-merge-only')
       : undefined,
-  'item-ready': ({ cycle, facts }) => {
+  'item-ready': ({ cycle, facts }) =>
     // A changed admission gate must not prevent supervision, cancellation or deadline
-    // enforcement for a process already launched: it is checked again before the next launch
-    // or merge.
-    if (
-      !cycle.workItemId ||
-      !cycle.executionScope ||
-      cycle.status === 'awaiting-merge' ||
-      !facts.currentRun()
-    )
-      facts.requireReady();
-    return undefined;
-  },
+    // enforcement for a scoped process already launched: it is checked again before the next
+    // launch or merge.
+    cycle.workItemId &&
+    cycle.executionScope &&
+    cycle.status !== 'awaiting-merge' &&
+    facts.currentRun()
+      ? undefined
+      : readinessDecision(facts.readiness()),
   'merge-reserved': ({ facts }) => (facts.mergeReserved() ? idle('merge-reserved') : undefined),
   'merge-boundary': ({ cycle, facts }) =>
     cycle.status === 'awaiting-merge'
@@ -312,11 +334,13 @@ const GUARDS: Record<CycleGuard, Guard> = {
     if (facts.currentRun()) return undefined;
     const blockers = facts.phaseBlockers();
     if (!blockers.length) return undefined;
-    // What the scope's phase gate said when it threw (`PhaseGateError`): every blocker's message.
+    // Every blocker's message, as the scope's phase gate says them (`PhaseGateError`).
     const message = blockers.map((b) => b.message).join('\n');
     return blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].waits)
       ? { kind: 'wait', wait: { change: 'record-phase', blockers, reason: message } }
-      : attention('controller-error', message);
+      : attention('phase-gate', message, false, {
+          blockers: [...new Set(blockers.map(phaseBlockerCode))],
+        });
   },
   'design-dependencies': ({ cycle, facts }) => {
     if (!cycle.designWait) return undefined;
@@ -391,7 +415,10 @@ const GUARDS: Record<CycleGuard, Guard> = {
         'service-retry-mismatch',
         'Provider recovery no longer matches the latest failed run. Inspect the worktree before resuming.',
       );
-    if (cycle.workItemId) facts.requireReady();
+    if (cycle.workItemId) {
+      const blocked = readinessDecision(facts.readiness());
+      if (blocked) return blocked;
+    }
     const { nextRetryAt: _due, ...pending } = recovery;
     return {
       kind: 'launch',

@@ -73,6 +73,33 @@ export const CYCLE_ATTENTION = {
   // A declared check's definition files differ on the gated commit from the ones adopted
   // (R-G13); the operator adopts the new definition or the change is reverted.
   'check-definition-changed': 'operator',
+  // The stops `controller-error` used to hide (R-B4, decision 3): each says what refused the step,
+  // and a resume once that is fixed is the way on.
+  // A phase requirement of the scope that does not wait; its refs name the blockers' codes.
+  'phase-gate': 'operator',
+  // The work item is missing, not admitted, or completed without its worktree merged.
+  'item-unavailable': 'operator',
+  'item-not-admitted': 'operator',
+  'item-completed-unmerged': 'operator',
+  // A required predecessor is not completed, or its merge is missing from the branch.
+  'predecessors-incomplete': 'operator',
+  'predecessor-merge-missing': 'operator',
+  // The worktree is dirty, off its managed branch or mid Git operation, or the review's branch
+  // context changed.
+  'worktree-state': 'operator',
+  // An integration resolution's merge is not ready to commit.
+  'resolution-not-ready': 'operator',
+  // The step's launch refused it for a reason of its own (the message names it).
+  'launch-refused': 'operator',
+  // The roadmap's worktree binding changed, or the user who delegated it lost the permission.
+  'roadmap-binding-changed': 'operator',
+  'delegation-authority-lost': 'operator',
+  // A review's continuation could not capture its branch context (R-C2's deferral).
+  'review-capture-failed': 'operator',
+  // The plan finalization this cycle runs is no longer active.
+  'finalization-inactive': 'operator',
+  // Git or the checkpoint review service is unavailable to the daemon.
+  'service-unavailable': 'operator',
   'reassessment-failed': 'operator',
   'worktree-inactive': 'operator',
   'authority-lost': 'operator',
@@ -183,6 +210,8 @@ export interface AttentionRefs {
    * no single check.
    */
   readonly checkId?: string;
+  /** The codes of the phase blockers a `phase-gate` stop is for (R-B4). */
+  readonly blockers?: readonly PhaseBlockerCode[];
   /** The pins that moved, for the operator and for automation that may refresh them later. */
   readonly pins?: readonly {
     readonly alias: string;

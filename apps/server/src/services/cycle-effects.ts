@@ -7,6 +7,7 @@ import {
   optionalFinding,
   parkedFollowUp,
   type PhaseBlocker,
+  phaseBlockerCode,
   remediationAllowance,
   remediationUsed,
   type ReviewFinding,
@@ -20,7 +21,9 @@ import {
   ConcurrentModificationError,
   DaemonDrainingError,
   ExecutionRequestError,
+  type RefusalStop,
   RepositoryChecksUndeclaredError,
+  TypedRefusalError,
   UpstreamPinMovedError,
   UpstreamTransitionUndeclaredError,
 } from './errors.js';
@@ -83,8 +86,77 @@ export function retryableControllerError(error: unknown): boolean {
   );
 }
 
-export type FailureDecision =
-  | { readonly kind: 'retry' }
+/**
+ * A review continuation's capture of its branch context (R-C2): any refusal it meets is the
+ * continuation's, `review-capture-failed`, whatever Git or the worktree said.
+ */
+export async function reviewCapture<T>(capture: () => Promise<T>): Promise<T> {
+  try {
+    return await capture();
+  } catch (error) {
+    if (error instanceof ExecutionRequestError && !retryableControllerError(error))
+      throw new TypedRefusalError('review-capture-failed', error.message);
+    throw error;
+  }
+}
+
+export type FailureDecision = { readonly kind: 'retry' } | EffectStop;
+
+/**
+ * What an error that escaped a cycle's reconciliation means (R-B4): contention, which a later
+ * pass retries, or an unexpected exception, the one stop left as `controller-error`. Every
+ * expected refusal is decided before it gets here (`readinessOf`, `decideRefusal`).
+ */
+export function decideFailure(error: unknown): FailureDecision {
+  if (retryableControllerError(error)) return { kind: 'retry' };
+  return stop(
+    'controller-error',
+    error instanceof ExecutionRequestError
+      ? error.message
+      : 'Controller could not advance this step. Inspect the run before resuming.',
+  );
+}
+
+/**
+ * Whether the cycle's work item (or plan finalization) may be driven now: ready, waiting on a
+ * scope phase gate that clears by itself, or refused with the stop the refusal names.
+ */
+export type Readiness =
+  | { readonly kind: 'ready' }
+  | {
+      readonly kind: 'wait';
+      readonly blockers: readonly PhaseBlocker[];
+      readonly reason: string;
+    }
+  | {
+      readonly kind: 'refused';
+      readonly code: RefusalStop;
+      readonly message: string;
+      readonly refs?: AttentionRefs;
+    };
+
+/** A gate's refusal as a readiness: a scope phase gate waits or stops; a typed refusal stops. */
+export function readinessOf(error: unknown): Readiness | undefined {
+  if (error instanceof PhaseGateError)
+    return error.waiting
+      ? { kind: 'wait', blockers: error.blockers, reason: error.message }
+      : {
+          kind: 'refused',
+          code: 'phase-gate',
+          message: error.message,
+          refs: { blockers: [...new Set(error.blockers.map(phaseBlockerCode))] },
+        };
+  if (error instanceof TypedRefusalError)
+    return {
+      kind: 'refused',
+      code: error.stop,
+      message: error.message,
+      ...(error.refs ? { refs: error.refs } : {}),
+    };
+  return undefined;
+}
+
+export type RefusalDecision =
   | {
       readonly kind: 'phase-wait';
       readonly blockers: readonly PhaseBlocker[];
@@ -93,17 +165,18 @@ export type FailureDecision =
   | EffectStop;
 
 /**
- * What an error that escaped a cycle's reconciliation means: a phase gate the controller waits
- * for, contention to retry, a stop its class names, or `controller-error`.
+ * What a refusal the decision's writes or effect met means for the cycle (R-B4, decision 3): a
+ * scope phase gate's wait or stop, the stop a typed refusal names, or the stop one of the launch
+ * preparation's, the checkpoint's or the checks' refusal classes names. Contention and anything
+ * else are left to the pass (`undefined`).
  */
-export function decideFailure(error: unknown): FailureDecision {
-  if (error instanceof PhaseGateError && error.waiting)
-    return { kind: 'phase-wait', blockers: error.blockers, reason: error.message };
-  if (retryableControllerError(error)) return { kind: 'retry' };
-  const message =
-    error instanceof ExecutionRequestError
-      ? error.message
-      : 'Controller could not advance this step. Inspect the run before resuming.';
+export function decideRefusal(error: unknown): RefusalDecision | undefined {
+  if (retryableControllerError(error)) return undefined;
+  const readiness = readinessOf(error);
+  if (readiness?.kind === 'wait')
+    return { kind: 'phase-wait', blockers: readiness.blockers, reason: readiness.reason };
+  if (readiness?.kind === 'refused') return stop(readiness.code, readiness.message, readiness.refs);
+  const message = error instanceof Error ? error.message : '';
   if (error instanceof UpstreamTransitionUndeclaredError)
     return stop('upstream-transition-undeclared', message);
   if (error instanceof UpstreamPinMovedError)
@@ -120,7 +193,18 @@ export function decideFailure(error: unknown): FailureDecision {
       repositoryId: error.repositoryId,
       checkId: error.checkId,
     });
-  return stop('controller-error', message);
+  return undefined;
+}
+
+/**
+ * A launch's refusal (`startForCycle`): as `decideRefusal`, and any other refusal the launch
+ * states is its own check's, `launch-refused`. Contention and the unexpected are the pass's.
+ */
+export function decideLaunch(error: unknown): RefusalDecision | undefined {
+  const decided = decideRefusal(error);
+  if (decided || retryableControllerError(error) || !(error instanceof ExecutionRequestError))
+    return decided;
+  return stop('launch-refused', error.message);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -408,14 +492,28 @@ export function decideRemediation(input: {
   return { kind: 'remediate', stalledReviews };
 }
 
-/** A worktree a remediation must tidy: a remediation round, or the limit stop. */
+/**
+ * A worktree a remediation must tidy: a remediation round, or the limit stop. An operator's
+ * grant at that stop (R-B4, decision 4) adds its rounds; one that adds too few is refused and
+ * keeps the stop, as at a review's limit stop (`decideRemediation`).
+ */
 export function decideHousekeeping(
   cycle: Parameters<typeof remediationUsed>[0] & Parameters<typeof remediationAllowance>[0],
   reason: string,
-): EffectStop | { readonly kind: 'remediate' } {
-  return remediationUsed(cycle) >= remediationAllowance(cycle)
-    ? stop('remediation-exhausted', `Remediation limit reached. ${reason}`)
-    : { kind: 'remediate' };
+  grant?: { readonly additionalRounds: number },
+):
+  | EffectStop
+  | { readonly kind: 'refuse'; readonly message: string }
+  | { readonly kind: 'remediate' } {
+  const used = remediationUsed(cycle);
+  const allowance = remediationAllowance(cycle);
+  if (used < allowance + (grant?.additionalRounds ?? 0)) return { kind: 'remediate' };
+  return grant
+    ? {
+        kind: 'refuse',
+        message: `${used} remediation rounds are used of ${allowance} allowed. Authorize at least ${used - allowance + 1} more to start another.`,
+      }
+    : stop('remediation-exhausted', `Remediation limit reached. ${reason}`);
 }
 
 /** A finished implementation or remediation, once committed: review it, unless nothing changed twice. */

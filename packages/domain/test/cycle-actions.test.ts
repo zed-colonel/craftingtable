@@ -20,6 +20,21 @@ describe('cycle actions (R-A7)', () => {
       'shared-decision-required',
       'scope-review-recovery',
       'workflow-obligation',
+      // The stops `controller-error` hid (R-B4, decision 3): resumed once the cause is fixed.
+      'phase-gate',
+      'item-unavailable',
+      'item-not-admitted',
+      'item-completed-unmerged',
+      'predecessors-incomplete',
+      'predecessor-merge-missing',
+      'worktree-state',
+      'resolution-not-ready',
+      'launch-refused',
+      'roadmap-binding-changed',
+      'delegation-authority-lost',
+      'review-capture-failed',
+      'finalization-inactive',
+      'service-unavailable',
     ] as const)
       expect(cycleActions(cycle('needs-attention', code))).toEqual(['resume', 'stop']);
     expect(cycleActions(cycle('paused'))).toEqual(['resume', 'stop']);

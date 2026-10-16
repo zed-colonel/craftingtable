@@ -99,6 +99,7 @@ import {
   ConcurrentModificationError,
   ExecutionRequestError,
   NotFoundError,
+  TypedRefusalError,
   CheckDefinitionChangedError,
   DeclaredChecksMissingError,
 } from './errors.js';
@@ -118,6 +119,8 @@ import {
   decideApprovedHead,
   decideDiscovery,
   decideFailure,
+  decideLaunch,
+  decideRefusal,
   decideFinalized,
   decideHousekeeping,
   decideObligations,
@@ -129,7 +132,9 @@ import {
   ledgerFull,
   nitsParked,
   reassessmentFailure,
+  type RefusalDecision,
   refreshFailure,
+  reviewCapture,
   securityReviewNotCurrent,
   securityReviewerStop,
   stageFindings,
@@ -193,6 +198,17 @@ type CycleChanges = CycleFieldChanges &
       }
     | { readonly status?: undefined; readonly attention: CycleAttention }
   );
+
+/** An operator's grant of more remediation rounds, with its instructions. */
+interface RemediationGrant {
+  readonly additionalRounds: number;
+  readonly instructions: string;
+  readonly agentOverride?: WorkCycle['finalizationAgentOverride'];
+}
+
+/** What housekeeping tells the remediation after the implementation checkpoint left files. */
+const FILES_REMAIN_AFTER_FINALIZATION =
+  'Files remain after implementation finalization. Classify and reconcile them before a fresh review.';
 
 /** Puts a cycle back in the status (and stop) it had before an undone reservation. */
 function restoredStatus(cycle: WorkCycle): CycleChanges {
@@ -1592,7 +1608,15 @@ export class WorkCycleService {
   }
 
   private remediationBlocker(cycle: WorkCycle, guidedContinuation = false): string | undefined {
-    if (!['paused', 'needs-attention'].includes(cycle.status) || cycle.step !== 'review')
+    // Housekeeping's limit stop at an implement or remediate step takes the grant too (R-B4,
+    // decision 4): its current run is the implementation the checkpoint left untidy.
+    const housekeeping =
+      (cycle.step === 'implement' || cycle.step === 'remediate') &&
+      stopCode(cycle) === 'remediation-exhausted';
+    if (
+      !['paused', 'needs-attention'].includes(cycle.status) ||
+      (cycle.step !== 'review' && !housekeeping)
+    )
       return 'Additional remediation requires a paused review.';
     if (cycle.executionScope && cycle.executionScope.kind !== 'slice')
       return 'Address findings through the owning slice, not this review-only snapshot.';
@@ -1617,10 +1641,17 @@ export class WorkCycleService {
     if (
       this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0 ||
       run?.id !== cycle.currentRunId ||
-      run.role !== 'review' ||
+      run.role !== (housekeeping ? 'implement' : 'review') ||
       run.status !== 'finished'
     )
-      return 'The current review must finish before authorizing remediation.';
+      return housekeeping
+        ? 'The current implementation must finish before authorizing remediation.'
+        : 'The current review must finish before authorizing remediation.';
+    if (housekeeping)
+      return this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId)?.status ===
+        'active'
+        ? undefined
+        : 'The managed worktree must be active before authorizing remediation.';
     const turn = this.storage.execution.runEvents.latestOfKind(
       cycle.workspaceId,
       run.id,
@@ -1689,7 +1720,7 @@ export class WorkCycleService {
     if (blocker) throw new ExecutionRequestError('conflict', blocker);
     const run = this.storage.execution.runs.find(workspaceId, cycle.currentRunId);
     if (!run) throw new NotFoundError();
-    return this.reviewRemediation(cycle, run, context, {
+    return this.grantRemediation(cycle, run, context, {
       additionalRounds: input.additionalRounds,
       instructions: input.instructions.trim(),
     });
@@ -1720,7 +1751,7 @@ export class WorkCycleService {
     if (blocker) throw new ExecutionRequestError('conflict', blocker);
     const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
     if (!run) throw new NotFoundError();
-    return this.reviewRemediation(cycle, run, context, {
+    return this.grantRemediation(cycle, run, context, {
       additionalRounds,
       instructions,
       agentOverride,
@@ -2403,20 +2434,26 @@ export class WorkCycleService {
     try {
       await this.reconcile(cycle, owner, settling);
     } catch (error) {
-      // Only contention, a phase gate's wait, and a stop the error's class names reach here;
-      // anything else stops the cycle as `controller-error`.
+      // Only contention and an unexpected exception reach here (R-B4): every expected refusal
+      // was decided where it was met.
       const failure = decideFailure(error);
-      if (failure.kind === 'retry') return;
-      const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-      if (
-        current?.version !== cycle.version ||
-        !['running', 'awaiting-merge'].includes(current.status)
-      )
-        return;
-      if (failure.kind === 'phase-wait')
-        this.waitForPhase(current, failure.blockers, failure.reason);
-      else this.attention(current, failure.code, failure.message, failure.refs);
+      if (failure.kind !== 'retry') this.stopAfterFailure(cycle, failure);
     }
+  }
+
+  /**
+   * A failure's stop or phase wait, written only while the cycle is the version the pass read
+   * and still driven: a newer write (an operator's command) wins.
+   */
+  private stopAfterFailure(cycle: WorkCycle, failure: RefusalDecision): void {
+    const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+    if (
+      current?.version !== cycle.version ||
+      !['running', 'awaiting-merge'].includes(current.status)
+    )
+      return;
+    if (failure.kind === 'phase-wait') this.waitForPhase(current, failure.blockers, failure.reason);
+    else this.attention(current, failure.code, failure.message, failure.refs);
   }
 
   /**
@@ -2503,7 +2540,7 @@ export class WorkCycleService {
   ): Promise<void> {
     const now = this.now();
     let guard: CycleGuard | undefined;
-    let decision: CycleDecision;
+    let decision: CycleDecision | undefined;
     try {
       decision = decide(
         cycle,
@@ -2514,12 +2551,16 @@ export class WorkCycleService {
           guard = asked;
         },
       );
+      this.observer?.decided?.(cycle, { decision });
+      await this.apply(cycle, decision);
     } catch (error) {
-      this.observer?.decided?.(cycle, { failed: error, guard });
-      throw error;
+      if (!decision) this.observer?.decided?.(cycle, { failed: error, guard });
+      // A typed refusal a fact, the decision's writes or its effect met is decided here (R-B4,
+      // decision 3); contention and the unexpected go on to the pass.
+      const refused = decideRefusal(error);
+      if (!refused) throw error;
+      this.stopAfterFailure(cycle, refused);
     }
-    this.observer?.decided?.(cycle, { decision });
-    await this.apply(cycle, decision);
   }
 
   /** What this process is doing with the cycle right now (R-B4); R-B5's kernel replaces it. */
@@ -2541,7 +2582,7 @@ export class WorkCycleService {
         return;
       case 'attention':
         if (decision.endTurn) this.runs.finishCycleTurn(cycle, true);
-        this.attention(cycle, decision.code, decision.message);
+        this.attention(cycle, decision.code, decision.message, decision.refs);
         return;
       case 'wait':
         if (decision.wait.change === 'record-phase')
@@ -2569,7 +2610,13 @@ export class WorkCycleService {
           // A drain admits no launches; the reservation survives the restart and launches then.
           if (this.runs.isDraining()) return;
         }
-        await this.runs.startForCycle(cycle);
+        try {
+          await this.runs.startForCycle(cycle);
+        } catch (error) {
+          const refused = decideLaunch(error);
+          if (!refused) throw error;
+          this.stopAfterFailure(cycle, refused);
+        }
         return;
       case 'effect':
         return this.runEffect(cycle, decision.effect);
@@ -2711,7 +2758,7 @@ export class WorkCycleService {
       managedBranch: worktree.branchName,
       changes: changes?.ok ? changes.value : undefined,
     });
-    if (checked.kind === 'refuse') throw new ExecutionRequestError('conflict', checked.message);
+    if (checked.kind === 'refuse') throw new TypedRefusalError('worktree-state', checked.message);
     if (checked.kind === 'attention') {
       this.attention(cycle, checked.code, checked.message);
       return;
@@ -2849,7 +2896,10 @@ export class WorkCycleService {
       kind === 'checkpoint' &&
       (!checkpoint?.supported || !checkpoint.assigned || checkpoint.pending.length)
     )
-      throw new ExecutionRequestError('conflict', 'Checkpoint review requirements are not ready.');
+      throw new TypedRefusalError(
+        'launch-refused',
+        'Checkpoint review requirements are not ready.',
+      );
     // A roadmap delegates the security review only to the role its map declares for it (R-F2).
     const definition = this.storage.imports.definition(cycle.workspaceId, context.definitionId);
     const securityRole = definition && mapCapabilities(definition.source).securityReviewerRole;
@@ -2864,7 +2914,10 @@ export class WorkCycleService {
     }
     const user = this.storage.users.findById(cycle.createdByUserId);
     if (user?.status !== 'active')
-      throw new ExecutionRequestError('conflict', 'Delegating user is no longer active.');
+      throw new TypedRefusalError(
+        'delegation-authority-lost',
+        'Delegating user is no longer active.',
+      );
     this.workspaceService.requireRole({ user }, cycle.workspaceId, ['owner', 'editor']);
     const workflow = cycle.workflow ?? { reassessments: 0, questions: [] };
     await this.next(
@@ -2941,9 +2994,11 @@ export class WorkCycleService {
     if (active) {
       if (active.kind === 'checkpoint') {
         if (!this.runtimeEvidence)
-          throw new ExecutionRequestError(
-            'unavailable',
+          throw new TypedRefusalError(
+            'service-unavailable',
             'Checkpoint review service is unavailable.',
+            undefined,
+            'unavailable',
           );
         await this.runtimeEvidence.acceptWorkflowCheckpoint(cycle);
       }
@@ -3189,8 +3244,8 @@ export class WorkCycleService {
       changes.value.conflicted ||
       changes.value.branch !== tree.branchName
     )
-      throw new ExecutionRequestError(
-        'conflict',
+      throw new TypedRefusalError(
+        'worktree-state',
         'Stage completion requires the managed branch without a pending Git operation.',
       );
     if (!changes.value.clean || changes.value.headSha !== run.reviewBranchContext?.headSha) {
@@ -3517,18 +3572,14 @@ export class WorkCycleService {
     cycle: WorkCycle,
     run: AgentRun,
     context?: CommandContext,
-    grant?: {
-      additionalRounds: number;
-      instructions: string;
-      agentOverride?: WorkCycle['finalizationAgentOverride'];
-    },
+    grant?: RemediationGrant,
   ): Promise<WorkCycle> {
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (!tree || !this.git) throw new NotFoundError();
     const state = await this.git.inspectWorktreeChanges(tree.path);
     if (!state.ok || state.value.branch !== tree.branchName || state.value.conflicted)
-      throw new ExecutionRequestError(
-        'conflict',
+      throw new TypedRefusalError(
+        'worktree-state',
         'Remediation requires the managed branch without unresolved Git operations.',
       );
     if (grant) {
@@ -3626,16 +3677,59 @@ export class WorkCycleService {
     );
   }
 
-  private async housekeeping(cycle: WorkCycle, run: AgentRun, reason: string): Promise<void> {
-    const decided = decideHousekeeping(cycle, reason);
+  private async housekeeping(
+    cycle: WorkCycle,
+    run: AgentRun,
+    reason: string,
+    context?: CommandContext,
+    grant?: RemediationGrant,
+  ): Promise<WorkCycle> {
+    const decided = decideHousekeeping(cycle, reason, grant);
+    if (decided.kind === 'refuse') throw new ExecutionRequestError('conflict', decided.message);
     if (decided.kind === 'attention') {
       this.attention(cycle, decided.code, decided.message);
-      return;
+      return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
     }
-    await this.next(cycle, 'remediate', run, undefined, {
-      remediationRounds: cycle.remediationRounds + 1,
-      housekeepingInstructions: `${reason}\n\n${this.housekeepingGuidance()}`,
-    });
+    return this.next(
+      cycle,
+      'remediate',
+      run,
+      context,
+      {
+        remediationRounds: cycle.remediationRounds + 1,
+        housekeepingInstructions: `${reason}\n\n${this.housekeepingGuidance()}`,
+        ...(grant
+          ? {
+              // An explicit grant opens a new bounded progress window, as at a review's limit.
+              stalledReviews: 0,
+              additionalRemediationRounds:
+                (cycle.additionalRemediationRounds ?? 0) + grant.additionalRounds,
+              ...(grant.agentOverride === undefined
+                ? {}
+                : { finalizationAgentOverride: grant.agentOverride }),
+              stepGuidance: grant.instructions,
+              reason: `Authorized ${grant.additionalRounds} additional remediation attempt(s); starting remediation.`,
+            }
+          : {}),
+      },
+      grant ? 'authorize-remediation' : undefined,
+    );
+  }
+
+  /**
+   * An operator's grant of more remediation: a review's remediation, or at an implement or
+   * remediate step the housekeeping remediation its limit stop held back (R-B4, decision 4).
+   * There the stop can come only from the implementation checkpoint's housekeeping.
+   */
+  private grantRemediation(
+    cycle: WorkCycle,
+    run: AgentRun,
+    context: CommandContext,
+    grant: RemediationGrant,
+  ): Promise<WorkCycle> {
+    return cycle.step === 'review'
+      ? this.reviewRemediation(cycle, run, context, grant)
+      : this.housekeeping(cycle, run, FILES_REMAIN_AFTER_FINALIZATION, context, grant);
   }
 
   /**
@@ -3766,11 +3860,7 @@ export class WorkCycleService {
           if (!after.ok) throw new ExecutionRequestError('conflict', after.failure.message);
           check();
           if (!after.value.clean) {
-            await this.housekeeping(
-              current,
-              run,
-              'Files remain after implementation finalization. Classify and reconcile them before a fresh review.',
-            );
+            await this.housekeeping(current, run, FILES_REMAIN_AFTER_FINALIZATION);
             return;
           }
           return current;
@@ -3988,8 +4078,8 @@ export class WorkCycleService {
       !resolution ||
       (!forAbort && tree.integrationBranch !== resolution.targetBranch)
     )
-      throw new ExecutionRequestError(
-        'conflict',
+      throw new TypedRefusalError(
+        'worktree-state',
         'Resolution worktree or integration binding changed',
       );
     return {
@@ -4287,7 +4377,7 @@ export class WorkCycleService {
       const input = this.resolutionContext(cycle);
       if (resolution.status === 'preparing') {
         const result = await git.prepareIntegrationResolution(input);
-        if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
+        if (!result.ok) throw new TypedRefusalError('worktree-state', result.failure.message);
         check();
         this.change(
           cycle,
@@ -4305,7 +4395,7 @@ export class WorkCycleService {
       }
       if (resolution.status === 'resolving') {
         const state = await git.inspectIntegrationResolution(input);
-        if (!state.ok) throw new ExecutionRequestError('conflict', state.failure.message);
+        if (!state.ok) throw new TypedRefusalError('worktree-state', state.failure.message);
         if (
           state.value.headSha !== resolution.headSha ||
           state.value.mergeHeadSha !== resolution.targetSha ||
@@ -4314,8 +4404,8 @@ export class WorkCycleService {
           state.value.unstaged ||
           !state.value.treeSha
         )
-          throw new ExecutionRequestError(
-            'conflict',
+          throw new TypedRefusalError(
+            'resolution-not-ready',
             'Resolution is not ready: resolve and stage all changes, clear generated files, and keep the pinned merge pending. Resume with guidance.',
           );
         check();
@@ -4342,7 +4432,7 @@ export class WorkCycleService {
           treeSha: resolution.treeSha,
           resolutionId: resolution.id,
         });
-        if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
+        if (!result.ok) throw new TypedRefusalError('worktree-state', result.failure.message);
         check();
         const changed = this.change(
           cycle,
@@ -4485,12 +4575,14 @@ export class WorkCycleService {
     if (collectingReview) {
       const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
       if (!tree || !parent.reviewBranchContext || !this.branches)
-        throw new ExecutionRequestError(
-          'conflict',
+        throw new TypedRefusalError(
+          'review-capture-failed',
           'Review continuation requires its original branch checkpoint.',
         );
       reviewHeadSha = (
-        await this.branches.captureReviewContinuation(tree, parent.reviewBranchContext)
+        await reviewCapture(() =>
+          this.branches!.captureReviewContinuation(tree, parent.reviewBranchContext!),
+        )
       ).context.headSha;
     } else if (step === 'review') reviewHeadSha = await this.cleanHead(cycle);
     if (
@@ -4570,11 +4662,14 @@ export class WorkCycleService {
   private async cleanHead(cycle: WorkCycle): Promise<string> {
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (worktree?.status !== 'active' || !this.git)
-      throw new ExecutionRequestError('conflict', 'The active worktree or Git is unavailable');
+      throw new TypedRefusalError(
+        worktree?.status !== 'active' ? 'worktree-state' : 'service-unavailable',
+        'The active worktree or Git is unavailable',
+      );
     const result = await this.git.inspectRepository(worktree.path);
     if (!result.ok || !result.value.clean || result.value.branch !== worktree.branchName) {
-      throw new ExecutionRequestError(
-        'conflict',
+      throw new TypedRefusalError(
+        'worktree-state',
         'Review requires a clean worktree on its managed branch. Commit or resolve the changes manually, then resume.',
       );
     }

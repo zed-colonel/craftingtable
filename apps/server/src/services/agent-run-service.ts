@@ -104,7 +104,13 @@ import {
 } from './brief.js';
 import type { OutputContext } from './brief-output.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
-import { DaemonDrainingError, ExecutionRequestError, NotFoundError } from './errors.js';
+import {
+  DaemonDrainingError,
+  ExecutionRequestError,
+  NotFoundError,
+  TypedRefusalError,
+} from './errors.js';
+import { reviewCapture } from './cycle-effects.js';
 import {
   requireNotRetired,
   requireTreeScope,
@@ -970,8 +976,8 @@ export class AgentRunService {
     // Every path that launches a finalization run (cycle control, service retries,
     // continuations) ends here; a stage-less finalization is retired (R-B10) and gets no run.
     if (finalization && !finalization.stages)
-      throw new ExecutionRequestError(
-        'conflict',
+      throw new TypedRefusalError(
+        'legacy-finalization-retired',
         'This finalization uses retired improvement rounds. Stop it and start a staged finalization.',
       );
     const recovery =
@@ -1421,13 +1427,13 @@ export class AgentRunService {
             cycle?.providerRecovery,
           );
           if (!baseline || !continuable || !this.branches)
-            throw new ExecutionRequestError(
-              'conflict',
+            throw new TypedRefusalError(
+              'review-capture-failed',
               'Review continuation requires the interrupted review and its pinned branch context.',
             );
-          const snapshot = await this.branches.captureReviewContinuation(
-            prepared.worktree,
-            baseline,
+          const branches = this.branches;
+          const snapshot = await reviewCapture(() =>
+            branches.captureReviewContinuation(prepared.worktree, baseline),
           );
           reviewBranchContext = snapshot.context;
           reviewArtifacts = snapshot.artifacts;
@@ -1517,9 +1523,11 @@ export class AgentRunService {
       // Its record says the daemon records its receipts; without the daemon's check service
       // nothing would, and its gate could never be met.
       if (checksOnly && !this.checks)
-        throw new ExecutionRequestError(
-          'unavailable',
+        throw new TypedRefusalError(
+          'service-unavailable',
           "CraftingTable's check service is not running, so this repository's adopted checks cannot run.",
+          undefined,
+          'unavailable',
         );
       /** The run's verification manifest and launchers, pinned or check-only. */
       const verifying = pinned ?? checksOnly;

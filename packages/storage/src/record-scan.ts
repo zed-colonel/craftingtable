@@ -194,6 +194,7 @@ export const RELATIONAL_TABLES: Readonly<Record<string, string>> = {
   schema_migrations: 'migration bookkeeping',
   audit_action_kinds: 'append-only vocabulary catalog (ADR-013)',
   workspace_event_kinds: 'append-only vocabulary catalog (ADR-013)',
+  stored_vocabulary: 'append-only vocabulary catalog of stored codes (R-B4, decision 15)',
   users: 'relational; credentials never leave storage',
   sessions: 'relational; credentials never leave storage',
   workspaces: 'relational',

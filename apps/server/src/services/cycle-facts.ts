@@ -15,7 +15,8 @@ import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/s
 import type { CommandContext } from './auth-service.js';
 import { type CycleOwnership, cycleOwnership } from './cycle-ownership.js';
 import { designDependencyState } from './design-dependency-policy.js';
-import { ExecutionRequestError } from './errors.js';
+import { type Readiness, readinessOf } from './cycle-effects.js';
+import { TypedRefusalError } from './errors.js';
 import { requireScope, scopePhaseBlockers } from './execution-scope.js';
 import { finalizationForCycle } from './finalization-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
@@ -39,8 +40,8 @@ import {
  * facts share (ownership, delegation, scope evaluation) are computed once per cycle. The facts
  * are made, used and dropped inside one synchronous `decide`: never across an await or a write.
  *
- * A fact that stands for one of today's gates (`requireReady`, the finalization's activity)
- * throws as the gate does; increment 4 types those refusals.
+ * A fact that stands for one of the gates commands also pass (the item's readiness, the
+ * finalization's activity) answers with a typed result, never by throwing (R-B4, decision 3).
  */
 type TurnCompleted = Extract<AgentRunEvent, { kind: 'turn-completed' }>;
 
@@ -65,8 +66,8 @@ export interface CycleFacts {
   readonly creatorAuthorized: () => boolean;
   /** No controller review or integration refresh may advance this `awaiting-merge` cycle. */
   readonly onlyOperatorCanAdvance: () => boolean;
-  /** The item's admission and predecessor gate, or the finalization's activity: throws. */
-  readonly requireReady: () => void;
+  /** The item's admission and predecessor gate, or the finalization's activity. */
+  readonly readiness: () => Readiness;
   readonly mergeReserved: () => boolean;
   readonly controllerReviewRunnable: () => boolean;
   /** The worktree scope's phase blockers, for a scoped worktree. */
@@ -163,10 +164,17 @@ export function cycleFacts(
     }),
     creatorAuthorized: once(() => creatorAuthorized(tx, cycle)),
     onlyOperatorCanAdvance: once(() => onlyOperatorCanAdvance(storage, cycle)),
-    requireReady: once(() => {
-      if (cycle.workItemId)
-        requireReady(tx, cycle.workspaceId, cycle.workItemId, cycle.executionScope);
-      else finalizationForCycle(storage, cycle);
+    readiness: once((): Readiness => {
+      try {
+        if (cycle.workItemId)
+          requireReady(tx, cycle.workspaceId, cycle.workItemId, cycle.executionScope);
+        else finalizationForCycle(storage, cycle);
+        return { kind: 'ready' };
+      } catch (error) {
+        const readiness = readinessOf(error);
+        if (readiness) return readiness;
+        throw error;
+      }
     }),
     mergeReserved: once(
       () => tx.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status === 'reserved',
@@ -222,14 +230,18 @@ export function requireReady(
     );
   const item = tx.planning.workItems.find(workspaceId, workItemId);
   if (item?.status !== 'admitted' && !(scope && item?.status === 'completed'))
-    throw new ExecutionRequestError(
-      'conflict',
+    throw new TypedRefusalError(
+      !item
+        ? 'item-unavailable'
+        : item.status === 'completed'
+          ? 'item-completed-unmerged'
+          : 'item-not-admitted',
       'Automation requires an admitted, incomplete work item',
     );
   const predecessors = predecessorGate(tx, workspaceId, workItemId, scope);
   if (predecessors.blocked)
-    throw new ExecutionRequestError(
-      'conflict',
+    throw new TypedRefusalError(
+      'predecessors-incomplete',
       `Required predecessors are incomplete: ${predecessors.pending.map((dependency) => dependency.sourceId).join(', ')}`,
     );
   return item;
@@ -272,7 +284,7 @@ export function refreshOwner(
       !access ||
       !['owner', 'editor'].includes(access.membership.role)
     )
-      throw new ExecutionRequestError('conflict', 'Finalization authority was revoked');
+      throw new TypedRefusalError('authority-lost', 'Finalization authority was revoked');
     return {
       settings: { ...DEFAULT_ROADMAP_SCHEDULING, maxIntegrationRefreshes: 3 },
       context: { user },
@@ -301,8 +313,8 @@ export function refreshOwner(
     tree?.integrationBranch !== entry.integrationBranch ||
     tree.repositoryId !== entry.repositoryId
   )
-    throw new ExecutionRequestError(
-      'conflict',
+    throw new TypedRefusalError(
+      'roadmap-binding-changed',
       'The roadmap worktree branch binding changed. Reconcile it before resuming.',
     );
   // Same resolution as the scheduler, including ADR-065 grants: a grant that makes an
@@ -323,8 +335,8 @@ export function refreshOwner(
     !membership ||
     !['owner', 'editor'].includes(membership.membership.role)
   )
-    throw new ExecutionRequestError(
-      'conflict',
+    throw new TypedRefusalError(
+      'delegation-authority-lost',
       'The roadmap initiating user no longer has permission.',
     );
   return { settings, context: { user } };

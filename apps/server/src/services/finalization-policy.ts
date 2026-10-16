@@ -5,7 +5,7 @@ import {
   type WorkCycle,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
-import { ExecutionRequestError } from './errors.js';
+import { TypedRefusalError } from './errors.js';
 
 export function finalizationForCycle(
   storage: CraftingTableStorage,
@@ -18,7 +18,10 @@ export function finalizationForCycle(
     value.cycleId !== cycle.id ||
     value.worktreeId !== cycle.worktreeId
   )
-    throw new ExecutionRequestError('conflict', 'Finalization delegation is no longer active');
+    throw new TypedRefusalError(
+      'finalization-inactive',
+      'Finalization delegation is no longer active',
+    );
   assertFinalizationMap(storage, value);
   return value;
 }

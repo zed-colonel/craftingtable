@@ -21,6 +21,8 @@ import {
   decideApprovedHead,
   decideDiscovery,
   decideFailure,
+  decideLaunch,
+  decideRefusal,
   decideFinalized,
   decideHousekeeping,
   decideObligations,
@@ -49,7 +51,9 @@ import {
   ConcurrentModificationError,
   DaemonDrainingError,
   ExecutionRequestError,
+  REFUSAL_STOPS,
   RepositoryChecksUndeclaredError,
+  TypedRefusalError,
   UpstreamPinMovedError,
   UpstreamTransitionUndeclaredError,
 } from '../../src/services/errors.js';
@@ -106,12 +110,7 @@ const rows: readonly {
   readonly run: () => unknown;
   readonly expected: unknown;
 }[] = [
-  // decideFailure: what reached pass()'s catch.
-  {
-    name: 'a waiting phase gate is recorded as the phase wait',
-    run: () => decideFailure(new PhaseGateError([blocker('slice-not-merged')])),
-    expected: { kind: 'phase-wait', reason: 'slice-not-merged.' },
-  },
+  // decideFailure: what reached pass()'s catch, contention or the unexpected.
   ...[
     new ConcurrentModificationError('stale'),
     new DaemonDrainingError(),
@@ -123,8 +122,50 @@ const rows: readonly {
     expected: { kind: 'retry' },
   })),
   {
+    name: 'a refusal the controller has no code for stops as controller-error with its message',
+    run: () => decideFailure(new ExecutionRequestError('conflict', 'Refused.')),
+    expected: { kind: 'attention', code: 'controller-error', message: 'Refused.' },
+  },
+  {
+    name: 'an unexpected error stops as controller-error with a generic message',
+    run: () => decideFailure(new TypeError('x is undefined')),
+    expected: {
+      kind: 'attention',
+      code: 'controller-error',
+      message: 'Controller could not advance this step. Inspect the run before resuming.',
+    },
+  },
+  // decideRefusal: a refusal a fact, a write or an effect met (R-B4, decision 3).
+  {
+    name: 'a waiting phase gate is recorded as the phase wait',
+    run: () => decideRefusal(new PhaseGateError([blocker('slice-not-merged')])),
+    expected: { kind: 'phase-wait', reason: 'slice-not-merged.' },
+  },
+  {
+    name: 'a phase gate that does not wait stops as phase-gate, naming its blockers once',
+    run: () =>
+      decideRefusal(
+        new PhaseGateError([
+          blocker('slice-not-merged'),
+          blocker('binding-changed'),
+          blocker('binding-changed'),
+        ]),
+      ),
+    expected: {
+      kind: 'attention',
+      code: 'phase-gate',
+      message: 'slice-not-merged.\nbinding-changed.\nbinding-changed.',
+      refs: { blockers: ['slice-not-merged', 'binding-changed'] },
+    },
+  },
+  ...REFUSAL_STOPS.map((code) => ({
+    name: `a typed refusal stops with its code (${code})`,
+    run: () => decideRefusal(new TypedRefusalError(code, 'Refused.', { repositoryId })),
+    expected: { kind: 'attention', code, message: 'Refused.', refs: { repositoryId } },
+  })),
+  {
     name: 'an undeclared upstream transition stops with its code',
-    run: () => decideFailure(new UpstreamTransitionUndeclaredError('Declare wi→aq.')),
+    run: () => decideRefusal(new UpstreamTransitionUndeclaredError('Declare wi→aq.')),
     expected: {
       kind: 'attention',
       code: 'upstream-transition-undeclared',
@@ -134,7 +175,7 @@ const rows: readonly {
   {
     name: 'a moved upstream pin stops with what moved',
     run: () =>
-      decideFailure(
+      decideRefusal(
         new UpstreamPinMovedError(
           asConcurrencyDefinitionId('def-1'),
           [{ alias: 'aq', pinnedCommitSha: 'a', currentCommitSha: 'b' }],
@@ -152,42 +193,66 @@ const rows: readonly {
   },
   {
     name: 'a failed checkpoint attestation stops naming its checkpoint',
-    run: () => decideFailure(new CheckpointAttestationError(checkpointId, 'Not attested.')),
+    run: () => decideRefusal(new CheckpointAttestationError(checkpointId, 'Not attested.')),
     expected: { kind: 'attention', code: 'checkpoint-attestation-failed', refs: { checkpointId } },
   },
   {
     name: 'a repository without adopted checks stops naming it',
-    run: () => decideFailure(new RepositoryChecksUndeclaredError(repositoryId, 'WI')),
+    run: () => decideRefusal(new RepositoryChecksUndeclaredError(repositoryId, 'WI')),
     expected: { kind: 'attention', code: 'repository-checks-undeclared', refs: { repositoryId } },
   },
   {
     name: 'a changed check definition stops naming the check',
-    run: () => decideFailure(new CheckDefinitionChangedError(repositoryId, 'unit', 'Changed.')),
+    run: () => decideRefusal(new CheckDefinitionChangedError(repositoryId, 'unit', 'Changed.')),
     expected: {
       kind: 'attention',
       code: 'check-definition-changed',
       refs: { repositoryId, checkId: 'unit' },
     },
   },
+  ...[
+    ...[
+      new ConcurrentModificationError('stale'),
+      new DaemonDrainingError(),
+      new RepositoryMutationBusyError(),
+      new WorktreeMutationBusyError(),
+    ],
+    new ExecutionRequestError('conflict', 'Refused.'),
+    new TypeError('x is undefined'),
+  ].map((error) => ({
+    name: `${error.name} is left to the pass`,
+    run: () => decideRefusal(error),
+    expected: undefined,
+  })),
+  // decideLaunch: the launch's refusals.
   {
-    name: 'a refusal the controller has no code for stops as controller-error with its message',
-    run: () => decideFailure(new ExecutionRequestError('conflict', 'Refused.')),
-    expected: { kind: 'attention', code: 'controller-error', message: 'Refused.' },
+    name: 'a refusal at the launch is its own check’s',
+    run: () => decideLaunch(new ExecutionRequestError('unavailable', 'No backend.')),
+    expected: { kind: 'attention', code: 'launch-refused', message: 'No backend.' },
   },
   {
-    name: 'an unexpected error stops as controller-error with a generic message',
-    run: () => decideFailure(new TypeError('x is undefined')),
-    expected: {
-      kind: 'attention',
-      code: 'controller-error',
-      message: 'Controller could not advance this step. Inspect the run before resuming.',
-    },
+    name: 'a typed refusal at the launch keeps its code',
+    run: () => decideLaunch(new TypedRefusalError('worktree-state', 'Off its branch.')),
+    expected: { kind: 'attention', code: 'worktree-state', message: 'Off its branch.' },
   },
   {
-    name: 'a phase gate that does not wait stops as controller-error',
-    run: () => decideFailure(new PhaseGateError([blocker('binding-changed')])),
-    expected: { kind: 'attention', code: 'controller-error', message: 'binding-changed.' },
+    name: 'a mapped refusal class at the launch keeps its code',
+    run: () => decideLaunch(new RepositoryChecksUndeclaredError(repositoryId, 'WI')),
+    expected: { kind: 'attention', code: 'repository-checks-undeclared' },
   },
+  ...[
+    ...[
+      new ConcurrentModificationError('stale'),
+      new DaemonDrainingError(),
+      new RepositoryMutationBusyError(),
+      new WorktreeMutationBusyError(),
+    ],
+    new TypeError('x is undefined'),
+  ].map((error) => ({
+    name: `${error.name} at the launch is left to the pass`,
+    run: () => decideLaunch(error),
+    expected: undefined,
+  })),
   // decideApproval, decideApprovedHead, approvalGate.
   ...[
     ['Git could not say', undefined],
@@ -468,6 +533,24 @@ const rows: readonly {
     name: 'housekeeping within the limit remediates',
     run: () => decideHousekeeping(cycleOf(), 'x'),
     expected: { kind: 'remediate' },
+  },
+  // R-B4, decision 4: the operator's grant at housekeeping's limit stop.
+  {
+    name: 'a grant at housekeeping’s limit remediates',
+    run: () => decideHousekeeping(cycleOf(spent), 'x', { additionalRounds: 1 }),
+    expected: { kind: 'remediate' },
+  },
+  {
+    name: 'a grant that adds too few is refused and keeps the stop',
+    run: () =>
+      decideHousekeeping(cycleOf({ remediationRounds: spent.remediationRounds + 1 }), 'x', {
+        additionalRounds: 1,
+      }),
+    expected: {
+      kind: 'refuse',
+      message:
+        '4 remediation rounds are used of 3 allowed. Authorize at least 2 more to start another.',
+    },
   },
   {
     name: 'a second remediation in a row that changed nothing stops',

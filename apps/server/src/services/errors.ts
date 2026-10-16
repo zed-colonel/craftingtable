@@ -1,7 +1,9 @@
 import type { GitFailure, GitFailureKind } from '@craftingtable/git';
 import type {
+  AttentionRefs,
   CheckpointId,
   ConcurrencyDefinitionId,
+  CycleAttentionCode,
   RetirementRefusal,
   SourceRepositoryId,
   WindDownRefusal,
@@ -137,6 +139,44 @@ export class ExecutionRequestError extends Error {
   ) {
     super(message);
     this.name = 'ExecutionRequestError';
+  }
+}
+
+/** The stops a typed refusal can name (R-B4, decision 3). */
+export const REFUSAL_STOPS = [
+  'phase-gate',
+  'item-unavailable',
+  'item-not-admitted',
+  'item-completed-unmerged',
+  'predecessors-incomplete',
+  'predecessor-merge-missing',
+  'worktree-state',
+  'resolution-not-ready',
+  'launch-refused',
+  'roadmap-binding-changed',
+  'delegation-authority-lost',
+  'review-capture-failed',
+  'finalization-inactive',
+  'service-unavailable',
+  'authority-lost',
+  'legacy-finalization-retired',
+] as const satisfies readonly CycleAttentionCode[];
+export type RefusalStop = (typeof REFUSAL_STOPS)[number];
+
+/**
+ * A refusal that says which stop it is for a cycle (R-B4, decision 3). A command meets it as the
+ * same refusal as before, with its message and status unchanged; the controller stops the cycle
+ * with its code instead of `controller-error`, which is left for an unexpected exception. It
+ * keeps its parent's name, so logs and the scheduler's records read it as before.
+ */
+export class TypedRefusalError extends ExecutionRequestError {
+  constructor(
+    readonly stop: RefusalStop,
+    message: string,
+    readonly refs?: AttentionRefs,
+    kind: 'conflict' | 'unavailable' = 'conflict',
+  ) {
+    super(kind, message);
   }
 }
 

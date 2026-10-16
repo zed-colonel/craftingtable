@@ -1511,9 +1511,12 @@ export class RuntimeEvidenceService {
     // refresh as the exit, and Resume refused while it is stale (LIVE-21, LIVE-15). The pins are
     // read from the tree's own generation, as the Resume guard reads them.
     const treeRuntime = activeRuntime(this.storage, ws, id, cycle.executionScope.bindingRevision);
+    // Any other issue means the checkpoint cannot attest with the evidence it has: the stop
+    // names the checkpoint, not `controller-error` (R-B4, decision 3).
     const refuse = async (issues: readonly string[]): Promise<never> => {
-      if (treeRuntime) await this.freshnessConflict(ws, treeRuntime, issues, ' ');
-      conflict(issues.join(' '));
+      const moved = treeRuntime && (await this.pinMoved(ws, treeRuntime, issues, ' '));
+      if (moved) throw moved;
+      throw new CheckpointAttestationError(checkpoint.id, issues.join(' '));
     };
     if (candidate.issues.length) await refuse(candidate.issues);
     const tree = this.storage.execution.worktrees.find(ws, cycle.worktreeId)!;
@@ -3264,6 +3267,17 @@ export class RuntimeEvidenceService {
     issues: readonly string[],
     separator: string,
   ): Promise<never> {
+    const moved = await this.pinMoved(ws, runtime, issues, separator);
+    if (moved) throw moved;
+    conflict(issues.join(separator));
+  }
+  /** The typed refusal for issues that are all moved pins, if they are (LIVE-21 review). */
+  private async pinMoved(
+    ws: WorkspaceId,
+    runtime: RuntimeGeneration,
+    issues: readonly string[],
+    separator: string,
+  ): Promise<UpstreamPinMovedError | undefined> {
     const status = (await this.pinStatus(ws, runtime)).filter(
       (p) =>
         p.issue &&
@@ -3278,9 +3292,9 @@ export class RuntimeEvidenceService {
     }));
     // Typed only when a moved pin is the whole story: another issue would still stop the work
     // after the refresh, so the refresh is not the exit (LIVE-21 review).
-    if (moved.length && issues.every((issue) => status.some((p) => p.issue === issue)))
-      throw new UpstreamPinMovedError(runtime.definitionId, moved, issues.join(separator));
-    conflict(issues.join(separator));
+    return moved.length && issues.every((issue) => status.some((p) => p.issue === issue))
+      ? new UpstreamPinMovedError(runtime.definitionId, moved, issues.join(separator))
+      : undefined;
   }
   /**
    * The pins of a tree's scope whose provider still differs from the current generation's pin:

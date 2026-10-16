@@ -14,7 +14,6 @@ import {
   decisionSummary,
   GUARD_CODES,
 } from '../../src/services/cycle-machine.js';
-import { ExecutionRequestError } from '../../src/services/errors.js';
 import type { StepOutcomeFacts } from '../../src/services/step-outcome.js';
 
 /**
@@ -77,7 +76,7 @@ function factsOf(overrides: Partial<Record<keyof CycleFacts, unknown>> = {}): Cy
     sharedDecisionsAccepted: () => false,
     creatorAuthorized: () => true,
     onlyOperatorCanAdvance: () => false,
-    requireReady: () => undefined,
+    readiness: () => ({ kind: 'ready' }),
     mergeReserved: () => false,
     controllerReviewRunnable: () => true,
     phaseBlockers: () => [],
@@ -258,6 +257,28 @@ const rows: readonly Row[] = [
     facts: { mergeReserved: () => true },
     expected: { guard: 'merge-reserved', kind: 'idle', code: 'merge-reserved' },
   },
+  // The item's gate (R-B4, decision 3): a phase gate that waits, or the refusal's own stop.
+  {
+    name: 'an item gate that waits on its phase is recorded as the phase wait',
+    facts: { readiness: () => ({ kind: 'wait', blockers: [waitingBlocker], reason: 'Waits.' }) },
+    expected: { guard: 'item-ready', kind: 'wait', code: 'record-phase' },
+  },
+  ...(
+    [
+      'phase-gate',
+      'item-unavailable',
+      'item-not-admitted',
+      'item-completed-unmerged',
+      'predecessors-incomplete',
+      'finalization-inactive',
+    ] as const
+  ).map(
+    (code): Row => ({
+      name: `an item gate refusing with ${code} stops the cycle with it`,
+      facts: { readiness: () => ({ kind: 'refused', code, message: 'Refused.' }) },
+      expected: { guard: 'item-ready', kind: 'attention', code },
+    }),
+  ),
   {
     name: 'a cycle at the merge boundary advances its workflow, then refreshes',
     cycle: { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
@@ -282,7 +303,7 @@ const rows: readonly Row[] = [
       currentRun: () => undefined,
       phaseBlockers: () => [waitingBlocker, stoppingBlocker],
     },
-    expected: { guard: 'scope-phase-gates', kind: 'attention', code: 'controller-error' },
+    expected: { guard: 'scope-phase-gates', kind: 'attention', code: 'phase-gate' },
   },
   {
     name: 'unsupported design dependencies stop the cycle',
@@ -419,8 +440,7 @@ describe('decide', () => {
   });
 
   it('has a row for every guard', () => {
-    // `item-ready` decides nothing itself: its gate throws, which the gate rows below show.
-    const covered = new Set([...rows.map((row) => row.expected.guard), 'item-ready']);
+    const covered = new Set(rows.map((row) => row.expected.guard));
     expect(CYCLE_GUARDS.filter((guard) => !covered.has(guard))).toEqual([]);
   });
 
@@ -435,62 +455,77 @@ describe('decide', () => {
     expect([...produced].filter((code) => !GUARD_CODES.includes(code))).toEqual([]);
   });
 
-  it('asks the gates the way reconcile did, and passes on what they throw', () => {
-    const refused = new ExecutionRequestError(
-      'conflict',
-      'Automation requires an admitted, incomplete work item',
-    );
-    const throwing = {
-      requireReady: () => {
-        throw refused;
+  it('stops a scope phase gate that does not wait with its blockers named', () => {
+    const decision = run({
+      name: '',
+      facts: {
+        currentRun: () => undefined,
+        phaseBlockers: () => [waitingBlocker, stoppingBlocker, stoppingBlocker],
       },
+      expected: { guard: 'scope-phase-gates', kind: '' },
+    });
+    expect(decision).toMatchObject({
+      kind: 'attention',
+      code: 'phase-gate',
+      message: 'Waits for wi/B.\nBinding changed.\nBinding changed.',
+      refs: { blockers: ['slice-not-merged', 'binding-changed'] },
+    });
+  });
+
+  it('asks the item gate the way reconcile did, and stops with what it refuses', () => {
+    const refused = {
+      readiness: () => ({
+        kind: 'refused',
+        code: 'item-not-admitted',
+        message: 'Automation requires an admitted, incomplete work item',
+      }),
+    };
+    const stop = {
+      kind: 'attention',
+      code: 'item-not-admitted',
+      message: 'Automation requires an admitted, incomplete work item',
     };
     // A running unscoped cycle, an awaiting-merge one, and a scoped one with no run are gated.
-    expect(() =>
-      run({ name: '', facts: throwing, expected: { guard: 'item-ready', kind: '' } }),
-    ).toThrow(refused);
-    expect(() =>
+    expect(run({ name: '', facts: refused, expected: { guard: 'item-ready', kind: '' } })).toEqual({
+      ...stop,
+      guard: 'item-ready',
+    });
+    expect(
       run({
         name: '',
         cycle: { status: 'awaiting-merge' },
-        facts: throwing,
+        facts: refused,
         expected: { guard: 'item-ready', kind: '' },
       }),
-    ).toThrow(refused);
-    expect(() =>
+    ).toEqual({ ...stop, guard: 'item-ready' });
+    expect(
       run({
         name: '',
         cycle: { executionScope: sliceScope },
-        facts: { ...throwing, currentRun: () => undefined },
+        facts: { ...refused, currentRun: () => undefined },
         expected: { guard: 'item-ready', kind: '' },
       }),
-    ).toThrow(refused);
+    ).toEqual({ ...stop, guard: 'item-ready' });
     // A scoped run already launched is supervised whatever its admission says now.
     expect(
       decisionSummary(
         run({
           name: '',
           cycle: { executionScope: sliceScope },
-          facts: throwing,
+          facts: refused,
           expected: { guard: 'item-ready', kind: '' },
         }),
       ),
     ).toEqual({ kind: 'idle', guard: 'step-outcome', code: 'run-live' });
     // A due service retry is gated again before its launch.
-    expect(() =>
+    expect(
       run({
         name: '',
         cycle: { executionScope: sliceScope, providerRecovery: recovery },
-        facts: { ...throwing, currentRun: () => runOf({ status: 'failed' }) },
+        facts: { ...refused, currentRun: () => runOf({ status: 'failed' }) },
         expected: { guard: 'provider-retry-due', kind: '' },
       }),
-    ).toThrow(refused);
-    // The guard a throwing gate belongs to is reported to the caller.
-    const asked: CycleGuard[] = [];
-    expect(() =>
-      decide(cycleOf(), factsOf(throwing), kernelOf(), NOW, (guard) => asked.push(guard)),
-    ).toThrow(refused);
-    expect(asked.at(-1)).toBe('item-ready');
+    ).toEqual({ ...stop, guard: 'provider-retry-due' });
   });
 
   it('reads only what the deciding guard needs', () => {

@@ -40,6 +40,11 @@ const attentionRefsSchema = z
     definitionId: ref<ConcurrencyDefinitionId>(),
     repositoryId: ref<SourceRepositoryId>(),
     checkId: z.string().min(1).max(200).optional(),
+    blockers: z
+      .array(z.enum(PHASE_BLOCKER_CODES as [PhaseBlockerCode, ...PhaseBlockerCode[]]))
+      .min(1)
+      .max(100)
+      .optional(),
     pins: z
       .array(
         z.strictObject({

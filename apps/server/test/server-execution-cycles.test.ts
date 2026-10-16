@@ -364,13 +364,15 @@ it('refreshes a phase wait when its blockers change and records nothing for a co
       .filter((e) => e.kind === 'work-cycle-changed').length;
   const { PhaseGateError } = await import('../src/services/phase-resources.js');
   const service = state.context.services.workCycleService as unknown as {
-    reconcile: (cycle: WorkCycle) => Promise<void>;
+    apply: (cycle: WorkCycle) => Promise<void>;
     change: (cycle: WorkCycle, changes: Partial<WorkCycle>) => WorkCycle;
   };
   let blockers: import('@craftingtable/domain').PhaseBlocker[] = [
     { kind: 'resource', message: 'Resource build capacity is in use.' },
   ];
-  vi.spyOn(service, 'reconcile').mockImplementation(async () => {
+  // Whatever the cycle decided, applying it meets a waiting phase gate, which `reconcile`
+  // records as the phase wait (R-B4).
+  vi.spyOn(service, 'apply').mockImplementation(async () => {
     throw new PhaseGateError(blockers);
   });
   await waitFor(

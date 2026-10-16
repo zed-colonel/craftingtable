@@ -86,7 +86,12 @@ export interface Removals {
 }
 
 /** Ledgers and catalogs a migration appends to; their earlier rows must stay first. */
-const APPEND_ONLY = new Set(['schema_migrations', 'audit_action_kinds', 'workspace_event_kinds']);
+const APPEND_ONLY = new Set([
+  'schema_migrations',
+  'audit_action_kinds',
+  'workspace_event_kinds',
+  'stored_vocabulary',
+]);
 
 /** Everything a migration lost or changed that existed before it; empty when preserved. */
 export function preservationProblems(

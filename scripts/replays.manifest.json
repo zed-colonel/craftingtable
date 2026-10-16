@@ -25,7 +25,14 @@
         {
           "mode": "cycles",
           "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "705daea8f5dfbbba8f531c545f724e2e93382201aee92a79de08f9dd211bad11"
+          "goldenSha256": "705daea8f5dfbbba8f531c545f724e2e93382201aee92a79de08f9dd211bad11",
+          "expected": [
+            {
+              "key": "cycle:2f1ab211-fe99-44bf-b8a9-ff07cebd6d02",
+              "nowSha256": "eedac5ea15edece9f53c3da2bcab4b19d39915dbfaad603cc41c4212c141c067",
+              "reason": "R-B4 increment 4 (decision 3): the wi/WI-04/domain slice awaits merge after review run d26282e7-7a17-49d4-8d07-cb894405c8be, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            }
+          ]
         }
       ]
     },
@@ -58,7 +65,14 @@
         {
           "mode": "cycles",
           "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "246bb9e4747d3360608a7f81738cb1eedec3bf3ddff808f8dde79242406e6d9d"
+          "goldenSha256": "246bb9e4747d3360608a7f81738cb1eedec3bf3ddff808f8dde79242406e6d9d",
+          "expected": [
+            {
+              "key": "cycle:b0de849a-13f1-499b-989f-8f6a8b5fb44a",
+              "nowSha256": "cf6319d973a50a685dd733c28211817604c7699378d8d4733fa100588cbdd60f",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-04/domain slice awaits merge after review run b3ad55d0-e3ab-4737-bafb-3112b640c894, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            }
+          ]
         }
       ]
     },
@@ -124,7 +138,14 @@
         {
           "mode": "cycles",
           "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "e1bbbbf00ae2cc84da2346262c5a8d8ab298a0038485c39c993502975be1d89b"
+          "goldenSha256": "e1bbbbf00ae2cc84da2346262c5a8d8ab298a0038485c39c993502975be1d89b",
+          "expected": [
+            {
+              "key": "cycle:b0de849a-13f1-499b-989f-8f6a8b5fb44a",
+              "nowSha256": "cf6319d973a50a685dd733c28211817604c7699378d8d4733fa100588cbdd60f",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-04/domain slice awaits merge after review run b3ad55d0-e3ab-4737-bafb-3112b640c894, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            }
+          ]
         }
       ]
     },
@@ -289,7 +310,24 @@
         {
           "mode": "cycles",
           "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "ea1b118896b7405b70b364abba8302da250c4482dd864f0aeac92fa669c97b7f"
+          "goldenSha256": "ea1b118896b7405b70b364abba8302da250c4482dd864f0aeac92fa669c97b7f",
+          "expected": [
+            {
+              "key": "cycle:2c9ead5d-e07d-4aef-9db2-71564b77d01a",
+              "nowSha256": "9851a58e137a0346b13727747da962cbe4a307e88041e86ba4158bb81396bd11",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-18/instance-design slice awaits merge after review run bfd67980-edeb-4d04-aa69-81e43ec6be10, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            },
+            {
+              "key": "cycle:b0de849a-13f1-499b-989f-8f6a8b5fb44a",
+              "nowSha256": "cf6319d973a50a685dd733c28211817604c7699378d8d4733fa100588cbdd60f",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-04/domain slice awaits merge after review run 27d0548c-10f2-419c-b70d-987ce1f9537e, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            },
+            {
+              "key": "cycle:bc191724-6b1b-49dc-b72c-7bbda5b9a0db",
+              "nowSha256": "eea2ca85aab84db89fdeec6bdea276f697282bd13472c4979d144250138a4b67",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-03/domain slice awaits merge after review run 3e106c50-0ffd-4877-b477-919051b2777b, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            }
+          ]
         },
         {
           "mode": "evidence-view",
@@ -339,7 +377,24 @@
         {
           "mode": "cycles",
           "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "e2b439edae5e1efb0b252121a1e72e6573902d18a024db52037536dfe814f6a2"
+          "goldenSha256": "e2b439edae5e1efb0b252121a1e72e6573902d18a024db52037536dfe814f6a2",
+          "expected": [
+            {
+              "key": "cycle:2c9ead5d-e07d-4aef-9db2-71564b77d01a",
+              "nowSha256": "9851a58e137a0346b13727747da962cbe4a307e88041e86ba4158bb81396bd11",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-18/instance-design slice awaits merge after review run bfd67980-edeb-4d04-aa69-81e43ec6be10, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            },
+            {
+              "key": "cycle:b0de849a-13f1-499b-989f-8f6a8b5fb44a",
+              "nowSha256": "cf6319d973a50a685dd733c28211817604c7699378d8d4733fa100588cbdd60f",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-04/domain slice awaits merge after review run 27d0548c-10f2-419c-b70d-987ce1f9537e, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            },
+            {
+              "key": "cycle:bc191724-6b1b-49dc-b72c-7bbda5b9a0db",
+              "nowSha256": "eea2ca85aab84db89fdeec6bdea276f697282bd13472c4979d144250138a4b67",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-03/domain slice awaits merge after review run 3e106c50-0ffd-4877-b477-919051b2777b, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            }
+          ]
         },
         {
           "mode": "evidence-view",
@@ -401,7 +456,24 @@
         {
           "mode": "cycles",
           "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "a2ac0dc0a23735843a139879e0f33352c5bd07ebc939d13ec0cdf1d97c217667"
+          "goldenSha256": "a2ac0dc0a23735843a139879e0f33352c5bd07ebc939d13ec0cdf1d97c217667",
+          "expected": [
+            {
+              "key": "cycle:2c9ead5d-e07d-4aef-9db2-71564b77d01a",
+              "nowSha256": "9851a58e137a0346b13727747da962cbe4a307e88041e86ba4158bb81396bd11",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-18/instance-design slice awaits merge after review run bfd67980-edeb-4d04-aa69-81e43ec6be10, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            },
+            {
+              "key": "cycle:b0de849a-13f1-499b-989f-8f6a8b5fb44a",
+              "nowSha256": "cf6319d973a50a685dd733c28211817604c7699378d8d4733fa100588cbdd60f",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-04/domain slice awaits merge after review run 27d0548c-10f2-419c-b70d-987ce1f9537e, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            },
+            {
+              "key": "cycle:bc191724-6b1b-49dc-b72c-7bbda5b9a0db",
+              "nowSha256": "eea2ca85aab84db89fdeec6bdea276f697282bd13472c4979d144250138a4b67",
+              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-03/domain slice awaits merge after review run 3e106c50-0ffd-4877-b477-919051b2777b, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
+            }
+          ]
         },
         {
           "mode": "evidence-view",

@@ -17,6 +17,7 @@ import {
   type ReplayRecord,
 } from './replay-check.js';
 import { replayServices } from './replay-services.js';
+import { decisionSummary } from './services/cycle-machine.js';
 import { ConcurrentModificationError } from './services/errors.js';
 
 /**
@@ -65,8 +66,20 @@ export interface CycleReplayState {
   readonly cycle?: string;
 }
 
+/**
+ * What `decide` chose (R-B4): its kind, the guard that chose it, and the code or name it
+ * carries. A gate that threw is `error`, with the error's class and the guard it belongs to.
+ */
+export interface CycleReplayDecision {
+  readonly kind: string;
+  readonly guard?: string;
+  readonly code?: string;
+}
+
 /** What one pass did to one cycle. */
 export interface CyclePassRecord {
+  /** What the pass's `decide` chose for the cycle. Absent in goldens of format 1. */
+  readonly decision?: CycleReplayDecision;
   /** The commands the pass reached that the replay intercepted, in order. */
   readonly calls?: readonly string[];
   /** The audit actions of the transitions the pass wrote, in order. */
@@ -85,6 +98,11 @@ export interface CycleReplayRecord {
 }
 
 export interface CycleReplay {
+  /**
+   * The golden's shape: 2 since R-B4's increment 2, whose records carry `decide`'s decision.
+   * Absent (1) in goldens recorded before, whose check then leaves decisions out.
+   */
+  readonly format?: number;
   readonly cycles: readonly CycleReplayRecord[];
 }
 
@@ -146,6 +164,7 @@ export async function replayCycleSnapshot(snapshot: string, now: Date): Promise<
   };
   const [stored, resumed] = [await run(false), await run(true)];
   return {
+    format: 2,
     cycles: stored.map(({ cycleId, before, record }) => {
       const lifted = resumed.find((r) => r.cycleId === cycleId);
       return {
@@ -160,8 +179,9 @@ export async function replayCycleSnapshot(snapshot: string, now: Date): Promise<
 
 /**
  * Runs one cycle pass over `database`, which it modifies: pass a copy. With `lift`, every stopped
- * or paused cycle is first stored as `running`, its stop cleared and its step window renewed. Opening an older schema migrates
- * it and first writes a pre-migration copy beside it, so allow twice its size.
+ * or paused cycle is first stored as `running`, its stop cleared and its step window renewed.
+ * Opening an older schema migrates it and first writes a pre-migration copy beside it, so allow
+ * twice its size.
  */
 export async function replayCyclePass(
   database: string,
@@ -201,6 +221,7 @@ export async function replayCyclePass(
     );
     let pending: string[] = [];
     const calls = new Map<string, readonly string[]>();
+    const decisions = new Map<string, CycleReplayDecision>();
     const intercepted = (command: string): never => {
       pending.push(command);
       throw new ReplayIntercept(command);
@@ -227,6 +248,17 @@ export async function replayCyclePass(
       services.runtimeEvidenceService as unknown as { checkpointRecovery: () => Promise<never> }
     ).checkpointRecovery = async () => intercepted('checkpoint-recovery');
     services.workCycleService.observePass({
+      decided: (cycle, result) =>
+        decisions.set(
+          cycle.id,
+          'decision' in result
+            ? decisionSummary(result.decision)
+            : {
+                kind: 'error',
+                ...(result.guard ? { guard: result.guard } : {}),
+                code: result.failed instanceof Error ? result.failed.constructor.name : 'unknown',
+              },
+        ),
       cycle: (cycle) => {
         if (pending.length) calls.set(cycle.id, pending);
         pending = [];
@@ -250,6 +282,7 @@ export async function replayCyclePass(
           cycleId: cycle.id,
           before: replayState(original),
           record: {
+            ...(decisions.has(cycle.id) ? { decision: decisions.get(cycle.id) } : {}),
             ...(calls.has(cycle.id) ? { calls: calls.get(cycle.id) } : {}),
             ...(actions.has(cycle.id) ? { actions: actions.get(cycle.id) } : {}),
             ...(changed
@@ -290,7 +323,24 @@ export function cycleRecords(replay: CycleReplay): ReplayRecord[] {
   return replay.cycles.map((record) => ({ key: `cycle:${record.cycleId}`, value: record }));
 }
 
-/** Compares a cycles replay with its golden (`controller:replay --cycles --check`). */
+/**
+ * Compares a cycles replay with its golden (`controller:replay --cycles --check`). A golden of
+ * format 1 predates `decide`'s decisions: they are left out of both sides, and the check says so.
+ */
 export function checkCycleReplay(golden: CycleReplay, replay: CycleReplay): ReplayCheck {
-  return compareRecords(cycleRecords(golden), cycleRecords(replay));
+  if ((golden.format ?? 1) >= 2) return compareRecords(cycleRecords(golden), cycleRecords(replay));
+  const undecided = (record: CyclePassRecord): CyclePassRecord => {
+    const { decision: _decision, ...rest } = record;
+    return rest;
+  };
+  const comparable = ({ cycles }: CycleReplay): CycleReplay => ({
+    cycles: cycles.map((record) => ({
+      ...record,
+      pass: undecided(record.pass),
+      ...(record.resumed ? { resumed: undecided(record.resumed) } : {}),
+    })),
+  });
+  return compareRecords(cycleRecords(comparable(golden)), cycleRecords(comparable(replay)), [
+    'decisions (the golden predates them)',
+  ]);
 }

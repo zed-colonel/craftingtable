@@ -47,13 +47,16 @@ it('records what one pass does to each cycle, and with its stop lifted, without 
   const before = digest(reserved);
   const launching = await replayCycleSnapshot(reserved, new Date());
   expect(digest(reserved)).toBe(before);
-  expect(launching.cycles).toEqual([
-    {
-      cycleId: cycle.id,
-      before: { status: 'running', step: 'design', reason: expect.stringMatching(/^sha256:/) },
-      pass: { calls: ['start-run'] },
-    },
-  ]);
+  expect(launching).toEqual({
+    format: 2,
+    cycles: [
+      {
+        cycleId: cycle.id,
+        before: { status: 'running', step: 'design', reason: expect.stringMatching(/^sha256:/) },
+        pass: { decision: { kind: 'start-run', guard: 'no-run' }, calls: ['start-run'] },
+      },
+    ],
+  });
 
   // A design that asks a question stops for the operator. The pass leaves the stop alone; lifted
   // to running, the same report stops it again with the same code.
@@ -74,8 +77,9 @@ it('records what one pass does to each cycle, and with its stop lifted, without 
     {
       cycleId: cycle.id,
       before: stop,
-      pass: {},
+      pass: { decision: { kind: 'idle', guard: 'not-active', code: 'not-active' } },
       resumed: {
+        decision: { kind: 'attention', guard: 'step-outcome', code: 'design-open-questions' },
         actions: ['advance'],
         after: { ...stop, cycle: expect.stringMatching(/^sha256:/) },
       },
@@ -91,11 +95,38 @@ it('records what one pass does to each cycle, and with its stop lifted, without 
     duplicates: [],
   });
   const altered: CycleReplay = {
+    ...replay,
     cycles: replay.cycles.map((record) => ({ ...record, pass: { calls: ['start-run'] } })),
   };
   expect(checkCycleReplay(altered, again).changed.map((change) => change.key)).toEqual([
     `cycle:${cycle.id}`,
   ]);
+  // A golden recorded before decisions (format 1) is compared without them, and says so; a
+  // decision that differs is reported only against a golden that has decisions.
+  const undecided = (record: CycleReplay['cycles'][number]['pass']) => {
+    const { decision: _decision, ...rest } = record;
+    return rest;
+  };
+  const predated: CycleReplay = {
+    cycles: replay.cycles.map((record) => ({
+      ...record,
+      pass: undecided(record.pass),
+      ...(record.resumed ? { resumed: undecided(record.resumed) } : {}),
+    })),
+  };
+  expect(checkCycleReplay(predated, again)).toMatchObject({
+    changed: [],
+    notCompared: ['decisions (the golden predates them)'],
+  });
+  const redecided: CycleReplay = {
+    ...replay,
+    cycles: replay.cycles.map((record) => ({
+      ...record,
+      pass: { ...record.pass, decision: { kind: 'idle', guard: 'roadmap-settling' } },
+    })),
+  };
+  expect(checkCycleReplay(redecided, again).changed).toHaveLength(1);
+  expect(checkCycleReplay({ ...redecided, format: 1 }, again).changed).toEqual([]);
 });
 
 it('records each cycle’s own commands, ended turns, a reservation and the whole stored cycle', async () => {
@@ -107,7 +138,9 @@ it('records each cycle’s own commands, ended turns, a reservation and the whol
 
   // A live design past its time limit is cancelled and stops; within it, it is left to run.
   const live = await snapshot(f);
-  expect(ofCycle(await replayCycleSnapshot(live, new Date()))?.pass).toEqual({});
+  expect(ofCycle(await replayCycleSnapshot(live, new Date()))?.pass).toEqual({
+    decision: { kind: 'idle', guard: 'step-outcome', code: 'run-live' },
+  });
   const late = ofCycle(await replayCycleSnapshot(live, new Date(Date.now() + 2 * 86_400_000)));
   expect(late?.pass).toMatchObject({
     calls: ['cancel-turn'],
@@ -119,6 +152,7 @@ it('records each cycle’s own commands, ended turns, a reservation and the whol
   f.backend.latest.release(designDone);
   await f.services.agentRunService.quiesce();
   expect(ofCycle(await replayCycleSnapshot(await snapshot(f), new Date()))?.pass).toEqual({
+    decision: { kind: 'effect', guard: 'step-outcome', code: 'end-turn' },
     calls: ['end-turn'],
   });
 

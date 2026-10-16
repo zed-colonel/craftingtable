@@ -24,8 +24,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "22dd4cd6e81ca6ee5dc1896157745dfdd79feef8aa8487315c13d20d7f162b91"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "705daea8f5dfbbba8f531c545f724e2e93382201aee92a79de08f9dd211bad11"
         }
       ]
     },
@@ -57,8 +57,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "c55db12245f558d674ad6c2d4571c5edd3ed0625ab0d4a917ca101ce36a9b4c6"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "246bb9e4747d3360608a7f81738cb1eedec3bf3ddff808f8dde79242406e6d9d"
         }
       ]
     },
@@ -90,8 +90,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "7a56db3bb229c0b08c3284a0b00f3cc284483b53c5409efaf4f70ee921042bcc"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "1cbdd1105ec37ee3d0d55ab52483d03ccef3bfaaf979ebb259daa8c1c4b4a10b"
         }
       ]
     },
@@ -123,8 +123,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "7c78770c259b5ddc419a49598cefe671301e41faa200e4d105400fcd956e22d6"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "e1bbbbf00ae2cc84da2346262c5a8d8ab298a0038485c39c993502975be1d89b"
         }
       ]
     },
@@ -156,8 +156,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "3dbf605df790d400a29135996582a244217286e580c8fd489ddfcdb691a74d87"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "5897a750eddaf8214528df9bba1e0a5f3d9d70fd832bf8b4dbbbe5312683090e"
         }
       ]
     },
@@ -189,8 +189,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "28632625ee50d964647b08631b1759f110e203b6e03d619d3f9c9f9dbd8a5c68"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "83b6d2e423c7cf6d70074458f48f0f46839d2ec9cd5524a379f0e15c4b62e11c"
         }
       ]
     },
@@ -222,8 +222,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "b7940f09ed57bb48688ea62f7129a7ade7167f3598d36fadf3cfdee88ec45251"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "9f2ccf30b2d8c7dbcf667a8c66785f639e72e6fe0dbd7322522d5c4c6e4df480"
         }
       ]
     },
@@ -255,8 +255,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "241d0ba7bee6efc50bc0267eebaab2bbd007b9ac4b50c0c1e024b893293274ff"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "95a08c6f81fa17cb589b076f9d6a38aa5e219e841ad0a764863537438a519df4"
         }
       ]
     },
@@ -288,8 +288,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "19fff55a1ed5bc022643fe3f23574294bc754c2cbc6eeb98e3ca1298cadc8cb5"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "ea1b118896b7405b70b364abba8302da250c4482dd864f0aeac92fa669c97b7f"
         },
         {
           "mode": "evidence-view",
@@ -338,8 +338,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "b2948dd4e61cff52d63450e43c1e3861d9f505de6a19ae40d5e2f0e7bf93439b"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "e2b439edae5e1efb0b252121a1e72e6573902d18a024db52037536dfe814f6a2"
         },
         {
           "mode": "evidence-view",
@@ -400,8 +400,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "267ac51f4664870e0d505e6b02dc6265d221e373bf66ed733410f68eb7b7f924"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "a2ac0dc0a23735843a139879e0f33352c5bd07ebc939d13ec0cdf1d97c217667"
         },
         {
           "mode": "evidence-view",
@@ -472,8 +472,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "bbf5eac716a2b7d5e3f799388838671db37fad80c3de4673fb258dae198c4538"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "bb595d010daab0c379e4ef5dea28ce8fd94123407434486591d68e530caebe98"
         }
       ]
     },
@@ -510,8 +510,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "2f68a86bb0f0d0d92189f6dc99470ce6b12f1dfc111b72e0f41e8543b8ce9fc7"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "3183a39e6498275bde19145c0365455d3fe294c6b5e6a40c5734dd27d2f088ff"
         }
       ]
     },
@@ -548,8 +548,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "a2827892388f2e853e3866b87227e44ee0d5a5c4e347401b5f63bce300ec0093"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "2aa847228806889403bad045750eba5012bc8550655c469675bb2b0cd2b6049c"
         }
       ]
     },
@@ -586,8 +586,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "ebd6327f8e451f312b8575f6fca97477ebf26be5ff7706d3c4bbc38a07982433"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "f8799acb7b15a309dbf0cb56f58c314caa04ce231962c14a56873ec94401f855"
         }
       ]
     },
@@ -636,8 +636,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "c77a2449333e609b8b75c743d9b2b940e707969ad3c3eaa2b271756089943d85"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "693fd22c69be1f1c45023948a047fd09f4b44555eff5c203aaa5fbdf2a5f8dcf"
         }
       ]
     },
@@ -686,8 +686,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-rb4-2.json",
-          "goldenSha256": "3b68697c712c3af89d35abc9332c734d6ac459f0012858494647c11423bc5f91"
+          "golden": "cycles-golden-e05e357.json",
+          "goldenSha256": "4b5ba562864c3629c047b2e16d71dabf978dc71692bad1b0405b8993f91993bd"
         },
         {
           "mode": "evidence-view",

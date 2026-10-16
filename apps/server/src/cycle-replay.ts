@@ -64,6 +64,8 @@ export interface CycleReplayState {
    * reserved run, a detected conflict) read as `(minted)`: any field the pass wrote changes it.
    */
   readonly cycle?: string;
+  /** The top-level fields of the stored cycle the pass changed, by name (never their values). */
+  readonly fields?: readonly string[];
 }
 
 /**
@@ -122,13 +124,33 @@ const digest = (text: string) =>
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
-/** The stored cycle's digest, each UUID it did not hold before the pass read as `(minted)`. */
-function cycleDigest(after: WorkCycle, before: WorkCycle): string {
-  const known = new Set(JSON.stringify(before).match(UUID) ?? []);
+/**
+ * The stored cycle's digest, each UUID the snapshot did not already hold (`known`: every cycle's
+ * ids and the ids of its worktree's runs) read as `(minted)`, so an id the pass reserved compares
+ * equal on every replay while one it wrongly copied from elsewhere does not.
+ */
+function cycleDigest(after: WorkCycle, known: ReadonlySet<string>): string {
   return digest(canonicalJson(after).replace(UUID, (id) => (known.has(id) ? id : '(minted)')));
 }
 
-function replayState(cycle: WorkCycle, reserved = false, before?: WorkCycle): CycleReplayState {
+/** The top-level fields whose values differ, but for the version and time every write moves. */
+function changedFields(after: WorkCycle, before: WorkCycle): string[] {
+  const keys = new Set([...Object.keys(after), ...Object.keys(before)]);
+  return [...keys]
+    .filter((key) => key !== 'version' && key !== 'updatedAt')
+    .filter(
+      (key) =>
+        canonicalJson((after as unknown as Record<string, unknown>)[key]) !==
+        canonicalJson((before as unknown as Record<string, unknown>)[key]),
+    )
+    .sort();
+}
+
+function replayState(
+  cycle: WorkCycle,
+  reserved = false,
+  before?: { readonly cycle: WorkCycle; readonly known: ReadonlySet<string> },
+): CycleReplayState {
   const attention = effectiveCycleAttention(cycle);
   return {
     status: cycle.status,
@@ -144,7 +166,9 @@ function replayState(cycle: WorkCycle, reserved = false, before?: WorkCycle): Cy
     ...(cycle.designWait ? { designWait: true as const } : {}),
     ...(reserved ? { reserved: true as const } : {}),
     reason: digest(cycle.reason),
-    ...(before ? { cycle: cycleDigest(cycle, before) } : {}),
+    ...(before
+      ? { cycle: cycleDigest(cycle, before.known), fields: changedFields(cycle, before.cycle) }
+      : {}),
   };
 }
 
@@ -192,6 +216,15 @@ export async function replayCyclePass(
   const storage = openDaemonStorage(database);
   try {
     const stored = storage.execution.cycles.listActive();
+    // The ids the snapshot holds: any other id a pass writes into a cycle, it minted.
+    const known = new Set<string>([
+      ...(JSON.stringify(storage.execution.cycles.listAll()).match(UUID) ?? []),
+      ...stored.flatMap((cycle) =>
+        storage.execution.runs
+          .listForWorktree(cycle.workspaceId, cycle.worktreeId)
+          .map((r) => r.id),
+      ),
+    ]);
     if (lift)
       for (const cycle of stored)
         if (LIFTED.has(cycle.status)) {
@@ -243,10 +276,12 @@ export async function replayCyclePass(
       pending.push('cancel-investigation');
     };
     // A checkpoint's attestation is checked as the daemon checks it; its recovery preview, which
-    // captures the candidate and may audit the host, is where the replay stops.
-    (
-      services.runtimeEvidenceService as unknown as { checkpointRecovery: () => Promise<never> }
-    ).checkpointRecovery = async () => intercepted('checkpoint-recovery');
+    // captures the candidate and may audit the host, is where the replay stops. Refuses to run
+    // if the method was renamed, rather than let the preview run unintercepted.
+    const evidence = services.runtimeEvidenceService as unknown as Record<string, unknown>;
+    if (typeof evidence.checkpointRecovery !== 'function')
+      throw new Error('The cycles replay intercepts RuntimeEvidenceService.checkpointRecovery.');
+    evidence.checkpointRecovery = async () => intercepted('checkpoint-recovery');
     services.workCycleService.observePass({
       decided: (cycle, result) =>
         decisions.set(
@@ -286,7 +321,12 @@ export async function replayCyclePass(
             ...(calls.has(cycle.id) ? { calls: calls.get(cycle.id) } : {}),
             ...(actions.has(cycle.id) ? { actions: actions.get(cycle.id) } : {}),
             ...(changed
-              ? { after: replayState(after, after.currentRunId !== cycle.currentRunId, cycle) }
+              ? {
+                  after: replayState(after, after.currentRunId !== cycle.currentRunId, {
+                    cycle,
+                    known,
+                  }),
+                }
               : {}),
           },
         };

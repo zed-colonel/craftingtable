@@ -81,7 +81,12 @@ it('records what one pass does to each cycle, and with its stop lifted, without 
       resumed: {
         decision: { kind: 'attention', guard: 'step-outcome', code: 'design-open-questions' },
         actions: ['advance'],
-        after: { ...stop, cycle: expect.stringMatching(/^sha256:/) },
+        after: {
+          ...stop,
+          cycle: expect.stringMatching(/^sha256:/),
+          // The lifted cycle kept its reason, and the same report stops it with the same words.
+          fields: ['attention', 'status'],
+        },
       },
     },
   ]);
@@ -164,7 +169,20 @@ it('records each cycle’s own commands, ended turns, a reservation and the whol
   const reserving = ofCycle(await replayCycleSnapshot(designed, at));
   expect(reserving?.pass).toMatchObject({
     actions: ['advance'],
-    after: { status: 'running', step: 'implement', reserved: true },
+    after: {
+      status: 'running',
+      step: 'implement',
+      reserved: true,
+      fields: [
+        'currentRunId',
+        'housekeepingInstructions',
+        'parentRunId',
+        'reason',
+        'resultContinuations',
+        'runDeadlineAt',
+        'step',
+      ],
+    },
   });
   expect(reserving?.pass.after?.cycle).toMatch(/^sha256:/);
   expect(ofCycle(await replayCycleSnapshot(designed, at))).toEqual(reserving);

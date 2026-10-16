@@ -1,4 +1,5 @@
 import {
+  type AgentRunEvent,
   type AttentionRefs,
   type CheckpointId,
   type CycleAttentionCode,
@@ -438,6 +439,20 @@ export function reassessmentFailure(error: unknown): EffectStop | undefined {
  */
 export function questionsHoldGrant(report: string, requiresCheckpoint: boolean): boolean {
   return requiresCheckpoint ? !noOpenQuestions(report) : raisesOpenQuestions(report);
+}
+
+/**
+ * Whether a finished review's last turn can carry an operator's grant of remediation
+ * (`remediationBlocker`): it completed successfully and its result was not clipped. The resume's
+ * round-limit rule asks the same, so the grant is offered only where it is accepted
+ * (`resumeAtRoundLimit`; R-B4 increment 6 re-check, NIT-4's turn half).
+ */
+export function turnTakesGrant(
+  turn: AgentRunEvent | undefined,
+): turn is Extract<AgentRunEvent, { kind: 'turn-completed' }> {
+  return (
+    turn?.kind === 'turn-completed' && turn.payload.outcome === 'success' && !turn.payload.truncated
+  );
 }
 
 // ---------------------------------------------------------------------------------------------

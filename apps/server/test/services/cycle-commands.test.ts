@@ -67,6 +67,7 @@ function factsOf(overrides: Partial<Record<keyof CommandFacts, unknown>> = {}): 
     continuesLineage: () => true,
     reviewAsksRemediation: () => false,
     reviewScopeIssue: () => false,
+    reviewTurnSucceeded: () => true,
     deadline: () => LATER,
     ...overrides,
   } as CommandFacts;
@@ -410,6 +411,19 @@ const rows: readonly {
     facts: { newestRun: () => runOf({ role: 'review' }), reviewAsksRemediation: () => true },
     expected: { kind: 'refuse', code: 'round-limit', control: 'authorize-remediation' },
   },
+  // Increment 6 re-check, NIT-4's turn half: the grant needs a successful, untruncated turn, so a
+  // review whose turn failed is not refused toward it; its resume goes on as before decision 14.
+  {
+    name: 'a finished review at the round limit whose turn failed remediates',
+    stage: 'step',
+    cycle: { step: 'review', ...spent },
+    facts: {
+      newestRun: () => runOf({ role: 'review' }),
+      reviewAsksRemediation: () => true,
+      reviewTurnSucceeded: () => false,
+    },
+    expected: { kind: 'remediate' },
+  },
   // Increment 6 review: a report the scope rejects reaches the review's own stop, as before.
   {
     name: 'a finished review at the round limit whose report the scope rejects remediates',
@@ -655,7 +669,11 @@ describe('the cycle commands', () => {
 // R-B4, decision 14 (increment 6 re-check, NIT-4 and NIT-5): the rule the refusal and the offer
 // share asks what the grant asks, the cycle's own finished review.
 describe('a resume at the round limit', () => {
-  const asks = { reviewAsksRemediation: () => true, reviewScopeIssue: () => false };
+  const asks = {
+    reviewAsksRemediation: () => true,
+    reviewScopeIssue: () => false,
+    reviewTurnSucceeded: () => true,
+  };
   const review = cycleOf({ step: 'review', ...spent });
   it.each([
     ['the cycle’s own finished review', review, runOf({ role: 'review' }), true],
@@ -680,4 +698,12 @@ describe('a resume at the round limit', () => {
   ] as const)('%s', (_name, cycle, run, expected) =>
     expect(resumeAtRoundLimit(cycle, run, asks)).toBe(expected),
   );
+  // NIT-4's turn half: what the grant asks of the review's turn (`remediationBlocker`).
+  it('a review whose turn failed or was truncated', () =>
+    expect(
+      resumeAtRoundLimit(review, runOf({ role: 'review' }), {
+        ...asks,
+        reviewTurnSucceeded: () => false,
+      }),
+    ).toBe(false));
 });

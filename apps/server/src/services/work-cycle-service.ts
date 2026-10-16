@@ -160,6 +160,7 @@ import {
   stageFindings,
   STAGE_REVIEW_CHANGED_WORKTREE,
   stageReportInvalid,
+  turnTakesGrant,
   workflowAuthorityStop,
   workflowHeldGate,
 } from './cycle-effects.js';
@@ -1666,9 +1667,7 @@ export class WorkCycleService {
       'turn-completed',
     );
     if (
-      turn?.kind !== 'turn-completed' ||
-      turn.payload.outcome !== 'success' ||
-      turn.payload.truncated ||
+      !turnTakesGrant(turn) ||
       (!guidedContinuation && questionsHoldGrant(turn.payload.resultText, !!cycle.finalizationId))
     )
       return 'Resolve the questions or incomplete outcome before authorizing remediation.';
@@ -4811,11 +4810,14 @@ export class WorkCycleService {
   }
 }
 
-/** What a finished review's report asks, for the resume's round-limit rule (R-B4, decision 14). */
+/**
+ * What a finished review's report asks, and whether its turn can carry a grant, for the resume's
+ * round-limit rule (R-B4, decision 14; NIT-4's turn half).
+ */
 function reviewFacts(
   tx: StorageRepositories,
   cycle: WorkCycle,
-): Pick<CommandFacts, 'reviewAsksRemediation' | 'reviewScopeIssue'> {
+): Pick<CommandFacts, 'reviewAsksRemediation' | 'reviewScopeIssue' | 'reviewTurnSucceeded'> {
   return {
     reviewAsksRemediation: (run) => {
       const assessment = latestReviewReport(tx.execution, run);
@@ -4828,6 +4830,10 @@ function reviewFacts(
       const tree = tx.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
       return !!tree && !!scopedReviewIssue(tx, tree, latestReviewReport(tx.execution, run));
     },
+    reviewTurnSucceeded: (run) =>
+      turnTakesGrant(
+        tx.execution.runEvents.latestOfKind(cycle.workspaceId, run.id, 'turn-completed'),
+      ),
   };
 }
 

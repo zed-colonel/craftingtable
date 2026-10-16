@@ -120,6 +120,11 @@ export interface CommandFacts {
   readonly reviewAsksRemediation: (run: AgentRun) => boolean;
   /** The worktree's scope rejects the finished review's report (`scopedReviewIssue`). */
   readonly reviewScopeIssue: (run: AgentRun) => boolean;
+  /**
+   * The finished review's last turn succeeded untruncated, which the grant asks of it
+   * (`turnTakesGrant`).
+   */
+  readonly reviewTurnSucceeded: (run: AgentRun) => boolean;
   /** A new step window's deadline. */
   readonly deadline: () => string;
 }
@@ -457,11 +462,12 @@ function decideRelaunch(
  * spent (R-B4, decision 14). The command refuses it toward Authorize more remediation, and the
  * offer shows that control in place of Resume from this same rule (increment 6 review). A report
  * the worktree's scope rejects is not one: its resume reaches the review's own stop, as before.
+ * Nor is a review whose turn failed or was clipped, which the grant refuses (NIT-4's turn half).
  */
 export function resumeAtRoundLimit(
   cycle: WorkCycle,
   run: AgentRun | undefined,
-  review: Pick<CommandFacts, 'reviewAsksRemediation' | 'reviewScopeIssue'>,
+  review: Pick<CommandFacts, 'reviewAsksRemediation' | 'reviewScopeIssue' | 'reviewTurnSucceeded'>,
 ): boolean {
   const scope = cycle.executionScope;
   return (
@@ -473,6 +479,7 @@ export function resumeAtRoundLimit(
     !cycle.finalizationProgress &&
     (!scope || scope.kind === 'slice') &&
     remediationUsed(cycle) >= remediationAllowance(cycle) &&
+    review.reviewTurnSucceeded(run) &&
     review.reviewAsksRemediation(run) &&
     !review.reviewScopeIssue(run)
   );

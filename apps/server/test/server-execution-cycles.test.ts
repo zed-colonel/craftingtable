@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentLaunchRequest, AgentSession } from '@craftingtable/agents';
 import {
+  asAgentRunEventId,
   cycleAttention,
   asPlanVersionId,
   asProjectId,
@@ -414,6 +416,79 @@ it('refuses a plain resume at the round limit toward Authorize more remediation'
     },
   });
   expect(grant.statusCode, grant.body).toBe(200);
+});
+
+// R-B4 increment 6 re-check, NIT-4's turn half: the grant needs the review's turn to have
+// succeeded untruncated (`remediationBlocker`), so a review whose turn failed but whose report is
+// complete is not offered the grant in Resume's place, and its resume is not refused toward it.
+it('offers Resume, not a grant it refuses, at the round limit when the review’s turn failed', async () => {
+  const { state, worktree } = await cycleFixture([
+    designDone,
+    implementationDone,
+    { resultText: reviewText([structuredFinding]) },
+  ]);
+  const cycle = await startCycle(state, worktree.id, {
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+  });
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'policy stop');
+  const limit = currentCycle(state, cycle);
+  // A failed turn with the complete report in its text and no stored assessment, as review turns
+  // were recorded before the daemon assessed them (6cbc23b, 2026-09-10); the step stopped on it.
+  state.context.storage.execution.runEvents.append({
+    id: asAgentRunEventId(randomUUID()),
+    workspaceId: state.workspaceId,
+    runId: limit.currentRunId,
+    occurredAt: new Date().toISOString(),
+    kind: 'turn-completed',
+    payload: {
+      outcome: 'error',
+      resultText: reviewText([structuredFinding]),
+      turns: 1,
+      durationMs: 1,
+    },
+  });
+  const incomplete = {
+    ...limit,
+    attention: cycleAttention('step-incomplete'),
+    reason:
+      'The step did not finish with a complete successful result. Inspect it before resuming.',
+    version: limit.version + 1,
+  };
+  expect(state.context.storage.execution.cycles.replace(incomplete, limit.version)).toBeTruthy();
+  const offered = async () =>
+    (
+      await state.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${state.workspaceId}/cycles`,
+        headers: { cookie: state.cookie },
+      })
+    )
+      .json()
+      .cycles.find((v: { cycle: { id: string } }) => v.cycle.id === cycle.id)?.projection.actions;
+  expect(await offered()).toEqual(['resume', 'stop']);
+  const control = (payload: Record<string, unknown>) =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: { expectedVersion: incomplete.version, ...payload },
+    });
+  const grant = await control({
+    action: 'authorize-remediation',
+    additionalRounds: 1,
+    instructions: '',
+  });
+  expect(grant.statusCode, grant.body).toBe(409);
+  expect(grant.body).toContain('Resolve the questions or incomplete outcome');
+  expect(currentCycle(state, cycle)).toEqual(incomplete);
+  // Resume goes on as before decision 14: the remediation it reaches stops at the limit.
+  const resumed = await control({ action: 'resume' });
+  expect(resumed.statusCode, resumed.body).toBe(200);
+  expect(currentCycle(state, cycle)).toMatchObject({
+    status: 'needs-attention',
+    step: 'review',
+    attention: { code: 'remediation-exhausted' },
+  });
 });
 
 // R-B4 increment 6 review, LOW-3 (W15): a review asked again for skipped adopted checks whose

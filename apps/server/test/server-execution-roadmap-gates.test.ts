@@ -221,15 +221,20 @@ it('keeps the typed cause on a parallel entry’s hold, from a refusal or from i
   });
   await roadmapControl(state, 'start');
   await waitFor(() => !!storedRoadmap(state).entryHolds?.[entryIds[0]!], 'refusal hold');
+  // A hold of its own entry's gate names no entry: its key does (R-C10's follow-up).
   expect(storedRoadmap(state).entryHolds?.[entryIds[0]!]).toMatchObject({
     status: 'needs-attention',
     attention: {
       code: 'entry-preparation-failed',
-      refs: { entryId: entryIds[0], cause: 'predecessor-merge-missing' },
+      refs: { cause: 'predecessor-merge-missing' },
     },
   });
+  expect(storedRoadmap(state).entryHolds?.[entryIds[0]!]?.attention?.refs).toEqual({
+    cause: 'predecessor-merge-missing',
+  });
   advance.mockRestore();
-  // A blocker that holds the entry refuses it with the item gate's code as the cause.
+  // A blocker that holds the entry holds it as `entry-blocked` (decision 2), with the item gate's
+  // code as the cause.
   const blocked = vi.spyOn(scheduler, 'blocker').mockImplementation(() => ({
     reason: 'AQ-02: Bound plan item is unavailable.',
     needsAttention: true,
@@ -237,9 +242,10 @@ it('keeps the typed cause on a parallel entry’s hold, from a refusal or from i
     cause: 'item-unavailable',
   }));
   await waitFor(() => !!storedRoadmap(state).entryHolds?.[entryIds[1]!], 'blocker hold');
-  expect(storedRoadmap(state).entryHolds?.[entryIds[1]!]?.attention).toMatchObject({
-    code: 'entry-preparation-failed',
-    refs: { entryId: entryIds[1], cause: 'item-unavailable' },
+  expect(storedRoadmap(state).entryHolds?.[entryIds[1]!]?.attention).toEqual({
+    code: 'entry-blocked',
+    owner: 'operator',
+    refs: { cause: 'item-unavailable' },
   });
   blocked.mockRestore();
 });

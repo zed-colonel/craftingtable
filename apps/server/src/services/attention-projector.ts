@@ -36,6 +36,7 @@ import type {
 } from '@craftingtable/storage';
 import type { ControllerPasses } from './attention-gates.js';
 import { preparedDecisionAccepted } from './decision-preparation-policy.js';
+import { heldEntry } from './entry-holds.js';
 import { investigationSummary } from './investigation.js';
 
 /**
@@ -114,11 +115,15 @@ const MESSAGE_LIMIT = 4000;
  * stopped the round's merge (LIVE-24). An operator's own pause is not carried.
  */
 export function carriedHold(
-  roadmap: Pick<Roadmap, 'attempts' | 'entryHolds'> | null | undefined,
+  roadmap:
+    | (Pick<Roadmap, 'attempts' | 'entryHolds'> & Parameters<typeof heldEntry>[0])
+    | null
+    | undefined,
   cycle: Pick<WorkCycle, 'id' | 'owner'>,
 ): RoadmapEntryHold | undefined {
   if (!roadmap || !cycle.owner) return undefined;
-  const own = roadmap.entryHolds?.[cycle.owner.entryId];
+  // A sequential roadmap's stop on the entry is its hold (R-C10's follow-up, decision 3).
+  const own = heldEntry(roadmap, cycle.owner.entryId);
   const inRound = roadmap.attempts.some(
     (a) => a.recovery?.sourceEntryId === cycle.owner?.entryId && a.recovery?.phase !== 'completed',
   );
@@ -126,7 +131,7 @@ export function carriedHold(
     ?.sourceEntryId;
   const holds = [
     own && !inRound ? own : undefined,
-    source ? roadmap.entryHolds?.[source] : undefined,
+    source ? heldEntry(roadmap, source) : undefined,
   ].filter((hold): hold is RoadmapEntryHold => hold?.status === 'needs-attention');
   // Both, when the repair's own entry is held too: neither has an item of its own.
   return holds.length > 1
@@ -911,13 +916,28 @@ export class AttentionProjector implements WriteObserver {
     const superseded = new Set<string>();
     const attention = effectiveRoadmapAttention(roadmap);
     if (attention?.owner === 'operator') {
-      const active = roadmap.attempts.find((attempt) => attempt.status !== 'completed');
+      // A sequential roadmap's stop on an entry is that entry's hold (R-C10's follow-up, decision
+      // 3): the entry's own cycle, or its open round's repair, carries it while that has an item,
+      // as with a parallel hold. Any other stop is carried by its first unfinished attempt's cycle.
+      const stopped = attention.refs?.entryId;
+      const holds = stopped !== undefined && heldEntry(roadmap, stopped) !== undefined;
+      const carriers = holds
+        ? roadmap.attempts.filter((a) =>
+            a.recovery
+              ? a.recovery.sourceEntryId === stopped && a.recovery.phase !== 'completed'
+              : a.entryId === stopped,
+          )
+        : roadmap.attempts.filter((attempt) => attempt.status !== 'completed').slice(0, 1);
       // The cycle's own item carries the findings and branch details for this stop.
-      const cycleItem =
-        active &&
+      const cycleItem = carriers.some((carrier) =>
         tx.attention
-          .openInScope(workspaceId, `worktree:${active.worktreeId}`)
-          .some((item) => item.subjectKey === `cycle:${active.cycleId}`);
+          .openInScope(workspaceId, `worktree:${carrier.worktreeId}`)
+          .some((item) => item.subjectKey === `cycle:${carrier.cycleId}`),
+      );
+      const entry =
+        stopped === undefined
+          ? undefined
+          : roadmap.definition.entries.find((e) => e.id === stopped);
       if (cycleItem) superseded.add(`roadmap:${roadmapId}`);
       else
         items.push({
@@ -927,7 +947,13 @@ export class AttentionProjector implements WriteObserver {
           title: `${name} · Roadmap needs attention`,
           message: roadmap.reason,
           path,
-          refs,
+          // The stop names its entry, so the item opens that entry's controls beside the
+          // roadmap's.
+          refs: {
+            ...refs,
+            ...(entry ? { entryId: entry.id, workItemId: entry.workItemId } : {}),
+            ...(attention.refs?.cycleId ? { cycleId: attention.refs.cycleId } : {}),
+          },
         });
     }
     // A wind-down step, or a cleanup, that could not finish asks the operator once (R-B11,

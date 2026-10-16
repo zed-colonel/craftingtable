@@ -508,7 +508,8 @@ it('compares each status list’s header, and attention items as a multiset', ()
 });
 
 it('reports the typed hold a pass records', async () => {
-  // The plan's branch settings moved: a parallel pass holds each entry, and says with what.
+  // The plan's branch settings moved: a parallel pass holds each entry on its blocker, and says
+  // with what (`entry-blocked` since R-C10's follow-up, decision 2).
   const parallel = await parallelFixture();
   expect((await saveRoadmapRequest(parallel.state, parallel.input)).statusCode).toBe(200);
   await roadmapControl(parallel.state, 'start');
@@ -517,7 +518,7 @@ it('reports the typed hold a pass records', async () => {
   expect(decisionsOf(held)[entryIds[0]!]).toEqual({
     decision: 'hold',
     action: 'new-hold',
-    code: 'entry-preparation-failed',
+    code: 'entry-blocked',
     args: undefined,
   });
 });

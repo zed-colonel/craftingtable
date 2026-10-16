@@ -159,6 +159,11 @@ itNeedsCargo.each([
         attention: { code: 'entry-blocked' },
       });
       expect(roadmap.entryHolds?.[sourceEntryId]?.reason).toContain('cannot free by themselves');
+      // The hold sits on the round's source, and names the owner whose blocker refused it, so a
+      // release asks that gate (R-C10's follow-up, decision 2).
+      expect(roadmap.entryHolds?.[sourceEntryId]?.attention?.refs).toEqual({
+        entryId: ownerEntryId,
+      });
       return;
     }
     if (deadlock) {

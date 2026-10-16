@@ -84,6 +84,38 @@ it('adopts exact map decisions separately, previews exclusions, guards HTTP auth
   });
   expect(disallowed.statusCode, disallowed.body).toBe(409);
   expect(disallowed.body).toContain('parent acceptance reviews');
+  // A sequential roadmap never holds a verification or acceptance entry (R-C10's follow-up,
+  // decision 3, operator 2026-10-16): the plain save refuses a slice verification too, only the
+  // map supervisor saves review entries, its contract schedules them in parallel, and the plain
+  // save cannot edit the supervisor's roadmap (below).
+  const verification = await f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/roadmaps/${roadmapId}`,
+    headers: mutationHeaders(f.state),
+    payload: {
+      expectedVersion: 0,
+      name: 'Cannot sequence a verification',
+      scheduling: { ...f.input.scheduling, mode: 'sequential' },
+      entries: [
+        roadmapEntryInputSchema.parse({
+          ...roadmapInput(f.state, [f.state.workItemId]).entries[0],
+          executionScope: {
+            ...f.parentScope,
+            kind: 'slice-verification',
+            sourceId: 'local/AQ-01/a',
+          },
+        }),
+      ],
+    },
+  });
+  expect(verification.statusCode, verification.body).toBe(409);
+  expect(verification.body).toContain('parent acceptance reviews');
+  const sequential = await mapCommand(f, 'roadmap', {
+    ...f.input,
+    scheduling: { ...f.input.scheduling, mode: 'sequential' },
+  });
+  expect(sequential.statusCode, sequential.body).toBe(400);
+  expect(storedRoadmap(f.state, false)).toBeUndefined();
   const saved = f.service.save(f.auth, ws, {
     ...f.input,
     configuration: {
@@ -111,6 +143,22 @@ it('adopts exact map decisions separately, previews exclusions, guards HTTP auth
     'Specific slice',
     'Independent verification',
   ]);
+  const plainEdit = await f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/roadmaps/${roadmapId}`,
+    headers: mutationHeaders(f.state),
+    payload: {
+      expectedVersion: saved.roadmap.version,
+      name: 'Sequenced by hand',
+      scheduling: { ...f.input.scheduling, mode: 'sequential' },
+      entries: [
+        roadmapEntryInputSchema.parse(roadmapInput(f.state, [f.state.workItemId]).entries[0]),
+      ],
+    },
+  });
+  expect(plainEdit.statusCode, plainEdit.body).toBe(409);
+  expect(plainEdit.body).toContain('Use the imported map supervisor');
+  expect(storedRoadmap(f.state).definition.scheduling?.mode).toBe('parallel');
   expect(
     (
       await f.state.context.app.inject({

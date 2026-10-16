@@ -66,3 +66,47 @@ it("a round's repair carries the hold on the round's source entry, where its ref
     carriedHold(roadmap, { id: asWorkCycleId('other'), owner: owner('slice') }),
   ).toBeUndefined();
 });
+
+it('carries a sequential roadmap’s stop on its entry as that entry’s hold (R-C10 follow-up, decision 3)', () => {
+  // A slice's merge at a phase gate that does not wait: the sequential roadmap stops on the slice.
+  const cycle = { id: asWorkCycleId('slice-cycle'), owner: owner('slice') };
+  const stopped = {
+    attempts: [],
+    entryHolds: {},
+    status: 'needs-attention' as const,
+    reason: 'The map binding changed.',
+    attention: {
+      code: 'scheduler-error' as const,
+      owner: 'operator' as const,
+      refs: { entryId: asRoadmapEntryId('slice'), cause: 'phase-gate' as const },
+    },
+    definition: {
+      scheduling: {
+        mode: 'sequential' as const,
+        maxInFlight: 1,
+        maxPerRepository: 1,
+        maxIntegrationRefreshes: 1,
+      },
+    },
+  };
+  expect(carriedHold(stopped, cycle)?.reason).toBe('The map binding changed.');
+  // A stop on another entry, or a parallel roadmap's own stop, is not this entry's hold.
+  expect(
+    carriedHold(
+      {
+        ...stopped,
+        attention: { ...stopped.attention, refs: { entryId: asRoadmapEntryId('other') } },
+      },
+      cycle,
+    ),
+  ).toBeUndefined();
+  expect(
+    carriedHold(
+      {
+        ...stopped,
+        definition: { scheduling: { ...stopped.definition.scheduling, mode: 'parallel' as const } },
+      },
+      cycle,
+    ),
+  ).toBeUndefined();
+});

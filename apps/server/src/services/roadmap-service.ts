@@ -7,7 +7,7 @@ import { roadmapPath } from './roadmap-paths.js';
 import { RoadmapSettlement, type SettlementObserver } from './roadmap-settlement.js';
 import { inRetiredVersion, retiredOrRetiring, retiredVersionIds } from './retired-versions.js';
 import { cycleOwnership, ownerOf } from './cycle-ownership.js';
-import { itemGate, predecessorGate } from './transition-gate.js';
+import { type ItemRefusal, itemGate, predecessorGate } from './transition-gate.js';
 import {
   currentDecisionPreparation,
   preparedDecisionAccepted,
@@ -230,24 +230,95 @@ export function openRecoveries(roadmap: Roadmap): ReadonlyMap<string, RoadmapAtt
 }
 /** How long a standing preparation that could not be reserved waits before a retry (R-C3b). */
 const PREPARATION_RETRY_MS = 10 * 60_000;
-/** An entry the scheduler holds for a typed reason the operator resolves (R-A5). */
-/** The typed cause a hold keeps from the refusal behind it (R-B4, decision 3). */
-const holdCause = (error: unknown): AttentionRefs | undefined =>
-  error instanceof TypedRefusalError ? { cause: error.stop } : undefined;
+/**
+ * The typed cause a hold or stop keeps from the refusal behind it (R-B4, decision 3): a typed
+ * refusal's code, a blocker's item-gate code, or a phase gate that does not wait, with its
+ * blockers (R-C10's follow-up, decision 2).
+ */
+function holdCause(error: unknown): AttentionRefs | undefined {
+  if (error instanceof TypedRefusalError) return { cause: error.stop };
+  if (error instanceof EntryHoldError && error.stopCause) return { cause: error.stopCause };
+  if (error instanceof PhaseGateError && !error.waiting)
+    return {
+      cause: 'phase-gate',
+      blockers: [...new Set(error.blockers.map((b) => phaseBlockerCode(b)))],
+    };
+  return undefined;
+}
 
-/** A blocker that holds the entry, refused with its typed cause when it has one. */
-function refuseBlocked(blocker: EntryBlocker): never {
-  if (blocker.cause) throw new TypedRefusalError(blocker.cause, blocker.reason);
-  conflict(blocker.reason);
+/**
+ * The entry whose evaluation raised a refusal (R-C10's follow-up, decision 2). A recovery round's
+ * hold sits on the round's source entry, but the gate that refused is the round owner's or the
+ * target review's: the innermost evaluation names it, so a release can ask that gate again.
+ */
+const gatedEntries = new WeakMap<object, RoadmapEntryId>();
+function gated<E>(error: E, entryId: RoadmapEntryId): E {
+  if (typeof error === 'object' && error !== null && !gatedEntries.has(error))
+    gatedEntries.set(error, entryId);
+  return error;
+}
+const gatedEntry = (error: unknown): RoadmapEntryId | undefined =>
+  typeof error === 'object' && error !== null ? gatedEntries.get(error) : undefined;
+
+/**
+ * A parallel entry's hold's refs: its typed cause, and the entry whose gate refused when that is
+ * another entry (a round's owner or target). A hold of its own entry's gate names no entry, since
+ * its key does; holds stored before R-C10's follow-up name their own entry, which says nothing of
+ * which gate refused.
+ */
+function holdRefs(entryId: RoadmapEntryId, error: unknown): AttentionRefs | undefined {
+  const by = gatedEntry(error);
+  const refs = { ...(by && by !== entryId ? { entryId: by } : {}), ...holdCause(error) };
+  return Object.keys(refs).length ? refs : undefined;
+}
+
+/**
+ * A sequential roadmap's stop for a refusal met while evaluating its entry (decision 3): the
+ * hold's own code where it has one, and the entry whose gate refused, so it holds no entry. A
+ * refusal met outside an entry's evaluation (the delegating user, the map binding) names none.
+ */
+function stopAttention(error: unknown) {
+  const by = gatedEntry(error);
+  const refs = { ...(by ? { entryId: by } : {}), ...holdCause(error) };
+  return roadmapAttention(
+    error instanceof EntryHoldError ? error.attentionCode : 'scheduler-error',
+    Object.keys(refs).length ? refs : undefined,
+  );
+}
+
+/** A blocker that holds the entry, `entry-blocked`, with its typed cause when it has one. */
+function refuseBlocked(blocker: EntryBlocker, entryId?: RoadmapEntryId): never {
+  const error = new EntryHoldError('entry-blocked', blocker.reason, blocker.cause);
+  throw entryId ? gated(error, entryId) : error;
 }
 
 class EntryHoldError extends ExecutionRequestError {
   constructor(
     readonly attentionCode: 'evidence-not-current' | 'entry-blocked' | 'recovery-not-converging',
     message: string,
+    /** A blocker's item-gate code, kept as the hold's cause. */
+    readonly stopCause?: ItemRefusal,
   ) {
     super('conflict', message);
   }
+}
+/**
+ * Why Re-verify is refused for an entry, typed (R-C10's follow-up), with the message commands
+ * answer with. The automatic re-verification of decision 4 reads the code.
+ */
+interface ReverificationRefusal {
+  readonly code:
+    | 'roadmap-inactive'
+    | 'not-a-review'
+    | 'recovery-owns-entry'
+    | 'entry-paused'
+    | 'not-started'
+    | 'review-queued'
+    | 'preparing'
+    | 'review-open'
+    | 'evidence-current'
+    | 'other-worktree';
+  readonly message: string;
 }
 /** A decision a preparation may prepare: the exact map binding and its bound owner (R-C3b). */
 interface PreparationTarget {
@@ -2196,7 +2267,7 @@ export class RoadmapService {
       const entry = roadmap.definition.entries.find((e) => e.id === entryId);
       if (!entry) conflict('This entry is unavailable.');
       const plan = this.reverification(roadmap, entry);
-      if ('refused' in plan) conflict(plan.refused);
+      if ('refused' in plan) conflict(plan.refused.message);
       const at = this.now().toISOString();
       const { [entry.id]: _released, ...entryHolds } = roadmap.entryHolds ?? {};
       const attempt = plan.attempt;
@@ -2246,30 +2317,45 @@ export class RoadmapService {
     entry: RoadmapEntry,
     tx: StorageRepositories = this.storage,
   ):
-    | { refused: string }
+    | { refused: ReverificationRefusal }
     | { attempt: RoadmapAttempt; inPlace: true; sourceRunId: AgentRunId }
     | { attempt: RoadmapAttempt; inPlace: false } {
+    const refused = (code: ReverificationRefusal['code'], message: string) => ({
+      refused: { code, message },
+    });
     if (['draft', 'stopped', 'completed'].includes(roadmap.status))
-      return { refused: 'Re-verification needs an active roadmap.' };
+      return refused('roadmap-inactive', 'Re-verification needs an active roadmap.');
     if (!entry.executionScope || entry.executionScope.kind === 'slice')
-      return { refused: 'Only verification and parent acceptance entries can be re-verified.' };
+      return refused(
+        'not-a-review',
+        'Only verification and parent acceptance entries can be re-verified.',
+      );
     if (this.recoveryFor(roadmap, entry))
-      return { refused: 'Scope recovery owns this entry; finish its recovery first.' };
+      return refused(
+        'recovery-owns-entry',
+        'Scope recovery owns this entry; finish its recovery first.',
+      );
     const hold = roadmap.entryHolds?.[entry.id];
     if (hold?.status === 'paused')
-      return { refused: 'This item is paused. Resume the item before re-verifying it.' };
+      return refused(
+        'entry-paused',
+        'This item is paused. Resume the item before re-verifying it.',
+      );
     const attempt = roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
-    if (!attempt) return { refused: 'This entry has not run yet; resume the roadmap.' };
+    if (!attempt) return refused('not-started', 'This entry has not run yet; resume the roadmap.');
     // A queued review that failed holds the item; re-verifying replaces it with a fresh route.
     if (attempt.dependencyRefresh || (attempt.reverification && !hold))
-      return { refused: 'A fresh review is already queued for this entry.' };
+      return refused('review-queued', 'A fresh review is already queued for this entry.');
     const cycle = tx.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
     if (!cycle && !hold)
-      return { refused: 'This entry is still being prepared; wait for its review cycle.' };
+      return refused('preparing', 'This entry is still being prepared; wait for its review cycle.');
     if (cycle && !['completed', 'stopped'].includes(cycle.status))
-      return { refused: 'Its review cycle is still open; finish or stop it first.' };
+      return refused('review-open', 'Its review cycle is still open; finish or stop it first.');
     if (this.complete(roadmap, entry, tx))
-      return { refused: 'This evidence is current; there is nothing to re-verify.' };
+      return refused(
+        'evidence-current',
+        'This evidence is current; there is nothing to re-verify.',
+      );
     const tree = tx.execution.worktrees.find(roadmap.workspaceId, attempt.worktreeId);
     if (
       cycle?.status === 'completed' &&
@@ -2288,9 +2374,10 @@ export class RoadmapService {
           sameExecutionScope(t.executionScope, entry.executionScope),
       );
     if (other)
-      return {
-        refused: `Remove the unused worktree ${other.branchName} first; a verification scope has one active worktree.`,
-      };
+      return refused(
+        'other-worktree',
+        `Remove the unused worktree ${other.branchName} first; a verification scope has one active worktree.`,
+      );
     return { attempt, inPlace: false };
   }
 
@@ -2406,7 +2493,7 @@ export class RoadmapService {
           if (current.status === 'running')
             this.change(current, {
               status: 'needs-attention',
-              attention: roadmapAttention('scheduler-error', holdCause(error)),
+              attention: stopAttention(error),
               reason:
                 error instanceof ExecutionRequestError
                   ? error.message
@@ -2548,7 +2635,7 @@ export class RoadmapService {
                   error instanceof EntryHoldError
                     ? error.attentionCode
                     : 'entry-preparation-failed',
-                  { entryId: entry.id, ...holdCause(error) },
+                  holdRefs(entry.id, error),
                 ),
               },
             },
@@ -2630,7 +2717,20 @@ export class RoadmapService {
       throw error;
     }
   }
+  /** Evaluates one entry; a refusal it meets names the entry whose gate refused (`gated`). */
   private async advanceEntry(
+    roadmap: Roadmap,
+    entry: RoadmapEntry,
+    recoveryAttempt?: RoadmapAttempt,
+    reviewingRecovery = false,
+  ): Promise<EntryStep> {
+    try {
+      return await this.evaluateEntry(roadmap, entry, recoveryAttempt, reviewingRecovery);
+    } catch (error) {
+      throw gated(error, entry.id);
+    }
+  }
+  private async evaluateEntry(
     roadmap: Roadmap,
     entry: RoadmapEntry,
     recoveryAttempt?: RoadmapAttempt,
@@ -3443,8 +3543,9 @@ export class RoadmapService {
       if (!ownerAttempt) conflict('The owning slice has no roadmap-bound implementation settings.');
       const blocked = this.blocker(roadmap, decision.owner, undefined, this.storage, true);
       if (blocked) {
-        if (blocked.circular) throw new EntryHoldError('entry-blocked', blocked.reason);
-        if (blocked.needsAttention) refuseBlocked(blocked);
+        if (blocked.circular)
+          throw gated(new EntryHoldError('entry-blocked', blocked.reason), decision.owner.id);
+        if (blocked.needsAttention) refuseBlocked(blocked, decision.owner.id);
         return blockerWait(blocked, decision.owner.id);
       }
       attempt = {
@@ -3530,8 +3631,9 @@ export class RoadmapService {
           );
         const blocked = this.blocker(roadmap, owner, reserved, this.storage, true);
         if (blocked) {
-          if (blocked.circular) throw new EntryHoldError('entry-blocked', blocked.reason);
-          if (blocked.needsAttention) refuseBlocked(blocked);
+          if (blocked.circular)
+            throw gated(new EntryHoldError('entry-blocked', blocked.reason), owner.id);
+          if (blocked.needsAttention) refuseBlocked(blocked, owner.id);
           return blockerWait(blocked, owner.id);
         }
         const preview = collectScopeRepair(mapReadSnapshot(this.storage), sourceCycle);
@@ -3565,7 +3667,7 @@ export class RoadmapService {
                 this.storage,
                 true,
               );
-              if (blocker) refuseBlocked(blocker);
+              if (blocker) refuseBlocked(blocker, owner.id);
             },
             attach: () =>
               this.updateRecovery(this.find(ws, roadmap.id), reserved, { status: 'active' }),
@@ -3629,7 +3731,7 @@ export class RoadmapService {
       phase === 'verification' ? 'verify' : 'accept',
       { ownerId: cycle.currentRunId },
     );
-    if (blockers.length) throw new PhaseGateError(blockers);
+    if (blockers.length) throw gated(new PhaseGateError(blockers), target.id);
     const prior = reserved.recovery!.reviewRunIds[target.id];
     if (
       cycle.status === 'completed' ||
@@ -4518,6 +4620,34 @@ export class RoadmapService {
         message: `${entry.title}\n${wait.reason}`,
         path: `/workspaces/${ws}/projects/${encodeURIComponent(item.projectId)}/plans/${encodeURIComponent(entry.planVersionId)}#branches`,
         refs: { roadmapId: roadmap.id, entryId: entry.id, workItemId: entry.workItemId },
+      });
+    }
+    // An entry whose cycle ended (stopped, or completed without completing the entry) waits on
+    // the operator, and the cycle's own item closed with it (R-C10's follow-up, decision 7). A
+    // review entry offers Re-verify where it applies; otherwise its item opens the board, whose
+    // controls are today's.
+    for (const [entryId, wait] of Object.entries(roadmap.entryWaits ?? {})) {
+      if (wait.code !== 'cycle-ended') continue;
+      const entry = roadmap.definition.entries.find((e) => e.id === entryId);
+      if (!entry) continue;
+      const reverifiable =
+        !!entry.executionScope &&
+        entry.executionScope.kind !== 'slice' &&
+        !('refused' in this.reverification(roadmap, entry, tx));
+      items.push({
+        subjectKey: `roadmap:${roadmap.id}:entry:${entry.id}:cycle-ended`,
+        code: 'cycle-needs-attention',
+        kind: 'attention',
+        title: `${entry.sourceId} · Cycle ended`,
+        message: `${entry.title}\n${wait.reason}`,
+        path,
+        refs: {
+          roadmapId: roadmap.id,
+          entryId: entry.id,
+          workItemId: entry.workItemId,
+          ...(wait.refs?.cycleId ? { cycleId: wait.refs.cycleId } : {}),
+        },
+        ...(reverifiable ? { actions: ['reverify' as const] } : {}),
       });
     }
     return items;

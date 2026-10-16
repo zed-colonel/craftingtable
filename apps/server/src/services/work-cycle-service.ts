@@ -2730,7 +2730,25 @@ export class WorkCycleService {
     // Only a runnable delegation uses the obligations, so only then pay for evaluating them.
     const context = workflowContext(this.storage, cycle);
     if (!context) return false;
-    const active = cycle.workflow.activeReview;
+    let active = cycle.workflow.activeReview;
+    // A checkpoint whose support, assignment or prerequisites changed while its review ran (or
+    // that left the slice) cannot attest with it: the review is dropped, and the checkpoint's
+    // obligation decides below as for one never reviewed (a stop naming it, a wait, or a fresh
+    // review once it is ready). A stop on the review would offer exits that rerun it before
+    // anything was fixed (R-B4 increment 4 re-check, NEW-LOW-2).
+    const reviewed =
+      active?.kind === 'checkpoint'
+        ? context.checkpoints.find((c) => c.id === active!.checkpointId)
+        : undefined;
+    if (
+      active?.kind === 'checkpoint' &&
+      (!reviewed?.supported || !reviewed.assigned || reviewed.pending.length)
+    ) {
+      cycle = this.change(cycle, {
+        workflow: { ...cycle.workflow, activeReview: null, waiting: null },
+      });
+      active = null;
+    }
     if (active) {
       if (active.kind === 'checkpoint') {
         if (!this.runtimeEvidence)
@@ -2746,7 +2764,7 @@ export class WorkCycleService {
         cycle,
         {
           workflow: {
-            ...cycle.workflow,
+            ...cycle.workflow!,
             activeReview: null,
             ...(active.kind === 'security'
               ? {
@@ -3446,6 +3464,11 @@ export class WorkCycleService {
           'conflict',
           'Cycle changed; refresh before authorizing more remediation.',
         );
+      const blocker = this.remediationBlocker(
+        cycle,
+        grant.additionalRounds === 0 || (!cycle.finalizationId && !!grant.instructions.trim()),
+      );
+      if (blocker) throw new ExecutionRequestError('conflict', blocker);
     }
     if (decided.kind === 'attention') {
       this.attention(cycle, decided.code, decided.message);

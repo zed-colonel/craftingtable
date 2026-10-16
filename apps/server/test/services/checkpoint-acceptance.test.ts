@@ -5,10 +5,10 @@ import { decideRefusal } from '../../src/services/cycle-effects.js';
 import { RuntimeEvidenceService } from '../../src/services/runtime-evidence-service.js';
 
 /**
- * A delegated checkpoint review whose checkpoint changed while it ran (R-B4 increment 4
- * re-check, NEW-LOW-1): its assignment, support or prerequisites. Nothing before the merge
- * boundary checks them, so the acceptance's own entry check names the stop: the checkpoint
- * cannot attest now, not `controller-error`. Resume reviews again once its inputs change.
+ * The checkpoint acceptance's entry check (R-B4 increment 4 re-check, NEW-LOW-1): a checkpoint
+ * whose assignment, support or prerequisites changed while its review ran cannot attest. The pass
+ * drops such a review before it calls this (`server-execution-checkpoint-changed.test.ts`); should
+ * one still arrive, the stop names the checkpoint, not `controller-error`.
  */
 
 const state = vi.hoisted(() => ({

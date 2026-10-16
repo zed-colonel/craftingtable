@@ -474,51 +474,68 @@ it('refuses the housekeeping grant at another stop, too few rounds, or an unsett
 });
 
 // R-B4 increment 4 re-check: the grant inspects the worktree before it writes, and a cycle
-// changed meanwhile (a pause, another tab's grant) refuses it, as at a review's limit.
-it('refuses the housekeeping grant when the cycle changed during its worktree inspection', async () => {
-  const real = createGitOperations({ gitExecutable: 'git' });
-  let during: (() => void) | undefined;
-  const { state, backend, worktree } = await cycleFixture(
-    [designDone, implementationDone, implementationDone, { resultText: reviewText([]) }],
-    undefined,
-    {
-      ...real,
-      inspectWorktreeChanges: async (path) => {
-        const result = await real.inspectWorktreeChanges(path);
-        const change = during;
-        during = undefined;
-        change?.();
-        return result;
+// changed meanwhile (a pause, another tab's grant), or a merge or launch that took the worktree,
+// refuses it, as at a review's limit.
+it.each([
+  ['the cycle changed', 'Cycle changed; refresh before authorizing more remediation.'],
+  ['a launch took the worktree', 'A review is starting in this worktree'],
+])(
+  'refuses the housekeeping grant when %s during its worktree inspection',
+  async (what, refusal) => {
+    const real = createGitOperations({ gitExecutable: 'git' });
+    let during: (() => void) | undefined;
+    const { state, backend, worktree } = await cycleFixture(
+      [designDone, implementationDone, implementationDone, { resultText: reviewText([]) }],
+      undefined,
+      {
+        ...real,
+        inspectWorktreeChanges: async (path) => {
+          const result = await real.inspectWorktreeChanges(path);
+          const change = during;
+          during = undefined;
+          change?.();
+          return result;
+        },
       },
-    },
-  );
-  backend.onLaunch = (request) => {
-    if (request.model === 'implement-model')
-      writeFileSync(join(worktree.path, 'unknown.wal'), 'test artifact');
-  };
-  const cycle = await startCycle(state, worktree.id, {
-    policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
-  });
-  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'limit stop');
-  const stopped = currentCycle(state, cycle);
-  during = () =>
-    state.context.storage.execution.cycles.replace(
-      { ...stopped, reason: 'Changed elsewhere.', version: stopped.version + 1 },
-      stopped.version,
     );
-  const raced = await state.context.app.inject({
-    method: 'POST',
-    url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
-    headers: mutationHeaders(state),
-    payload: {
-      action: 'authorize-remediation',
-      expectedVersion: stopped.version,
-      additionalRounds: 1,
-      instructions: 'Remove the generated artifact.',
-    },
-  });
-  expect(raced.statusCode, raced.body).toBe(409);
-  expect(raced.body).toContain('Cycle changed; refresh before authorizing more remediation.');
-  expect(currentCycle(state, cycle)).toMatchObject({ remediationRounds: 0, step: 'implement' });
-  expect(backend.launches.map((r) => r.model)).toEqual(['design-model', 'implement-model']);
-});
+    backend.onLaunch = (request) => {
+      if (request.model === 'implement-model')
+        writeFileSync(join(worktree.path, 'unknown.wal'), 'test artifact');
+    };
+    const cycle = await startCycle(state, worktree.id, {
+      policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+    });
+    await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'limit stop');
+    const stopped = currentCycle(state, cycle);
+    let release = () => {};
+    const lane = (
+      state.context.services.workCycleService as unknown as {
+        mutations: { hold: (id: string, until: Promise<unknown>) => void };
+      }
+    ).mutations;
+    during =
+      what === 'the cycle changed'
+        ? () =>
+            state.context.storage.execution.cycles.replace(
+              { ...stopped, reason: 'Changed elsewhere.', version: stopped.version + 1 },
+              stopped.version,
+            )
+        : () => lane.hold(worktree.id, new Promise((resolve) => (release = () => resolve(null))));
+    const raced = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: {
+        action: 'authorize-remediation',
+        expectedVersion: stopped.version,
+        additionalRounds: 1,
+        instructions: 'Remove the generated artifact.',
+      },
+    });
+    release();
+    expect(raced.statusCode, raced.body).toBe(409);
+    expect(raced.body).toContain(refusal);
+    expect(currentCycle(state, cycle)).toMatchObject({ remediationRounds: 0, step: 'implement' });
+    expect(backend.launches.map((r) => r.model)).toEqual(['design-model', 'implement-model']);
+  },
+);

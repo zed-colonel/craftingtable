@@ -1465,9 +1465,9 @@ export class RuntimeEvidenceService {
       conflict(
         'Checkpoint delegation or prerequisites changed. Review the current roadmap obligations.',
       );
-    // Nothing earlier checks the checkpoint itself, which may have changed while its review ran:
-    // it cannot attest now, and the stop names it, not `controller-error`. Resume reviews again
-    // once its inputs change (R-B4 increment 4 re-check).
+    // The pass drops a review whose checkpoint changed while it ran before it gets here
+    // (`advanceWorkflow`); should one still arrive, the stop names the checkpoint, not
+    // `controller-error` (R-B4 increment 4 re-check).
     if (!checkpoint?.supported || !checkpoint.assigned || checkpoint.pending.length)
       throw new CheckpointAttestationError(
         active.checkpointId,

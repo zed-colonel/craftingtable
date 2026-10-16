@@ -1187,8 +1187,10 @@ Recommended order for the controller-kernel items, replacing the listing above a
 entry lists every hold and stop a roadmap entry can wait on today, which the scheduler may clear
 by itself on typed facts (a hold that repeats a cycle's stop, a gate that passes again, stale
 evidence of an entry the roadmap verifies automatically, under a grant) and which stay the
-operator's, with seven decisions for the operator and five increments, the measure first; its
-independent review is settled in the entry. It changes no order above.
+operator's, with seven decisions and five increments, the measure first; its independent review
+is settled in the entry. The operator decided all seven as recommended the same day, decision 1
+on condition that the scheduler's one-second wake does not materially degrade UI performance
+(increment 3 measures it). It changes no order above.
 
 Exit criteria:
 - `reconcile` is a thin shell.

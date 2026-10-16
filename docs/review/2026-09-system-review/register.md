@@ -1812,7 +1812,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C10
 
-**Re-verify a roadmap item whose evidence is no longer current** · Phase P2 · Effort S-M · Status: done (see Progress); its follow-up (P4) designed 2026-10-16, decisions pending
+**Re-verify a roadmap item whose evidence is no longer current** · Phase P2 · Effort S-M · Status: done (see Progress); its follow-up (P4) designed and decided 2026-10-16, ready to build
 
 - **Added 2026-09-25**, from the WI-02 stall. The operator chose this over stopping and recreating the roadmap.
 - **Why:**
@@ -1947,6 +1947,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - *M7, L7:* decision 1's costs include a round it declined starting by itself, decision preparations resuming at once, and the one-second wake.
       - *M8:* no reason line per release in a parallel roadmap (decision 5).
       - *L1* (the catalog claim), *L2* (the corpus wording), *L3* (no `new-hold` record in any golden), *L4* (the completion's refusal, an amendment's pause, decision preparations, `target-moved`, Delegate source fixes), *L5* (paused roadmaps, the tick's visit), *L6* (states whose fix is a person's), *L8* (overlapping waits merged; R-B5's dirty sources) and the NITs (labels in increment 2, the effort sum, the requester precedent): corrected in the text.
+  - **Decisions, by the operator 2026-10-16:** all seven as recommended (option A each).
+    - *Decision 1 holds on a condition:* the scheduler's one-second wake (a running roadmap that is not cross-project, `:2357-2361`) must not materially degrade UI performance. Increment 3 therefore measures it: with a sequential roadmap waiting on its cycle and the browser open on its board, against the same roadmap stopped as today, the daemon's idle CPU, the event-loop delay R-D3's diagnostics record (`routes/diagnostics.ts`) and the read latency of the board, the status list and Needs you. A material degradation is anything beyond the noise of R-B4's idle measurement. If the measure finds one, the loop counts a running roadmap whose entries all wait on the operator as fully waiting (the five-second timeout; persisted changes such as the cycle's resume still wake it at once), and the increment records both measurements. Added to increment 3 and to the done-when.
+    - Decisions 2 to 7 as written: the releases of typed gate holds; the sequential stop keeping the hold's code, with the projector's changes and Re-verify's sequential dead end fixed; automatic Re-verify under a revocable grant, in place only, after approvals settle; the audit codes and R-C1's measure, with no reason line per release in a parallel roadmap; transient retries left to R-B5's timers; an item for `cycle-ended`.
+    - The follow-up is ready to build, increments 1 to 5 in the order above.
 
 ### R-C11
 

@@ -16,6 +16,7 @@ import {
   submissionIssues,
 } from './runtime-evidence-policy.js';
 import { nativeApproval } from './native-verification-policy.js';
+import { roadmapWaitAudit } from './operator-wait-service.js';
 import { ExecutionRequestError } from './errors.js';
 
 /** A disposable synchronous projection; the proposed generation is never written by preview. */
@@ -238,7 +239,13 @@ export function queueRuntimeReviews(
       targetId: r.id,
       outcome: 'succeeded',
       resultingVersion: updated.version,
-      metadata: { action: 'dependency-refresh', runtimeId: runtime.id, queuedAttemptIds: [...ids] },
+      metadata: {
+        action: 'dependency-refresh',
+        runtimeId: runtime.id,
+        queuedAttemptIds: [...ids],
+        status: updated.status,
+        ...roadmapWaitAudit(updated),
+      },
     });
     tx.workspaceEvents.appendEvent({
       id: asEventId(randomUUID()),

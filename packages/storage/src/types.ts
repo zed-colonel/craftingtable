@@ -5,6 +5,7 @@ import type {
   AuditOutcome,
   EventId,
   JsonValue,
+  RoadmapId,
   Session,
   SessionId,
   User,
@@ -198,6 +199,16 @@ export interface AuditRepository {
     until: string,
   ): readonly {
     readonly cycleId: WorkCycleId;
+    readonly occurredAt: string;
+    readonly metadata: Readonly<Record<string, unknown>>;
+  }[];
+  /** The same for a workspace's recorded roadmap writes (R-C10's follow-up). */
+  listRoadmapTransitions(
+    workspaceId: WorkspaceId,
+    from: string,
+    until: string,
+  ): readonly {
+    readonly roadmapId: RoadmapId;
     readonly occurredAt: string;
     readonly metadata: Readonly<Record<string, unknown>>;
   }[];

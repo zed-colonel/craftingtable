@@ -1,4 +1,4 @@
-import type { AttentionOwner, CycleAttentionCode } from './attention.js';
+import type { AttentionOwner, CycleAttentionCode, RoadmapAttentionCode } from './attention.js';
 import type { CycleStatus } from './work-cycle.js';
 import type { WorkCycleId } from './ids.js';
 
@@ -10,6 +10,12 @@ import type { WorkCycleId } from './ids.js';
  * operator and no agent was running: work that could not move until the operator acted.
  * Stop kinds are ranked by the cycle-hours spent in them, which is what the remaining
  * automation work is prioritized by.
+ *
+ * A roadmap waits on the operator too: while it is paused or stopped at its own attention, and
+ * while one of its entries is held (R-C10's follow-up, decision 5). Such a wait often stands for
+ * the same fact as a cycle's stop (a hold over a round's repair cycle that needs attention, a
+ * sequential roadmap stopped behind its cycle), so where one of its own cycles waits on the
+ * operator at the same time, that time is counted once, as the cycle's.
  */
 
 /** One recorded cycle transition: the state the cycle entered at `at`. */
@@ -28,7 +34,21 @@ interface AgentActivityInterval {
 }
 
 /** `paused` is the operator's own pause; every other kind is an attention code. */
-type OperatorWaitKind = CycleAttentionCode | 'paused';
+export type OperatorWaitKind = CycleAttentionCode | RoadmapAttentionCode | 'paused';
+
+/**
+ * One recorded state of a roadmap's wait: the roadmap's own stop, or one entry's hold, as it
+ * stood from `at` until the next record of the same wait.
+ */
+export interface RoadmapWaitRecord {
+  /** Names the wait: the roadmap's own stop, or one entry's hold on it. */
+  readonly waitId: string;
+  readonly at: string;
+  /** The stop while it waits on the operator; absent once it does not. */
+  readonly kind?: OperatorWaitKind;
+  /** The cycles whose operator stops are this same wait; time they wait too counts as theirs. */
+  readonly cycleIds: readonly WorkCycleId[];
+}
 
 export interface OperatorWaitReport {
   readonly from: string;
@@ -44,7 +64,10 @@ export interface OperatorWaitReport {
     readonly kind: OperatorWaitKind;
     /** Stops of this kind that began inside the window. */
     readonly stops: number;
-    /** Cycle-hours spent in this kind inside the window (overlapping cycles add up). */
+    /**
+     * Hours spent in this kind inside the window, by every cycle and roadmap wait in it
+     * (overlapping cycles add up); a roadmap's wait leaves out the time its own cycles wait.
+     */
     readonly cycleHours: number;
   }[];
 }
@@ -96,6 +119,7 @@ export function summarizeOperatorWait(
   transitions: readonly CycleTransitionRecord[],
   runs: readonly AgentActivityInterval[],
   window: { readonly from: Date; readonly to: Date },
+  roadmapWaits: readonly RoadmapWaitRecord[] = [],
 ): OperatorWaitReport {
   const from = window.from.getTime();
   const to = window.to.getTime();
@@ -109,10 +133,20 @@ export function summarizeOperatorWait(
   }
   const waiting: Interval[] = [];
   const kinds = new Map<OperatorWaitKind, { stops: number; ms: number }>();
-  for (const records of byCycle.values()) {
+  const cycleWaits = new Map<string, Interval[]>();
+  /**
+   * Adds one subject's records (a cycle's, or one roadmap wait's), each lasting until the next.
+   * `covered` gives the time, sorted and disjoint, that a record's kind leaves to another.
+   */
+  const count = <R extends { readonly at: string }>(
+    records: readonly R[],
+    kindOf: (record: R) => OperatorWaitKind | undefined,
+    covered: (record: R) => readonly Interval[] = () => [],
+  ): Interval[] => {
     const ordered = records.toSorted((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    const intervals: Interval[] = [];
     for (const [index, record] of ordered.entries()) {
-      const kind = waitKind(record);
+      const kind = kindOf(record);
       if (kind === undefined) continue;
       const start = Date.parse(record.at);
       const next = ordered[index + 1];
@@ -122,15 +156,29 @@ export function summarizeOperatorWait(
       // It is counted even when its first record lasts no time at all (two writes in the
       // same millisecond), because the records after it continue it.
       const previous = ordered[index - 1];
-      if (start >= from && start < to && (!previous || waitKind(previous) !== kind))
-        entry.stops += 1;
+      if (start >= from && start < to && (!previous || kindOf(previous) !== kind)) entry.stops += 1;
       if (interval[1] > interval[0]) {
         waiting.push(interval);
-        entry.ms += interval[1] - interval[0];
+        intervals.push(interval);
+        entry.ms += length(subtract([interval], covered(record)));
       }
       if (entry.stops > 0 || entry.ms > 0) kinds.set(kind, entry);
     }
+    return intervals;
+  };
+  for (const [cycleId, records] of byCycle) cycleWaits.set(cycleId, count(records, waitKind));
+  const byWait = new Map<string, RoadmapWaitRecord[]>();
+  for (const record of roadmapWaits) {
+    const list = byWait.get(record.waitId) ?? [];
+    list.push(record);
+    byWait.set(record.waitId, list);
   }
+  for (const records of byWait.values())
+    count(
+      records,
+      (record) => record.kind,
+      (record) => union(record.cycleIds.flatMap((id) => cycleWaits.get(id) ?? [])),
+    );
   const waitingUnion = union(waiting);
   const agentUnion = union(
     runs.map((run) => clip(Date.parse(run.startedAt), run.endedAt ? Date.parse(run.endedAt) : to)),

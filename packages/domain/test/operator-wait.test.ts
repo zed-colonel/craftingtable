@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { type CycleTransitionRecord, summarizeOperatorWait } from '../src/operator-wait.js';
+import {
+  type CycleTransitionRecord,
+  type RoadmapWaitRecord,
+  summarizeOperatorWait,
+} from '../src/operator-wait.js';
 import { asWorkCycleId } from '../src/ids.js';
 
 const cycleA = asWorkCycleId('a');
@@ -127,5 +131,59 @@ describe('operator wait (R-C1)', () => {
     );
     expect(report).toMatchObject({ waitingHours: 2, idleWaitingHours: 2 });
     expect(report.kinds).toEqual([{ kind: 'merge-approval', stops: 1, cycleHours: 2 }]);
+  });
+
+  it("counts a roadmap stop and an entry hold, and a hold over its own cycle's stop once (R-C10)", () => {
+    const transitions: CycleTransitionRecord[] = [
+      {
+        cycleId: cycleA,
+        at: at(2),
+        status: 'needs-attention',
+        attention: { code: 'work-item-questions', owner: 'operator' },
+      },
+      { cycleId: cycleA, at: at(6), status: 'running' },
+      // Another cycle's stop is not the hold's: it overlaps the hold and adds up beside it.
+      { cycleId: cycleB, at: at(3), status: 'paused' },
+      { cycleId: cycleB, at: at(4), status: 'running' },
+    ];
+    const roadmapWaits: RoadmapWaitRecord[] = [
+      // The entry holds from 1 to 8 for the same fact its cycle A stops on from 2 to 6.
+      { waitId: 'r:e', at: at(1), kind: 'entry-preparation-failed', cycleIds: [cycleA] },
+      { waitId: 'r:e', at: at(5), kind: 'entry-preparation-failed', cycleIds: [cycleA] },
+      { waitId: 'r:e', at: at(8), cycleIds: [cycleA] },
+      // The roadmap's own stop, with nothing running behind it.
+      { waitId: 'r', at: at(10), kind: 'scheduler-error', cycleIds: [] },
+      { waitId: 'r', at: at(12), cycleIds: [] },
+    ];
+    const report = summarizeOperatorWait(transitions, [], window, roadmapWaits);
+    expect(report).toMatchObject({ waitingHours: 9, idleWaitingHours: 9 });
+    expect(report.kinds).toEqual([
+      { kind: 'work-item-questions', stops: 1, cycleHours: 4 },
+      { kind: 'entry-preparation-failed', stops: 1, cycleHours: 3 },
+      { kind: 'scheduler-error', stops: 1, cycleHours: 2 },
+      { kind: 'paused', stops: 1, cycleHours: 1 },
+    ]);
+  });
+
+  it("counts a hold wholly inside its cycle's stop as a stop of no hours, and runs an open one to the end", () => {
+    const report = summarizeOperatorWait(
+      [
+        { cycleId: cycleA, at: at(1), status: 'paused' },
+        { cycleId: cycleA, at: at(9), status: 'running' },
+      ],
+      [],
+      window,
+      [
+        { waitId: 'r:e', at: at(2), kind: 'paused', cycleIds: [cycleA] },
+        { waitId: 'r:e', at: at(4), cycleIds: [cycleA] },
+        // Opened before the window and never closed: 24 hours, no stop inside the window.
+        { waitId: 'r', at: at(-3), kind: 'restart-resume', cycleIds: [cycleB] },
+      ],
+    );
+    expect(report).toMatchObject({ waitingHours: 24 });
+    expect(report.kinds).toEqual([
+      { kind: 'restart-resume', stops: 0, cycleHours: 24 },
+      { kind: 'paused', stops: 2, cycleHours: 8 },
+    ]);
   });
 });

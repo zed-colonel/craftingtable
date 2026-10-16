@@ -1,4 +1,5 @@
-import type { OperatorWaitReportResponse } from '@craftingtable/contracts';
+import type { AttentionItemView, OperatorWaitReportResponse } from '@craftingtable/contracts';
+import type { WorkCycle } from '@craftingtable/domain';
 import { useEffect, useRef, useState } from 'react';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
@@ -12,21 +13,36 @@ function kindLabel(kind: string): string {
 
 const hours = (value: number) => `${value.toFixed(1)} h`;
 
+/**
+ * What the report is reloaded on: a cycle entering or leaving a stop, a stop changing code or
+ * owner, and a Needs-you item opening or closing, which is how a roadmap's own stop or an entry's
+ * hold shows (R-C10's follow-up).
+ */
+export function operatorWaitRefreshKey(
+  cycles: readonly Pick<WorkCycle, 'id' | 'status' | 'attention'>[],
+  items: readonly Pick<AttentionItemView, 'id' | 'code'>[],
+): string {
+  const stops = cycles.map(
+    (cycle) =>
+      `${cycle.id}:${cycle.status}:${cycle.attention?.code ?? ''}:${cycle.attention?.owner ?? ''}`,
+  );
+  return [...stops, ...items.map((item) => `${item.id}:${item.code}`)].join(',');
+}
+
 /** A report older than this is reloaded when the tab becomes visible again. */
 const STALE_MS = 5 * 60_000;
 
 /**
  * How long work waited on the operator over the last week, and which stops cost the most
- * (R-C1). It reloads when a cycle enters or leaves a stop and when a hidden tab returns
- * after a while, not on every workspace event and not on a timer, so an idle tab makes no
- * requests. The time it was measured is shown, since an open stop keeps accruing.
+ * (R-C1). It reloads when a stop begins or ends and when a hidden tab returns after a
+ * while, not on every workspace event and not on a timer, so an idle tab makes no requests. The time it was measured is shown, since an open stop keeps accruing.
  */
 export function OperatorWaitSection({
   workspaceId,
   refreshKey,
 }: {
   workspaceId: string;
-  /** Changes when any cycle enters or leaves a stop, or a stop changes code or owner. */
+  /** Changes when a stop begins, ends or changes code or owner (`operatorWaitRefreshKey`). */
   refreshKey: string;
 }) {
   const [report, setReport] = useState<OperatorWaitReportResponse>();

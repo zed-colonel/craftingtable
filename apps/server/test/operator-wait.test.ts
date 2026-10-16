@@ -1,17 +1,33 @@
 import { randomUUID } from 'node:crypto';
 import { operatorWaitReportSchema } from '@craftingtable/contracts';
-import type { WorkCycle } from '@craftingtable/domain';
-import { asWorkCycleId } from '@craftingtable/domain';
+import type { Roadmap, WorkCycle } from '@craftingtable/domain';
+import { asRoadmapEntryId, asRoadmapId, asWorkCycleId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCycleFixture, storedCycle } from './cycle-test-support.js';
 import {
+  awaitRoadmapMerge,
   cleanupExecutionFixtures,
+  designDone,
+  implementationDone,
+  mergeRoadmapAttempt,
+  mutationHeaders,
   openQuestions,
+  parallelFixture,
+  present,
+  reviewText,
+  roadmapControl,
+  roadmapId,
+  saveRoadmapRequest,
   startCycle,
   stepDaemon,
+  storedRoadmap,
 } from './execution-test-support.js';
-import { OperatorWaitService, operatorWaitReport } from '../src/services/operator-wait-service.js';
+import {
+  OperatorWaitService,
+  operatorWaitReport,
+  roadmapWaitAudit,
+} from '../src/services/operator-wait-service.js';
 
 /** R-C1: operator wait is measured from the cycle audit trail and shown on the dashboard. */
 
@@ -118,7 +134,9 @@ describe('operator wait (R-C1)', () => {
     };
     const at = (hour: number) => new Date(Date.UTC(2026, 8, 20, hour)).toISOString();
     const storage = {
+      roadmaps: { list: () => [] },
       audit: {
+        listRoadmapTransitions: () => [],
         listCycleTransitions: () =>
           Object.keys(cycles).flatMap((cycleId) => [
             {
@@ -143,5 +161,183 @@ describe('operator wait (R-C1)', () => {
       'merge-approval',
       'record-scope-evidence',
     ]);
+  });
+
+  it("records a roadmap write's stop and holds, and counts an item pause beside its cycle's stop (R-C10)", async () => {
+    const { state, backend, input } = await parallelFixture();
+    backend.replyForRequest = (request) =>
+      request.model === 'design-model'
+        ? request.cwd.includes('aq-02')
+          ? { resultText: '## Open questions\nWhich API?' }
+          : designDone
+        : request.model === 'review-model'
+          ? { resultText: reviewText([]) }
+          : implementationDone;
+    await saveRoadmapRequest(state, input);
+    await roadmapControl(state, 'start');
+    await mergeRoadmapAttempt(state, (await awaitRoadmapMerge(state, 0)).worktreeId);
+    await awaitRoadmapMerge(state, 2);
+    const left = present(storedRoadmap(state).attempts[1]);
+    const paused = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmapId}/control`,
+      headers: mutationHeaders(state),
+      payload: {
+        action: 'pause',
+        entryId: left.entryId,
+        expectedVersion: storedRoadmap(state).version,
+      },
+    });
+    expect(paused.statusCode, paused.body).toBe(200);
+    const window = {
+      from: new Date(Date.now() - 3_600_000),
+      to: new Date(Date.now() + 3_600_000),
+    };
+    const rows = state.context.storage.audit.listRoadmapTransitions(
+      state.workspaceId,
+      window.from.toISOString(),
+      window.to.toISOString(),
+    );
+    expect(rows.at(-1)?.metadata).toMatchObject({
+      action: 'pause-entry',
+      status: 'running',
+      holds: [{ entryId: left.entryId, status: 'paused' }],
+    });
+    expect(rows.at(-1)?.metadata).not.toHaveProperty('attention');
+    expect(rows.every((row) => Array.isArray(row.metadata.holds))).toBe(true);
+    const report = operatorWaitReport(state.context.storage, state.workspaceId, {
+      from: window.from,
+      to: new Date(),
+    });
+    // The item pause also pauses the stopped cycle: the hold is a stop of its own beside the
+    // cycle's pause, and its time is the cycle's.
+    expect(report.kinds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'design-open-questions', stops: 1 }),
+        expect.objectContaining({ kind: 'paused', stops: 2 }),
+      ]),
+    );
+  });
+
+  it("counts a roadmap's stops and holds from its audit rows, once where its cycles wait (R-C10)", () => {
+    const at = (hour: number) => new Date(Date.UTC(2026, 8, 20, hour)).toISOString();
+    const [held, owner, other] = ['held', 'owner', 'other'].map(asRoadmapEntryId);
+    const [heldCycle, repairCycle, otherCycle] = ['c-held', 'c-repair', 'c-other'].map(
+      asWorkCycleId,
+    );
+    const roadmap = {
+      id: asRoadmapId('r'),
+      attempts: [
+        { entryId: held, cycleId: heldCycle },
+        // A recovery round's repair of the held entry runs on the owning slice's entry.
+        { entryId: owner, cycleId: repairCycle, recovery: { sourceEntryId: held } },
+        { entryId: other, cycleId: otherCycle },
+      ],
+    } as unknown as Roadmap;
+    const row = (hour: number, metadata: Record<string, unknown>) => ({
+      roadmapId: roadmap.id,
+      occurredAt: at(hour),
+      metadata,
+    });
+    const storage = {
+      roadmaps: { list: () => [roadmap] },
+      audit: {
+        listCycleTransitions: () => [
+          {
+            cycleId: repairCycle,
+            occurredAt: at(2),
+            metadata: {
+              status: 'needs-attention',
+              attention: { code: 'work-item-questions', owner: 'operator' },
+            },
+          },
+          { cycleId: repairCycle, occurredAt: at(6), metadata: { status: 'running' } },
+        ],
+        listRoadmapTransitions: () => [
+          row(1, {
+            status: 'running',
+            holds: [
+              {
+                entryId: held,
+                status: 'needs-attention',
+                code: 'entry-preparation-failed',
+                owner: 'operator',
+              },
+            ],
+          }),
+          row(8, {
+            status: 'needs-attention',
+            attention: { code: 'scheduler-error', owner: 'operator' },
+            holds: [],
+          }),
+          // A row an older release wrote says nothing of waits: nothing is counted from it.
+          row(10, { status: 'needs-attention', reason: 'Scheduler failed.' }),
+          // An ended roadmap waits on nobody, whatever holds it keeps.
+          row(12, { status: 'running', holds: [{ entryId: other, status: 'paused' }] }),
+          row(13, { status: 'stopped', holds: [{ entryId: other, status: 'paused' }] }),
+        ],
+      },
+      execution: {
+        cycles: { listForWorkspace: () => [] },
+        runs: { activityBetween: () => [] },
+      },
+    } as unknown as CraftingTableStorage;
+    const report = operatorWaitReport(storage, 'w' as never, {
+      from: new Date(at(0)),
+      to: new Date(at(24)),
+    });
+    expect(report).toMatchObject({ waitingHours: 10, idleWaitingHours: 10 });
+    expect(report.kinds).toEqual([
+      { kind: 'work-item-questions', stops: 1, cycleHours: 4 },
+      // Held from 1 to 8; its repair cycle's own stop from 2 to 6 is counted once, as the cycle's.
+      { kind: 'entry-preparation-failed', stops: 1, cycleHours: 3 },
+      { kind: 'scheduler-error', stops: 1, cycleHours: 2 },
+      { kind: 'paused', stops: 1, cycleHours: 1 },
+    ]);
+  });
+
+  it("audits the roadmap's stop and every hold by code, a hold stored before codes as legacy (R-C10)", () => {
+    const [cycleId, entryId] = [asWorkCycleId('c'), asRoadmapEntryId('e')];
+    expect(
+      roadmapWaitAudit({
+        status: 'needs-attention',
+        reason: 'The entry needs attention.',
+        attention: {
+          code: 'cycle-needs-attention',
+          owner: 'operator',
+          refs: { cycleId, entryId, blockers: ['binding-changed'] },
+        },
+        entryHolds: {
+          a: {
+            status: 'needs-attention',
+            reason: 'Failed.',
+            attention: {
+              code: 'entry-preparation-failed',
+              owner: 'operator',
+              refs: { cause: 'predecessor-merge-missing' },
+            },
+          },
+          b: { status: 'needs-attention', reason: 'Stored before codes.' },
+          c: { status: 'paused', reason: 'Item paused by operator.' },
+        },
+      }),
+    ).toEqual({
+      attention: { code: 'cycle-needs-attention', owner: 'operator', cycleId, entryId },
+      holds: [
+        {
+          entryId: 'a',
+          status: 'needs-attention',
+          code: 'entry-preparation-failed',
+          owner: 'operator',
+          cause: 'predecessor-merge-missing',
+        },
+        { entryId: 'b', status: 'needs-attention', code: 'legacy-attention', owner: 'operator' },
+        { entryId: 'c', status: 'paused' },
+      ],
+    });
+    // Attention belongs to a needs-attention roadmap only; a running one records its holds alone.
+    expect(roadmapWaitAudit({ status: 'running', reason: '', entryHolds: {} })).toEqual({
+      holds: [],
+    });
   });
 });

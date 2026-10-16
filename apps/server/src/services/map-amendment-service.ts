@@ -41,6 +41,7 @@ import {
 import { integratedSlice, amendmentHoldingScope } from './scope-lineage.js';
 import { activeRuntime, currentScopeReceipt, acceptedEvidence } from './runtime-evidence-policy.js';
 import { ExecutionRequestError, NotFoundError, windDownRefused } from './errors.js';
+import { roadmapWaitAudit } from './operator-wait-service.js';
 const hash = (value: unknown) =>
   createHash('sha256').update(canonicalDefinition(value)).digest('hex');
 function conflict(message: string): never {
@@ -489,23 +490,39 @@ export class MapAmendmentService {
         createdAt: at,
         createdByUserId: context.user.id,
       };
+    const held: Roadmap = {
+      ...withoutAttention(r),
+      status: 'paused',
+      version: r.version + 1,
+      updatedAt: at,
+      reason:
+        'Planning amendment awaiting review. Running sessions retain their original context; further execution is held.',
+    };
     this.storage.transaction((tx) => {
       tx.amendments.add(a);
-      if (
-        !tx.roadmaps.save(
-          {
-            ...withoutAttention(r),
-            status: 'paused',
-            version: r.version + 1,
-            updatedAt: at,
-            reason:
-              'Planning amendment awaiting review. Running sessions retain their original context; further execution is held.',
-          },
-          r.version,
-        )
-      )
-        conflict('Roadmap changed; refresh.');
+      if (!tx.roadmaps.save(held, r.version)) conflict('Roadmap changed; refresh.');
       this.record(tx, context, ws, id, a.id, 'proposed', at);
+      // The roadmap's own row, so the operator-wait measure sees the pause (R-C10's follow-up).
+      tx.audit.append({
+        id: asAuditEventId(randomUUID()),
+        workspaceId: ws,
+        occurredAt: at,
+        actorKind: 'user',
+        actorUserId: context.user.id,
+        sessionId: context.session.id,
+        action: 'roadmap.updated',
+        targetType: 'roadmap',
+        targetId: id,
+        outcome: 'succeeded',
+        resultingVersion: held.version,
+        metadata: {
+          action: 'propose-amendment',
+          status: held.status,
+          revision: held.definition.revision,
+          reason: held.reason,
+          ...roadmapWaitAudit(held),
+        },
+      });
     });
     this.notifier.notify();
     for (const cycle of this.storage.execution.cycles.listForWorkspace(ws)) {

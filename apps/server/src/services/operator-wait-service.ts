@@ -1,11 +1,22 @@
 import {
+  type AttentionRefs,
   type CycleStatus,
   type CycleTransitionRecord,
   CYCLE_ATTENTION,
   CYCLE_STATUSES,
   type CycleAttentionCode,
   effectiveCycleAttention,
+  effectiveHoldAttention,
+  effectiveRoadmapAttention,
+  type OperatorWaitKind,
   type OperatorWaitReport,
+  type Roadmap,
+  ROADMAP_ATTENTION,
+  type RoadmapAttention,
+  type RoadmapAttentionCode,
+  type RoadmapId,
+  type RoadmapWaitRecord,
+  startedAttempts,
   summarizeOperatorWait,
   type WorkCycle,
   type WorkspaceId,
@@ -16,7 +27,7 @@ import type { AuthContext } from './auth-service.js';
 import type { WorkspaceService } from './workspace-service.js';
 
 /**
- * Operator wait for the dashboard (R-C1), read from the cycle audit trail and run
+ * Operator wait for the dashboard (R-C1), read from the cycle and roadmap audit trails and run
  * intervals. Transitions recorded before attention codes existed recover their code from
  * the legacy reason mapping, the only place that reads that text.
  */
@@ -74,7 +85,135 @@ export function operatorWaitReport(
     transitions,
     storage.execution.runs.activityBetween(workspaceId, window.from.toISOString(), to),
     window,
+    roadmapWaitRecords(
+      storage.audit.listRoadmapTransitions(workspaceId, from, to),
+      storage.roadmaps.list(workspaceId),
+    ),
   );
+}
+
+/**
+ * What a roadmap write records of the roadmap's waits (R-C10's follow-up, decision 5): its own
+ * stop and every entry's hold, by code, so the operator-wait measure can count them. Every
+ * writer of a roadmap's `roadmap.updated` row adds it; `holds` is always present, which is how
+ * the measure tells such a row from one an older release wrote. Audit metadata is a free record,
+ * so an older release reads these rows as before.
+ */
+export function roadmapWaitAudit(
+  roadmap: Pick<Roadmap, 'status' | 'reason' | 'attention' | 'entryHolds'>,
+): { readonly attention?: AuditedStop; readonly holds: readonly AuditedHold[] } {
+  const attention = effectiveRoadmapAttention(roadmap);
+  return {
+    ...(attention ? { attention: auditedStop(attention) } : {}),
+    holds: Object.entries(roadmap.entryHolds ?? {}).map(([entryId, hold]) => {
+      const held = effectiveHoldAttention(hold);
+      return { entryId, status: hold.status, ...(held ? auditedStop(held) : {}) };
+    }),
+  };
+}
+
+type AuditedStop = {
+  readonly code: RoadmapAttentionCode;
+  readonly owner: RoadmapAttention['owner'];
+  readonly cycleId?: string;
+  readonly entryId?: string;
+  readonly cause?: CycleAttentionCode;
+};
+type AuditedHold = Partial<AuditedStop> & {
+  readonly entryId: string;
+  readonly status: 'paused' | 'needs-attention';
+};
+
+function auditedStop({ code, owner, refs }: RoadmapAttention): AuditedStop {
+  const kept = (key: keyof AttentionRefs & ('cycleId' | 'entryId' | 'cause')) =>
+    refs?.[key] ? { [key]: refs[key] } : {};
+  return { code, owner, ...kept('cycleId'), ...kept('entryId'), ...kept('cause') };
+}
+
+/** A waiting kind read back from an audited stop, if it is one the operator owns. */
+function stopKind(
+  value: unknown,
+): { kind: OperatorWaitKind; cycleId?: string; entryId?: string } | undefined {
+  const stop = value as Partial<Record<keyof AuditedStop, unknown>> | undefined;
+  if (
+    typeof stop?.code !== 'string' ||
+    !Object.hasOwn(ROADMAP_ATTENTION, stop.code) ||
+    stop.owner !== 'operator'
+  )
+    return undefined;
+  return {
+    kind: stop.code as RoadmapAttentionCode,
+    ...(typeof stop.cycleId === 'string' ? { cycleId: stop.cycleId } : {}),
+    ...(typeof stop.entryId === 'string' ? { entryId: stop.entryId } : {}),
+  };
+}
+
+const LIVE: ReadonlySet<unknown> = new Set(['running', 'paused', 'needs-attention']);
+
+/**
+ * Each audited roadmap write as the waits it records: the roadmap's own (its pause, or its stop
+ * at attention the operator owns) and each entry's hold, while the roadmap has not ended. Each
+ * names the cycles whose own stops are the same wait: the stop's cycle where it names one, else
+ * the entry's attempts' cycles (a recovery round's repair of it included), else, for the
+ * roadmap's own stop, every cycle it started. A row without the record, one an older release
+ * wrote, records no wait.
+ */
+export function roadmapWaitRecords(
+  rows: readonly {
+    readonly roadmapId: RoadmapId;
+    readonly occurredAt: string;
+    readonly metadata: Readonly<Record<string, unknown>>;
+  }[],
+  roadmaps: readonly Pick<Roadmap, 'id' | 'attempts' | 'retiredAttempts'>[],
+): RoadmapWaitRecord[] {
+  const byId = new Map(roadmaps.map((roadmap) => [roadmap.id, roadmap]));
+  const records: RoadmapWaitRecord[] = [];
+  const open = new Map<RoadmapId, Set<string>>();
+  for (const row of rows) {
+    const attempts = startedAttempts(byId.get(row.roadmapId) ?? { attempts: [] });
+    const entryCycles = (entryId: string) =>
+      attempts
+        .filter((a) => a.entryId === entryId || a.recovery?.sourceEntryId === entryId)
+        .map((a) => a.cycleId);
+    const { status, holds } = row.metadata;
+    const live = Array.isArray(holds) && LIVE.has(status);
+    const stop = live ? stopKind(row.metadata.attention) : undefined;
+    const kind =
+      status === 'paused' ? 'paused' : status === 'needs-attention' ? stop?.kind : undefined;
+    records.push({
+      waitId: row.roadmapId,
+      at: row.occurredAt,
+      ...(live && kind ? { kind } : {}),
+      cycleIds: stop?.cycleId
+        ? [stop.cycleId as WorkCycleId]
+        : stop?.entryId
+          ? entryCycles(stop.entryId)
+          : attempts.map((a) => a.cycleId),
+    });
+    const held = new Map<string, RoadmapWaitRecord>();
+    for (const hold of live ? (holds as unknown[]) : []) {
+      const { entryId, status: holdStatus } = (hold ?? {}) as Record<string, unknown>;
+      if (typeof entryId !== 'string') continue;
+      const holdStop = holdStatus === 'needs-attention' ? stopKind(hold) : undefined;
+      const holdKind = holdStatus === 'paused' ? 'paused' : holdStop?.kind;
+      held.set(entryId, {
+        waitId: `${row.roadmapId}:${entryId}`,
+        at: row.occurredAt,
+        ...(holdKind ? { kind: holdKind } : {}),
+        cycleIds: [
+          ...entryCycles(entryId),
+          ...(holdStop?.cycleId ? [holdStop.cycleId as WorkCycleId] : []),
+        ],
+      });
+    }
+    // A hold the previous row had and this one does not has ended.
+    for (const entryId of open.get(row.roadmapId) ?? [])
+      if (!held.has(entryId))
+        records.push({ waitId: `${row.roadmapId}:${entryId}`, at: row.occurredAt, cycleIds: [] });
+    records.push(...held.values());
+    open.set(row.roadmapId, new Set(held.keys()));
+  }
+  return records;
 }
 
 function recordedAttention(

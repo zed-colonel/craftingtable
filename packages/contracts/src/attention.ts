@@ -104,6 +104,8 @@ export const operatorWaitReportSchema = z.strictObject({
       z.strictObject({
         kind: z.union([
           z.enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]]),
+          // A roadmap's own stop or an entry's hold (R-C10's follow-up).
+          z.enum(ROADMAP_ATTENTION_CODES as [RoadmapAttentionCode, ...RoadmapAttentionCode[]]),
           z.literal('paused'),
         ]),
         stops: z.number().int().nonnegative(),

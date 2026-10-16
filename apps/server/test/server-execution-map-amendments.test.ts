@@ -64,6 +64,13 @@ it('holds a roadmap for reviewed amendments, checks stale previews and preserves
   const view = proposed.json(),
     pending = view.history[0];
   expect(f.state.context.storage.roadmaps.find(ws, roadmapId)?.status).toBe('paused');
+  // The proposal's pause has the roadmap's own audit row, which the operator-wait measure reads
+  // (R-C10's follow-up).
+  expect(
+    f.state.context.storage.audit
+      .listRoadmapTransitions(ws, '1970-01-01T00:00:00.000Z', '9999-01-01T00:00:00.000Z')
+      .at(-1)?.metadata,
+  ).toMatchObject({ action: 'propose-amendment', status: 'paused', holds: [] });
   // The pending decision is the operator's: it is an attention item until decided (R-A4).
   const amendmentItems = () =>
     f.state.context.storage.attention

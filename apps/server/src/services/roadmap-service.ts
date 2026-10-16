@@ -162,6 +162,7 @@ import type { ControllerPasses } from './attention-gates.js';
 import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 import { checkpointSubjectKey } from './checkpoint-subject.js';
 import { operatorSetupItem } from './operator-setup-item.js';
+import { roadmapWaitAudit } from './operator-wait-service.js';
 import {
   buildBoard,
   type ItemSubject,
@@ -4596,6 +4597,7 @@ export class RoadmapService {
         status: roadmap.status,
         revision: roadmap.definition.revision,
         reason: roadmap.reason,
+        ...roadmapWaitAudit(roadmap),
         ...(action === 'prepare-decision'
           ? {
               preparationId: roadmap.decisionPreparations?.at(-1)?.id,

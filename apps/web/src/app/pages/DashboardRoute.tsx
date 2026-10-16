@@ -8,7 +8,10 @@ import { Section } from '../../components/Section.js';
 import { StatusCards } from '../../components/StatusCards.js';
 import { RunList } from '../../features/execution/RunsPage.js';
 import { ProjectCards } from '../../features/planning/ProjectCards.js';
-import { OperatorWaitSection } from '../../features/workspace/OperatorWaitSection.js';
+import {
+  OperatorWaitSection,
+  operatorWaitRefreshKey,
+} from '../../features/workspace/OperatorWaitSection.js';
 import { isLiveStatus } from '../../lib/execution-labels.js';
 import type { WorkspaceProjectionState } from '../../lib/workspace-projection.js';
 import { RefreshFailed } from '../RefreshFailed.js';
@@ -52,12 +55,7 @@ export function DashboardRoute({
       <NeedsYou items={attention} workspaceId={workspaceId} variant="section" onNavigate={go} />
       <OperatorWaitSection
         workspaceId={workspaceId}
-        refreshKey={cycles
-          .map(
-            (cycle) =>
-              `${cycle.id}:${cycle.status}:${cycle.attention?.code ?? ''}:${cycle.attention?.owner ?? ''}`,
-          )
-          .join(',')}
+        refreshKey={operatorWaitRefreshKey(cycles, attention)}
       />
       <StatusCards
         summary={projection.statusSummary}

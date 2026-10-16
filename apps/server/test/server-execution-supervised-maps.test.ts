@@ -480,6 +480,13 @@ itNeedsCargo(
     expect(
       storedRoadmap(state).attempts.find((a) => a.cycleId === old.id)?.dependencyRefresh,
     ).toBeDefined();
+    // The refresh's own roadmap row says the roadmap is paused, as the operator-wait measure
+    // reads it (R-C10's follow-up).
+    expect(
+      tx.audit
+        .listRoadmapTransitions(ws, '1970-01-01T00:00:00.000Z', '9999-01-01T00:00:00.000Z')
+        .at(-1)?.metadata,
+    ).toMatchObject({ action: 'dependency-refresh', status: 'paused', holds: [] });
     await roadmapControl(state, 'resume');
     await waitFor(
       () => parent()?.currentRunId !== old.currentRunId && parent()?.status === 'awaiting-merge',

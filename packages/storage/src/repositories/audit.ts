@@ -1,5 +1,5 @@
 import type { AuditEvent, UserId, WorkspaceId } from '@craftingtable/domain';
-import { asWorkCycleId } from '@craftingtable/domain';
+import { asRoadmapId, asWorkCycleId } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { type RecordGuard, readRecord, readWritten } from '../records.js';
 import type { AppendAuditInput, AuditRepository } from '../types.js';
@@ -118,26 +118,39 @@ export class SqliteAuditRepository implements AuditRepository {
    * opened. Older rows are not read or parsed.
    */
   listCycleTransitions(workspaceId: WorkspaceId, from: string, until: string) {
+    return this.transitions('work-cycle.updated', workspaceId, from, until).map(
+      ({ targetId, ...row }) => ({ cycleId: asWorkCycleId(targetId), ...row }),
+    );
+  }
+
+  /** Roadmap writes recorded up to `until`, read as cycle transitions are (R-C10's follow-up). */
+  listRoadmapTransitions(workspaceId: WorkspaceId, from: string, until: string) {
+    return this.transitions('roadmap.updated', workspaceId, from, until).map(
+      ({ targetId, ...row }) => ({ roadmapId: asRoadmapId(targetId), ...row }),
+    );
+  }
+
+  private transitions(action: string, workspaceId: WorkspaceId, from: string, until: string) {
     return (
       this.database
         .prepare(
           `SELECT target_id, occurred_at, metadata_json FROM audit_events
-           WHERE workspace_id = ? AND action = 'work-cycle.updated' AND target_id IS NOT NULL
+           WHERE workspace_id = ? AND action = ? AND target_id IS NOT NULL
              AND occurred_at <= ?
              AND (occurred_at >= ? OR sequence IN (
                SELECT MAX(sequence) FROM audit_events
-               WHERE workspace_id = ? AND action = 'work-cycle.updated'
+               WHERE workspace_id = ? AND action = ?
                  AND target_id IS NOT NULL AND occurred_at < ?
                GROUP BY target_id))
            ORDER BY sequence`,
         )
-        .all(workspaceId, until, from, workspaceId, from) as {
+        .all(workspaceId, action, until, from, workspaceId, action, from) as {
         target_id: string;
         occurred_at: string;
         metadata_json: string;
       }[]
     ).map((row) => ({
-      cycleId: asWorkCycleId(row.target_id),
+      targetId: row.target_id,
       occurredAt: row.occurred_at,
       metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
     }));

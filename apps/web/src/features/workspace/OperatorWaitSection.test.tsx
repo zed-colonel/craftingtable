@@ -1,7 +1,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
-import { OperatorWaitSection } from './OperatorWaitSection.js';
+import { OperatorWaitSection, operatorWaitRefreshKey } from './OperatorWaitSection.js';
 import { asyncWaitMs } from '../../test-time.js';
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
@@ -59,4 +59,18 @@ it('reloads a stale report when the tab becomes visible again', async () => {
   document.dispatchEvent(new Event('visibilitychange'));
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(request).toHaveBeenCalledTimes(2);
+});
+
+it("keys a reload on a stop beginning or ending, a roadmap hold's item included (R-C10)", () => {
+  const cycle = { id: 'c', status: 'running', attention: undefined } as never;
+  const stopped = {
+    id: 'c',
+    status: 'needs-attention',
+    attention: { code: 'step-incomplete', owner: 'operator' },
+  } as never;
+  const hold = { id: 'i', code: 'entry-preparation-failed' } as never;
+  const base = operatorWaitRefreshKey([cycle], []);
+  expect(operatorWaitRefreshKey([cycle], [])).toBe(base);
+  expect(operatorWaitRefreshKey([stopped], [])).not.toBe(base);
+  expect(operatorWaitRefreshKey([cycle], [hold])).not.toBe(base);
 });

@@ -105,13 +105,18 @@ export class BranchService {
 
   private requireGit(): GitOperations {
     if (this.git === undefined)
-      throw new ExecutionRequestError('unavailable', 'Git is unavailable');
+      throw new TypedRefusalError(
+        'service-unavailable',
+        'Git is unavailable',
+        undefined,
+        'unavailable',
+      );
     return this.git;
   }
   private repository(workspaceId: WorkspaceId, repositoryId: SourceRepositoryId) {
     const repo = this.storage.execution.sourceRepositories.find(workspaceId, repositoryId);
     if (repo === undefined) throw new NotFoundError();
-    if (repo.status !== 'active') conflict('Repository is retired');
+    if (repo.status !== 'active') refuse('launch-refused', 'Repository is retired');
     return repo;
   }
   private plan(workspaceId: WorkspaceId, planVersionId: PlanVersionId) {

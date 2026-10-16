@@ -110,7 +110,7 @@ import {
   NotFoundError,
   TypedRefusalError,
 } from './errors.js';
-import { reviewCapture } from './cycle-effects.js';
+import { reviewCapture } from './review-capture.js';
 import {
   requireNotRetired,
   requireTreeScope,

@@ -8,7 +8,7 @@ import type {
 import type { StorageRepositories } from '@craftingtable/storage';
 import { activeRuntime, parentAccepted } from './runtime-evidence-policy.js';
 import { mapAdopted } from './map-adoption-policy.js';
-import { ExecutionRequestError, TypedRefusalError } from './errors.js';
+import { TypedRefusalError } from './errors.js';
 export function mapProjectReadiness(
   tx: StorageRepositories,
   ws: WorkspaceId,
@@ -112,8 +112,9 @@ export function finalizationMapContext(
     const readiness = mapProjectReadiness(tx, ws, c.definitionId, c.bindingRevision).find(
       (p) => p.planVersionId === plan,
     );
+    // The map's own requirements for the plan's project, as a phase gate (R-B4, decision 3).
     if (readiness?.blockers.length)
-      throw new ExecutionRequestError('conflict', readiness.blockers.join(' '));
+      throw new TypedRefusalError('phase-gate', readiness.blockers.join(' '));
     candidates.set(`${c.definitionId}:${c.bindingRevision}`, {
       definitionId: c.definitionId,
       bindingRevision: c.bindingRevision,
@@ -122,8 +123,8 @@ export function finalizationMapContext(
     });
   }
   if (candidates.size > 1)
-    throw new ExecutionRequestError(
-      'conflict',
+    throw new TypedRefusalError(
+      'roadmap-binding-changed',
       'Multiple roadmap bindings cover this plan. Reconcile them before finalization.',
     );
   return [...candidates.values()][0];

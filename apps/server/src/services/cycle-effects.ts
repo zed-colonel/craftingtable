@@ -88,20 +88,6 @@ export function retryableControllerError(error: unknown): boolean {
   );
 }
 
-/**
- * A review continuation's capture of its branch context (R-C2): any refusal it meets is the
- * continuation's, `review-capture-failed`, whatever Git or the worktree said.
- */
-export async function reviewCapture<T>(capture: () => Promise<T>): Promise<T> {
-  try {
-    return await capture();
-  } catch (error) {
-    if (error instanceof ExecutionRequestError && !retryableControllerError(error))
-      throw new TypedRefusalError('review-capture-failed', error.message);
-    throw error;
-  }
-}
-
 export type FailureDecision = { readonly kind: 'retry' } | EffectStop;
 
 /**

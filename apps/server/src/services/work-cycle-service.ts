@@ -125,6 +125,7 @@ import {
   restoredStatus,
   resumeAdopts,
 } from './cycle-commands.js';
+import { reviewCapture } from './review-capture.js';
 import { type CycleChanges, type CycleFieldChanges, checkTransition } from './cycle-transitions.js';
 import { type CycleDecision, type CycleEffect, type CycleGuard, decide } from './cycle-machine.js';
 import {
@@ -151,7 +152,6 @@ import {
   reassessmentFailure,
   type RefusalDecision,
   refreshFailure,
-  reviewCapture,
   securityReviewNotCurrent,
   securityReviewerStop,
   stageFindings,
@@ -3426,6 +3426,17 @@ export class WorkCycleService {
   ): Promise<WorkCycle> {
     const decided = decideHousekeeping(cycle, reason, grant);
     if (decided.kind === 'refuse') throw new ExecutionRequestError('conflict', decided.message);
+    // An operator's grant inspects the worktree as a review's grant does: a remediation needs the
+    // managed branch without an unresolved Git operation (R-B4 increment 4 review).
+    if (grant && decided.kind === 'remediate') {
+      const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+      const state = tree && (await this.git?.inspectWorktreeChanges(tree.path));
+      if (!state?.ok || state.value.branch !== tree?.branchName || state.value.conflicted)
+        throw new TypedRefusalError(
+          'worktree-state',
+          'Remediation requires the managed branch without unresolved Git operations.',
+        );
+    }
     if (decided.kind === 'attention') {
       this.attention(cycle, decided.code, decided.message);
       return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
@@ -3846,8 +3857,8 @@ export class WorkCycleService {
       if (
         this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0
       )
-        throw new ExecutionRequestError(
-          'conflict',
+        throw new TypedRefusalError(
+          'worktree-state',
           'End the active agent session before changing resolution state',
         );
     };
@@ -4388,7 +4399,7 @@ export class WorkCycleService {
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (worktree?.status !== 'active' || !this.git)
       throw new TypedRefusalError(
-        worktree?.status !== 'active' ? 'worktree-state' : 'service-unavailable',
+        worktree?.status !== 'active' ? 'worktree-inactive' : 'service-unavailable',
         'The active worktree or Git is unavailable',
       );
     const result = await this.git.inspectRepository(worktree.path);

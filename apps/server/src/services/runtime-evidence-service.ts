@@ -1508,7 +1508,8 @@ export class RuntimeEvidenceService {
     };
     const preview = await this.checkpointRecovery(context, ws, id, cycle.worktreeId, true);
     const candidate = preview.candidates.find((c) => c.checkpointId === checkpoint.id);
-    if (!candidate) conflict('Checkpoint candidate is unavailable.');
+    if (!candidate)
+      throw new CheckpointAttestationError(checkpoint.id, 'Checkpoint candidate is unavailable.');
     // A moved upstream pin stops the delegated checkpoint as it stops the tree, typed, with its
     // refresh as the exit, and Resume refused while it is stale (LIVE-21, LIVE-15). The pins are
     // read from the tree's own generation, as the Resume guard reads them.
@@ -1523,18 +1524,26 @@ export class RuntimeEvidenceService {
     if (candidate.issues.length) await refuse(candidate.issues);
     const tree = this.storage.execution.worktrees.find(ws, cycle.worktreeId)!;
     const run = this.storage.execution.runs.find(ws, cycle.currentRunId)!;
+    // The checkpoint cannot attest with this review's evidence (R-B4, decision 3).
     if (candidate.runId !== run.id || active.sourceRunId === run.id)
-      conflict('A separate exact-candidate checkpoint review is required.');
+      throw new CheckpointAttestationError(
+        checkpoint.id,
+        'A separate exact-candidate checkpoint review is required.',
+      );
     const turn = this.storage.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
     const build = this.storage.runtimeEvidence.build(ws, run.id);
     const runtime = this.current(ws, id);
     if (turn?.kind !== 'turn-completed' || !build || !runtime || !run.reviewBranchContext)
-      conflict('Checkpoint review evidence is incomplete.');
+      throw new CheckpointAttestationError(
+        checkpoint.id,
+        'Checkpoint review evidence is incomplete.',
+      );
     const commit = await this.requireGit().resolveCommit(
       tree.path,
       run.reviewBranchContext.headSha,
     );
-    if (!commit.ok) conflict('Checkpoint candidate is unavailable.');
+    if (!commit.ok)
+      throw new CheckpointAttestationError(checkpoint.id, 'Checkpoint candidate is unavailable.');
     const d = this.definition(ws, id);
     const alias = this.binding(ws, id, cycle.executionScope.bindingRevision).bindings.find(
       (b) => b.repositoryId === tree.repositoryId,

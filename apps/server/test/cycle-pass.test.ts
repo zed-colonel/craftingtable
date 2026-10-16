@@ -101,3 +101,20 @@ it('refuses a write outside the cycle state machine as a programming error (R-B4
   );
   expect(storedCycle(f, cycle.id)).toEqual(stopped);
 });
+
+it('stores a phase gate that does not wait with its blockers named (R-B4 increment 4 review)', async () => {
+  const f = await createCycleFixture();
+  const cycle = await startCycle(f, f.worktreeId);
+  const { PhaseGateError } = await import('../src/services/phase-resources.js');
+  f.services.agentRunService.startForCycle = async () => {
+    throw new PhaseGateError([
+      { kind: 'scope', code: 'binding-changed', message: 'The binding changed.' },
+    ] as never);
+  };
+  await f.services.workCycleService.tick();
+  expect(storedCycle(f, cycle.id)).toMatchObject({
+    status: 'needs-attention',
+    attention: { code: 'phase-gate', owner: 'operator', refs: { blockers: ['binding-changed'] } },
+    reason: 'The binding changed.',
+  });
+});

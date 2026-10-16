@@ -81,8 +81,19 @@ it('continues each stop the way the daemon allows (R-A6 review)', () => {
     attention: { code: 'remediation-exhausted' as const, owner: 'operator' as const },
   };
   expect(continuation(cycle(exhausted))).toBe('remediation');
-  // The daemon refuses more rounds outside a review: no form that would fail.
-  expect(continuation(cycle({ ...exhausted, step: 'remediate' }))).toBeUndefined();
+  // Housekeeping's limit stop at an implement or remediate step takes the grant too (R-B4,
+  // decision 4); another stop there has no more rounds to grant.
+  expect(continuation(cycle({ ...exhausted, step: 'remediate' }))).toBe('remediation');
+  expect(continuation(cycle({ ...exhausted, step: 'implement' }))).toBe('remediation');
+  expect(
+    continuation(
+      cycle({
+        ...exhausted,
+        step: 'remediate',
+        attention: { code: 'step-incomplete' as const, owner: 'operator' as const },
+      }),
+    ),
+  ).not.toBe('remediation');
   // A parent or verification review, stopped or completed: resume, or review again.
   const parent = {
     executionScope: {

@@ -27,8 +27,9 @@ import { decideStepOutcome, type StepOutcomeDecision } from './step-outcome.js';
  * that order is the precedence between them.
  *
  * `decide` writes nothing and awaits nothing. It reads the cycle's stored facts through
- * `CycleFacts`, lazily, and the daemon's process-local state through `KernelFacts`. A fact that
- * stands for one of today's gates throws as the gate does, and so does `decide`.
+ * `CycleFacts`, lazily, and the daemon's process-local state through `KernelFacts`. A gate's
+ * refusal reaches it as a typed result (`CycleFacts.readiness`), never as a throw (R-B4,
+ * decision 3); a fact that throws anyway is an unexpected exception, the pass's to stop on.
  */
 
 export const CYCLE_GUARDS = [

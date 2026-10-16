@@ -160,6 +160,7 @@ export const REFUSAL_STOPS = [
   'service-unavailable',
   'authority-lost',
   'legacy-finalization-retired',
+  'worktree-inactive',
 ] as const satisfies readonly CycleAttentionCode[];
 export type RefusalStop = (typeof REFUSAL_STOPS)[number];
 

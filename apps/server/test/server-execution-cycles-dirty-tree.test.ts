@@ -1,6 +1,6 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import { cycleAttention, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, expect, it } from 'vitest';
 
@@ -322,6 +322,13 @@ it('relaunches the housekeeping remediation when more is authorized at its limit
     },
   });
   expect(grant.statusCode, grant.body).toBe(200);
+  // The grant's own write, by its action.
+  expect(
+    state.context.storage.audit
+      .listWorkspace({ workspaceId: state.workspaceId, limit: 200 })
+      .filter((event) => event.targetId === cycle.id)
+      .map((event) => (event.metadata as { action?: string } | undefined)?.action),
+  ).toContain('authorize-remediation');
   await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'remediated');
   expect(backend.launches.map((r) => r.model)).toEqual([
     'design-model',
@@ -336,4 +343,58 @@ it('relaunches the housekeeping remediation when more is authorized at its limit
     remediationRounds: 1,
     additionalRemediationRounds: 1,
   });
+});
+
+// R-B4 increment 4 review: the grant at housekeeping's limit is refused where it would not help.
+it('refuses the housekeeping grant at another stop, too few rounds, or an unsettled worktree', async () => {
+  const { state, backend, worktree } = await cycleFixture([
+    designDone,
+    implementationDone,
+    implementationDone,
+    { resultText: reviewText([]) },
+  ]);
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model')
+      writeFileSync(join(worktree.path, 'unknown.wal'), 'test artifact');
+  };
+  const cycle = await startCycle(state, worktree.id, {
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 0 },
+  });
+  await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'limit stop');
+  const grant = (additionalRounds = 1) =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
+      headers: mutationHeaders(state),
+      payload: {
+        action: 'authorize-remediation',
+        expectedVersion: currentCycle(state, cycle).version,
+        additionalRounds,
+        instructions: 'Remove the generated artifact.',
+      },
+    });
+  const rewrite = (fields: Record<string, unknown>) => {
+    const current = currentCycle(state, cycle);
+    state.context.storage.execution.cycles.replace(
+      { ...current, ...fields, version: current.version + 1 },
+      current.version,
+    );
+  };
+  const limit = currentCycle(state, cycle);
+  // Off its managed branch, the remediation would run on the wrong branch.
+  git(['checkout', '-b', 'elsewhere'], worktree.path);
+  const offBranch = await grant();
+  expect(offBranch.statusCode).toBe(409);
+  expect(offBranch.body).toContain('Remediation requires the managed branch');
+  git(['checkout', worktree.branchName], worktree.path);
+  // Rounds already spent beyond the allowance need a grant that covers them.
+  rewrite({ remediationRounds: 2 });
+  const tooFew = await grant(1);
+  expect(tooFew.statusCode).toBe(409);
+  expect(tooFew.body).toContain('Authorize at least 3 more');
+  // Another stop at the step is not the limit's.
+  rewrite({ remediationRounds: 0, attention: cycleAttention('step-incomplete') });
+  expect((await grant()).statusCode).toBe(409);
+  expect(backend.launches.map((r) => r.model)).toEqual(['design-model', 'implement-model']);
+  expect(limit.step).toBe('implement');
 });

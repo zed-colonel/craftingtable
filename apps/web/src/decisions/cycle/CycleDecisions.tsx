@@ -72,11 +72,14 @@ export function continuationOf(
     return ['paused', 'needs-attention', 'completed'].includes(cycle.status)
       ? 'scope-review'
       : undefined;
-  // More rounds only where the daemon grants them: a review that used its allowance, with no
+  // More rounds only where the daemon grants them: a review that used its allowance, or
+  // housekeeping's limit stop at an implement or remediate step (R-B4, decision 4), with no
   // integration resolution open (R-A6 review; the old form's rule).
   if (
     actions.includes('authorize-remediation') &&
-    cycle.step === 'review' &&
+    (cycle.step === 'review' ||
+      ((cycle.step === 'implement' || cycle.step === 'remediate') &&
+        effectiveCycleAttention(cycle)?.code === 'remediation-exhausted')) &&
     cycle.remediationRounds >= remediationAllowance(cycle) &&
     (!cycle.integrationResolution ||
       ['completed', 'abandoned'].includes(cycle.integrationResolution.status))

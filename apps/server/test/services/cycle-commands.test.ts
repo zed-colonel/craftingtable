@@ -699,7 +699,7 @@ describe('a resume at the round limit', () => {
     expect(resumeAtRoundLimit(cycle, run, asks)).toBe(expected),
   );
   // NIT-4's turn half: what the grant asks of the review's turn (`remediationBlocker`).
-  it('a review whose turn failed or was truncated', () =>
+  it('a review whose turn cannot carry the grant', () =>
     expect(
       resumeAtRoundLimit(review, runOf({ role: 'review' }), {
         ...asks,

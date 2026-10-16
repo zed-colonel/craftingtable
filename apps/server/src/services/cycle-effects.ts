@@ -447,9 +447,7 @@ export function questionsHoldGrant(report: string, requiresCheckpoint: boolean):
  * round-limit rule asks the same, so the grant is offered only where it is accepted
  * (`resumeAtRoundLimit`; R-B4 increment 6 re-check, NIT-4's turn half).
  */
-export function turnTakesGrant(
-  turn: AgentRunEvent | undefined,
-): turn is Extract<AgentRunEvent, { kind: 'turn-completed' }> {
+export function turnTakesGrant(turn: AgentRunEvent | undefined): boolean {
   return (
     turn?.kind === 'turn-completed' && turn.payload.outcome === 'success' && !turn.payload.truncated
   );

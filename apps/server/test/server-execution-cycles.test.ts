@@ -466,12 +466,16 @@ it('offers Resume, not a grant it refuses, at the round limit when the review’
       .json()
       .cycles.find((v: { cycle: { id: string } }) => v.cycle.id === cycle.id)?.projection.actions;
   expect(await offered()).toEqual(['resume', 'stop']);
+  // The same at a pause taken at that stop, which keeps it (review of a2fd3e5, R3).
+  const paused = { ...incomplete, status: 'paused' as const, version: incomplete.version + 1 };
+  expect(state.context.storage.execution.cycles.replace(paused, incomplete.version)).toBeTruthy();
+  expect(await offered()).toEqual(['resume', 'stop']);
   const control = (payload: Record<string, unknown>) =>
     state.context.app.inject({
       method: 'POST',
       url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
       headers: mutationHeaders(state),
-      payload: { expectedVersion: incomplete.version, ...payload },
+      payload: { expectedVersion: paused.version, ...payload },
     });
   const grant = await control({
     action: 'authorize-remediation',
@@ -480,7 +484,7 @@ it('offers Resume, not a grant it refuses, at the round limit when the review’
   });
   expect(grant.statusCode, grant.body).toBe(409);
   expect(grant.body).toContain('Resolve the questions or incomplete outcome');
-  expect(currentCycle(state, cycle)).toEqual(incomplete);
+  expect(currentCycle(state, cycle)).toEqual(paused);
   // Resume goes on as before decision 14: the remediation it reaches stops at the limit.
   const resumed = await control({ action: 'resume' });
   expect(resumed.statusCode, resumed.body).toBe(200);

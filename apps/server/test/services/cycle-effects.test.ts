@@ -46,6 +46,7 @@ import {
   stageFindings,
   stageReportInvalid,
   STOPS_OUTSIDE_THE_CORE,
+  turnTakesGrant,
   workflowAuthorityStop,
   workflowHeldGate,
 } from '../../src/services/cycle-effects.js';
@@ -609,6 +610,25 @@ const rows: readonly {
     name: `the grant ${holds ? 'is held' : 'goes on'} for ${what}`,
     run: () => questionsHoldGrant(report, finalization),
     expected: holds,
+  })),
+  // turnTakesGrant: what the grant, and the resume's round-limit rule, ask of the review's last
+  // turn (R-B4 increment 6 re-check, NIT-4's turn half).
+  ...(
+    [
+      ['no turn', undefined, false],
+      ['an event of another kind', { kind: 'assistant-message', payload: {} }, false],
+      ['a successful turn', { kind: 'turn-completed', payload: { outcome: 'success' } }, true],
+      [
+        'a truncated turn',
+        { kind: 'turn-completed', payload: { outcome: 'success', truncated: true } },
+        false,
+      ],
+      ['a failed turn', { kind: 'turn-completed', payload: { outcome: 'error' } }, false],
+    ] as const
+  ).map(([what, turn, takes]) => ({
+    name: `${what} ${takes ? 'takes' : 'does not take'} the grant`,
+    run: () => turnTakesGrant(turn as never),
+    expected: takes,
   })),
   // R-B4, decision 4: the operator's grant at housekeeping's limit stop.
   {

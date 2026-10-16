@@ -1667,6 +1667,7 @@ export class WorkCycleService {
       'turn-completed',
     );
     if (
+      turn?.kind !== 'turn-completed' ||
       !turnTakesGrant(turn) ||
       (!guidedContinuation && questionsHoldGrant(turn.payload.resultText, !!cycle.finalizationId))
     )

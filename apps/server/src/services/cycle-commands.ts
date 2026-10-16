@@ -465,8 +465,9 @@ export function resumeAtRoundLimit(
 ): boolean {
   const scope = cycle.executionScope;
   return (
-    !!run &&
-    !resumeAdopts(cycle, run) &&
+    // The grant asks for the cycle's own review: not a newer one a resume adopts, nor the parent
+    // of one whose run was never created (increment 6 re-check, NIT-4).
+    run?.id === cycle.currentRunId &&
     cycle.step === 'review' &&
     run.status === 'finished' &&
     !cycle.finalizationProgress &&

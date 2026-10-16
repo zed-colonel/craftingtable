@@ -18,6 +18,7 @@ import {
   decideReviewAgain,
   decideWindDownStop,
   restoredStatus,
+  resumeAtRoundLimit,
 } from '../../src/services/cycle-commands.js';
 
 /**
@@ -649,4 +650,34 @@ describe('the cycle commands', () => {
     );
     expect(COMMAND_REFUSALS.filter((code) => !produced.has(code))).toEqual([]);
   });
+});
+
+// R-B4, decision 14 (increment 6 re-check, NIT-4 and NIT-5): the rule the refusal and the offer
+// share asks what the grant asks, the cycle's own finished review.
+describe('a resume at the round limit', () => {
+  const asks = { reviewAsksRemediation: () => true, reviewScopeIssue: () => false };
+  const review = cycleOf({ step: 'review', ...spent });
+  it.each([
+    ['the cycle’s own finished review', review, runOf({ role: 'review' }), true],
+    [
+      'a finished manual review a resume adopts',
+      review,
+      runOf({ id: 'run-2', role: 'review' }),
+      false,
+    ],
+    [
+      'the parent of a review whose run was never created',
+      cycleOf({ step: 'review', ...spent, currentRunId: 'run-2', parentRunId: 'run-1' }),
+      runOf({ role: 'review' }),
+      false,
+    ],
+    [
+      'a review within its allowance',
+      cycleOf({ step: 'review' }),
+      runOf({ role: 'review' }),
+      false,
+    ],
+  ] as const)('%s', (_name, cycle, run, expected) =>
+    expect(resumeAtRoundLimit(cycle, run, asks)).toBe(expected),
+  );
 });

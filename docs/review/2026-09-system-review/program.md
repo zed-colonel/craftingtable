@@ -1183,6 +1183,12 @@ Recommended order for the controller-kernel items, replacing the listing above a
    functions R-F1 can replace, and R-B4's predecessor gate is the whole-item half of FMT-09, which
    R-F1 completes for the map. R-D6 is measured after R-B5.
 
+**R-C10 follow-up design pass (2026-10-16, at a2fd3e5; nothing built).** [R-C10](register.md#r-c10)'s
+entry lists every hold and stop a roadmap entry can wait on today, which the scheduler may clear
+by itself on typed facts (a hold that repeats a cycle's stop, a gate that passes again, stale
+evidence of an entry the roadmap verifies automatically) and which stay the operator's, with six
+decisions for the operator and five increments, the measure first. It changes no order above.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

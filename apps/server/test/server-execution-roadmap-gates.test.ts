@@ -13,6 +13,7 @@ import { TypedRefusalError } from '../src/services/errors.js';
 /* -------------------------------------------------------------------------- */
 
 import {
+  adoptSupervisedMap,
   awaitRoadmapMerge,
   branchCommand,
   cleanupExecutionFixtures,
@@ -27,6 +28,7 @@ import {
   roadmapFixture,
   saveRoadmapRequest,
   storedRoadmap,
+  supervisedMapFixture,
   waitFor,
 } from './execution-test-support.js';
 
@@ -95,6 +97,8 @@ it('waits without an attempt while a predecessor’s merge is unrecorded or abse
     refs: { entryId: entryIds[0] },
   });
   expect(waiting.attention).toBeUndefined();
+  // A sequential roadmap says why on its own line too (R-B4 increment 5 re-check, R12).
+  expect(waiting.reason).toContain('AQ-00 has no recorded merge commit');
   expect(backend.launches).toHaveLength(0);
   // Its Needs-you item points at Plan branch settings, where the merge is recorded.
   await state.context.services.roadmapService.syncAttention(true);
@@ -291,3 +295,37 @@ it('holds an entry whose bound item is unavailable with the item gate’s cause'
 
 it('owns the predecessor-merge wait as the operator’s', () =>
   expect(ENTRY_WAIT['predecessor-merge-missing']).toBe('operator'));
+
+// R-B4 increment 5 re-check (R4, R5): a slice whose item was marked complete by hand, without a
+// merge, before the slice starts holds with the item gate's cause; no attempt or worktree is made.
+it('holds a slice of an item marked complete by hand before it starts', async () => {
+  const f = await supervisedMapFixture(true);
+  f.service.save(f.auth, f.state.workspaceId, f.input);
+  await adoptSupervisedMap(f);
+  const item = f.state.context.storage.planning.workItems.find(
+    f.state.workspaceId,
+    f.state.workItemId,
+  )!;
+  f.state.context.storage.planning.workItems.complete({
+    workspaceId: f.state.workspaceId,
+    workItemId: item.id,
+    projectId: item.projectId,
+    completedAt: new Date().toISOString(),
+    completedByUserId: f.state.userId,
+  });
+  const trees = () =>
+    f.state.context.storage.execution.worktrees.listForWorkItem(f.state.workspaceId, item.id)
+      .length;
+  const before = trees();
+  await roadmapControl(f.state, 'start');
+  const causes = () => {
+    const roadmap = storedRoadmap(f.state);
+    return [
+      roadmap.attention?.refs?.cause,
+      ...Object.values(roadmap.entryHolds ?? {}).map((hold) => hold.attention?.refs?.cause),
+    ];
+  };
+  await waitFor(() => causes().includes('item-completed-unmerged'), 'the slice hold');
+  expect(storedRoadmap(f.state).attempts).toEqual([]);
+  expect(trees()).toBe(before);
+});

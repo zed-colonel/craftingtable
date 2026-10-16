@@ -66,7 +66,7 @@ describe('the item gate (requireReady)', () => {
 
   it('says how to leave the stop of an item marked complete (increment 5 review)', () =>
     expect(ready({ status: 'completed', planVersionId: 'p' })).toThrow(
-      'This work item was marked complete without merging its worktree. Stop this cycle, then merge the worktree by hand or reconcile the queue.',
+      'This work item was marked complete without merging its worktree. Merge the worktree by hand, after stopping its cycle if one runs, or reconcile the queue.',
     ));
 
   // The item before the scope's phase gate (increment 5 review, LOW-4): a tx without the

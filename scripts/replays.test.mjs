@@ -45,6 +45,7 @@ describe('validateManifest', () => {
                 goldenSha256: HASH,
                 expected: [{ key: 'c/r', nowSha256: HASH, reason: 'LIVE-1' }],
               },
+              { mode: 'cycles', golden: 'cycles-golden-abc.json', goldenSha256: HASH },
             ],
           }),
           { id: '2026-01-02', withoutGolden: 'No golden was recorded.' },
@@ -107,7 +108,7 @@ describe('validateManifest', () => {
       'snapshot 2026-01-04: "cases" must be a non-empty list, or "withoutGolden" must say why not.',
       'snapshot 2026-01-05 cases[1]: mode golden is listed twice.',
       'snapshot 2026-01-05 cases[2]: "goldenSha256" must be the golden\'s SHA-256 (64 hex digits).',
-      'snapshot 2026-01-05 cases[2]: "mode" must be one of golden, every-run, scheduler, evidence-view, evidence-decode.',
+      'snapshot 2026-01-05 cases[2]: "mode" must be one of golden, every-run, scheduler, cycles, evidence-view, evidence-decode.',
       'snapshot 2026-01-05 cases[3] expected[1]: key k listed twice.',
       'snapshot 2026-01-05 cases[3] expected[1]: "nowSha256" must be the SHA-256 of the record\'s new value.',
       'snapshot 2026-01-05 cases[3] expected[1]: "reason" must say why it changed.',
@@ -406,6 +407,31 @@ describe('main', () => {
     // The copy is gone; the output directory keeps each case's report.
     expect(existsSync(calls[1][3])).toBe(false);
     expect(existsSync(join(root, 'out', '2026-01-01-scheduler.report.json'))).toBe(true);
+  });
+
+  it('replays a cycles case with --cycles (R-B4)', async () => {
+    const { exit, calls } = gate({
+      files: { 'cycles-golden.json': '[]' },
+      manifestOf: (m) => ({
+        ...m,
+        snapshots: m.snapshots.map((s) => ({
+          ...s,
+          cases: [
+            ...s.cases,
+            { mode: 'cycles', golden: 'cycles-golden.json', goldenSha256: sha256('[]') },
+          ],
+        })),
+      }),
+    });
+    expect(await exit).toBe(0);
+    expect(calls.at(-1).filter((arg) => !arg.startsWith('/'))).toEqual([
+      'pnpm',
+      '-s',
+      'controller:replay',
+      '--cycles',
+      '--check',
+      '--report',
+    ]);
   });
 
   it('fails a format-1 scheduler golden once the manifest requires format 2', async () => {

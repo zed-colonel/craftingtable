@@ -3,12 +3,6 @@ import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  CLAUDE_CODE_MODELS,
-  ClaudeCodeBackend,
-  CODEX_MODELS,
-  CodexBackend,
-} from '@craftingtable/agents';
-import {
   type CycleOwner,
   effectiveCycleAttention,
   effectiveHoldAttention,
@@ -20,11 +14,7 @@ import {
   type RoadmapEntry,
   type RoadmapStatusList,
 } from '@craftingtable/domain';
-import type { AgentBackend } from '@craftingtable/agents';
-import type { AgentBackendKind } from '@craftingtable/domain';
-import type { GitOperations } from '@craftingtable/git';
-import { type ServiceSet, createServices } from './composition.js';
-import { configFromEnv } from './config.js';
+import type { ServiceSet } from './composition.js';
 import { openDaemonStorage } from './persisted-records.js';
 import {
   canonicalJson,
@@ -32,6 +22,7 @@ import {
   type ReplayCheck,
   type ReplayRecord,
 } from './replay-check.js';
+import { replayServices } from './replay-services.js';
 import { ConcurrentModificationError } from './services/errors.js';
 import { resolveScope, scopeEvidenceLedger } from './services/execution-scope.js';
 import { PhaseGateError } from './services/phase-resources.js';
@@ -517,9 +508,6 @@ export async function replaySchedulerDecisions(
 ): Promise<SchedulerReplay> {
   const storage = openDaemonStorage(database);
   try {
-    // The stored capacities, so the daemon's configured defaults do not replace them: plan
-    // evidence is bound to them.
-    const capacity = (key: string) => String(storage.phaseScheduling.capacity(key));
     const before = storage.roadmaps.list().filter((r) => r.status !== 'draft');
     // The reservation ids the snapshot already holds; anything else a command names, the pass
     // minted (`commandArguments`).
@@ -529,16 +517,6 @@ export async function replaySchedulerDecisions(
         .flatMap((roadmap) => startedAttempts(roadmap))
         .flatMap((attempt) => [attempt.id, attempt.worktreeId, attempt.cycleId]),
     );
-    const config = configFromEnv({
-      CRAFTINGTABLE_DATA_DIR: dataDir,
-      // Its own credentials file, never the operator's (R-G9).
-      CRAFTINGTABLE_CONFIG_DIR: join(dataDir, 'config'),
-      CRAFTINGTABLE_PUBLIC_ORIGIN: 'http://127.0.0.1:5173',
-      CRAFTINGTABLE_LOG_LEVEL: 'silent',
-      CRAFTINGTABLE_WEB_DIST: '',
-      CRAFTINGTABLE_DEVELOPMENT_CAPACITY: capacity('local-development'),
-      CRAFTINGTABLE_VERIFICATION_CAPACITY: capacity('local-verification'),
-    });
     let issued: Issued | undefined;
     const record = (
       command: string,
@@ -547,28 +525,11 @@ export async function replaySchedulerDecisions(
     ) => {
       issued ??= { command, decision, ...(args ? { args } : {}) };
     };
-    // Backends with the default models, so settings validate as on the host; none can launch,
-    // because every start is intercepted and no controller worker runs. Git is present for
-    // the same checks, but any call is recorded and stops the entry: the snapshot's worktrees
-    // are real repositories.
-    const missing = join(dataDir, 'no-agent-executable');
-    const git = new Proxy({} as GitOperations, {
-      // The replay cannot follow a pass past Git, read or write: it records where it stopped.
-      get: (_target, method) => () => {
-        record(`git:${String(method)}`, 'not-scheduled');
-        throw new ReplayIntercept(`git:${String(method)}`);
-      },
-    });
-    const services = await createServices(storage, config, {
-      gitOperations: git,
-      agentBackends: new Map<AgentBackendKind, AgentBackend>([
-        ['claude-code', new ClaudeCodeBackend({ executable: missing, models: CLAUDE_CODE_MODELS })],
-        ['codex', new CodexBackend({ executable: missing, models: CODEX_MODELS })],
-      ]),
-      now: () => now,
-      notificationTransport: { send: async () => ({ status: 'accepted' }) },
-      // The snapshot as the live daemon's next pass finds it, live runs included: no restart.
-      restartRecovery: false,
+    // Git is present for the same checks as on the host, but any call is recorded and stops the
+    // entry: the snapshot's worktrees are real repositories.
+    const services = await replayServices(storage, dataDir, now, (method) => {
+      record(`git:${method}`, 'not-scheduled');
+      throw new ReplayIntercept(`git:${method}`);
     });
     const cycles = checkpointReadiness(storage);
     intercept(services, record, known);

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdtempSync,
@@ -17,6 +18,7 @@ import {
   replayEvidenceDecodes,
 } from './evidence-decode-replay.js';
 import { formatBriefSizes, replayBriefSizes } from './brief-size-replay.js';
+import { checkCycleReplay, type CycleReplay, replayCycleSnapshot } from './cycle-replay.js';
 import { type EvidenceViewReplay, replayEvidenceViews } from './evidence-view-replay.js';
 import { formatPageLoads, replayPageLoads } from './page-load-replay.js';
 import { openDaemonStorage } from './persisted-records.js';
@@ -45,6 +47,8 @@ import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
  *       failed run as if it were current, not only each cycle's current run (R-C2)
  *   pnpm controller:replay <snapshot.sqlite> --scheduler [...]  record the decision one roadmap
  *       scheduler pass takes for every roadmap entry, and checkpoint readiness (R-I10)
+ *   pnpm controller:replay <snapshot.sqlite> --cycles [...]  record what one cycle controller
+ *       pass does to every cycle that has not ended (R-B4)
  *   pnpm controller:replay <snapshot.sqlite> --evidence-view [...]  render each map's evidence
  *       view with Git stubbed, and print its size and CPU (R-H4)
  *   pnpm controller:replay <snapshot.sqlite> --evidence-decode [--json <file>]  measure the
@@ -128,6 +132,41 @@ async function scheduler(
       );
       report(check, reportPath);
       process.stdout.write(formatCheck(check, 'scheduler records'));
+      return differs(check) ? 1 : 0;
+    }
+    process.stdout.write(text);
+    return 0;
+  } finally {
+    rmSync(copy, { recursive: true, force: true });
+  }
+}
+
+async function cycles(
+  snapshot: string,
+  mode?: string,
+  golden?: string,
+  reportPath?: string,
+): Promise<number> {
+  const copy = mkdtempSync(join(tmpdir(), 'craftingtable-replay-'));
+  try {
+    const path = join(copy, 'snapshot.sqlite');
+    copyFileSync(snapshot, path);
+    // Reading its time migrates the copy; a corpus snapshot is kept read-only.
+    chmodSync(path, 0o600);
+    const replay = await replayCycleSnapshot(path, snapshotTime(path));
+    const text = `${JSON.stringify(replay, null, 2)}\n`;
+    if (mode === '--record' && golden) {
+      writeFileSync(golden, text, { mode: 0o600 });
+      process.stdout.write(`Recorded ${replay.cycles.length} cycles in ${golden}\n`);
+      return 0;
+    }
+    if (mode === '--check' && golden) {
+      const check = checkCycleReplay(
+        JSON.parse(readFileSync(golden, 'utf8')) as CycleReplay,
+        replay,
+      );
+      report(check, reportPath);
+      process.stdout.write(formatCheck(check, 'cycle records'));
       return differs(check) ? 1 : 0;
     }
     process.stdout.write(text);
@@ -355,6 +394,7 @@ async function main(args: readonly string[]): Promise<number> {
   }
   const everyRun = args.includes('--every-run');
   const schedulerMode = args.includes('--scheduler');
+  const cyclesMode = args.includes('--cycles');
   const viewMode = args.includes('--evidence-view');
   if (args.includes('--page-load')) {
     const [snapshotArg, flag, jsonArg, extra] = args.filter((arg) => arg !== '--page-load');
@@ -373,6 +413,7 @@ async function main(args: readonly string[]): Promise<number> {
     (arg, index) =>
       arg !== '--every-run' &&
       arg !== '--scheduler' &&
+      arg !== '--cycles' &&
       arg !== '--evidence-view' &&
       (reportAt < 0 || (index !== reportAt && index !== reportAt + 1)),
   );
@@ -385,14 +426,15 @@ async function main(args: readonly string[]): Promise<number> {
     extra !== undefined ||
     (mode && (!['--record', '--check'].includes(mode) || !golden)) ||
     (reportAt >= 0 && (mode !== '--check' || !reportArg)) ||
-    [everyRun, schedulerMode, viewMode].filter(Boolean).length > 1
+    [everyRun, schedulerMode, cyclesMode, viewMode].filter(Boolean).length > 1
   ) {
     process.stderr.write(
-      'Usage: pnpm controller:replay <snapshot.sqlite> [--every-run | --scheduler | --evidence-view] [--record <golden.json> | --check <golden.json> [--report <report.json>]]\n',
+      'Usage: pnpm controller:replay <snapshot.sqlite> [--every-run | --scheduler | --cycles | --evidence-view] [--record <golden.json> | --check <golden.json> [--report <report.json>]]\n',
     );
     return 2;
   }
   if (schedulerMode) return scheduler(snapshot, mode, golden, reportPath);
+  if (cyclesMode) return cycles(snapshot, mode, golden, reportPath);
   if (viewMode) return evidenceView(snapshot, mode, golden, reportPath);
   const outcomes = replaySnapshot(snapshot, everyRun);
   const text = `${JSON.stringify(outcomes, null, 2)}\n`;

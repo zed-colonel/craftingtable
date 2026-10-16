@@ -14,20 +14,18 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-a4aa12d.json",
-          "goldenSha256": "c13f64f6c22ddb47a8080163eeffafc21f1d4ef5fd9386324bb08bf150ef096a",
-          "expected": [
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-728fa16.json",
+          "goldenSha256": "03bcd6479e77dcf8667e198dc75fccaedd233e34e650399f8461dc488c0ee809"
         },
         {
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "93ad70a2ac18360094d41923cf29ea829174257f591510b1b98a73003db62d78"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "326380a4ca6e3846b7b910eac39d31e41a78bcc9ca1ad614491fe1163ebcd2d4"
         }
       ]
     },
@@ -56,6 +54,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "da48afb6cee6b3b213c46f1073b0301c04cf5ec12fabcb87f2175dc061cd9d7e"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "3d64061ab799e9cd0c948c30492403292b63debf42dd53385785dac0b4430844"
         }
       ]
     },
@@ -84,6 +87,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "c10774e8ed9ea7f1c3745188ae333b9c38fd694bca81e37350471a51f1d99a0c"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "556874a19071d768a052fb92ccdadfdb2b593503164192dbea23c60dd4c3e43b"
         }
       ]
     },
@@ -112,6 +120,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "f8a7c80c66f4b09e7de5a8cd78fdb134ae91d883f8bd732376e05b3fb5eba2e5"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "7e6ec2f37fa6217d832aca003816aaefe2c9d56364fa4b53d1915aa983c63132"
         }
       ]
     },
@@ -140,6 +153,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "a5f1984768139dd8a7612c0781add7b0b7f10508b9b929e65a95c512fcdeee3b"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "0b7c05b1f4cf1e4faa2d532bb094575e3e84e7f47387c2b25ccfdbbcbaad4e1f"
         }
       ]
     },
@@ -168,6 +186,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "671bebfc7358a30d97e0a569a39383e4f87ac554373fae1262562d2cf35125f2"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "a3c6744004af28b337c0b7fe38272c1295ba83b96b20ef1217e9c51e7ebff280"
         }
       ]
     },
@@ -196,6 +219,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "67bd7171e907b8b6444744623be5a632b409d929a1377708a616540b7e806a29"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "2caaa28fdfa67ac6bc7255c9f952cb786dd18546e955a966d87ada4c98d307ba"
         }
       ]
     },
@@ -224,6 +252,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "d595323372ad0f824ad8c4221180be7a4c9791fea727660d59fb99822b0a638f"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "62de4f360dfae8af2f7d6e6632558288abe96698897c09d7ec1d278678bd2cc9"
         }
       ]
     },
@@ -252,6 +285,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "8e31fde0415a7a53642fc39ccf74726ced03cc4537044b5d9b9c016bc2310647"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "5dc79bcb64768c7179edb1f812d1ebf0be39f69f579f7508eff2207dcb7399db"
         },
         {
           "mode": "evidence-view",
@@ -297,6 +335,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "9f2892bedad7df848464ce15d5724bc4a995a68dd363ed2fe5654dbee88176b5"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "e9e119f77035aea6d39453ab1e09ca16208e6ade77c361bd720d56e5f9593a69"
         },
         {
           "mode": "evidence-view",
@@ -356,6 +399,11 @@
           "goldenSha256": "5044ab61f029c4ee68c8f5b68b85f1e59632a5e53bbaae9a45f1ef7a82406519"
         },
         {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "48ce74fa2bbbb41b4acca9e983a02f63be8e7f0337b659149f6093bc003477cc"
+        },
+        {
           "mode": "evidence-view",
           "golden": "evidence-view-golden-45c05c2.json",
           "goldenSha256": "925d9684ca65c209f62af8104e01cc82861cbe21da64c5de5e0cc6298847ee8f",
@@ -386,7 +434,7 @@
             {
               "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/86d9061f-8441-4698-a8e9-5a8aa353ad9a",
               "nowSha256": "16ba53155ee51f3a53a419e51fc4e1e4fd84f9551adf540ee1c61df97fe486a5",
-              "reason": "LIVE-32 (0b09307): the review stop now names the report issue, \"The review omitted evidence for this execution scope’s exit gate.\""
+              "reason": "LIVE-32 (0b09307): the review stop now names the report issue, \"The review omitted evidence for this execution scope\u2019s exit gate.\""
             }
           ]
         },
@@ -398,12 +446,12 @@
             {
               "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/53fd4990-d550-4b42-810b-f39e7050bb76",
               "nowSha256": "a3cbb50846231a38bf035b2124fc5f3fb2477eac4f22c83616e58a7475b63b81",
-              "reason": "LIVE-32 (0b09307): a scoped review’s schema-invalid report gets its format repair (repair-output) instead of a scope stop."
+              "reason": "LIVE-32 (0b09307): a scoped review\u2019s schema-invalid report gets its format repair (repair-output) instead of a scope stop."
             },
             {
               "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/86d9061f-8441-4698-a8e9-5a8aa353ad9a",
               "nowSha256": "16ba53155ee51f3a53a419e51fc4e1e4fd84f9551adf540ee1c61df97fe486a5",
-              "reason": "LIVE-32 (0b09307): the review stop now names the report issue, \"The review omitted evidence for this execution scope’s exit gate.\""
+              "reason": "LIVE-32 (0b09307): the review stop now names the report issue, \"The review omitted evidence for this execution scope\u2019s exit gate.\""
             },
             {
               "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
@@ -421,6 +469,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "0b9c192b170cf4e533fa07755e68b251525ab2a4d448abb21753c05bace5e2eb"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "70c26680715872dbe8f4462bc2ab86857c0426d25704dc32f915cb27e92cf76c"
         }
       ]
     },
@@ -454,6 +507,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "bde6d0111630b23ea4ab857e85878336dc9b834065076351e4b687c3aa13d69e"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "42d1ff87b2297938809b65773ccd74eadac8d5d33fd1b8cbcfab42d2a41855c8"
         }
       ]
     },
@@ -487,6 +545,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "3b5f18296cb7d8a59793d5a4ef1aa9d07a93e0abc1c63546a99e55ccb194f912"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "36023d7e35640d37aa08a390d9c5a0256ea68996eb5884e9bdbde8410b3ca351"
         }
       ]
     },
@@ -520,6 +583,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "e573554649b98724697b0749e097a051ab8dc4d143038a4f545f99fe6570ca7d"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "1f1656e217ed517673fedf1d923682415c92a06fe9c3cd88c1f3cc3b01eba848"
         }
       ]
     },
@@ -565,6 +633,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
           "goldenSha256": "dcab155f82562c8b33ec070081faf5fd71acab01fbc4bb11b0137031eb8d03ed"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "bca1ae776ed453ea818dc9e153c3021c2dc0fa4f527706bd61e185af502eccce"
         }
       ]
     },
@@ -610,6 +683,11 @@
           "mode": "scheduler",
           "golden": "scheduler-golden-2d265a5.json",
           "goldenSha256": "c2b645e7db27279ee64389648f857316e2986ecdd60935f6e0db9d01e24d556c"
+        },
+        {
+          "mode": "cycles",
+          "golden": "cycles-golden-e6c2693.json",
+          "goldenSha256": "11756cd60ece725e9fcf2584ef7e1a85036dffc63d9e038288293dd82519f32f"
         },
         {
           "mode": "evidence-view",

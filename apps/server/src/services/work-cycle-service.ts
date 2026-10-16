@@ -233,6 +233,12 @@ function withoutFindings(cycle: WorkCycle): WorkCycle {
   return { ...cycle, investigation: { ...cycle.investigation, result: rest } };
 }
 
+/** What the cycles replay is told as a pass takes up each cycle (R-B4). */
+export interface CyclePassObserver {
+  /** The pass is done with this cycle: reconciled, skipped, or stopped by an error. */
+  readonly cycle: (cycle: WorkCycle) => void;
+}
+
 export class WorkCycleService {
   validateAgentSelections(profiles: import('@craftingtable/domain').AgentSelections): void {
     for (const profile of Object.values(profiles)) {
@@ -2382,52 +2388,70 @@ export class WorkCycleService {
       (cycle) => cycleOwnership(snapshot, cycle),
     )) {
       if (this.abort.signal.aborted) break;
-      if (held.size && held.has(cycleOwnership(snapshot, cycle)?.roadmap.id ?? '')) continue;
       try {
-        await this.reconcile(cycle);
-      } catch (error) {
-        if (error instanceof PhaseGateError && error.waiting) {
-          const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-          if (
-            current?.version === cycle.version &&
-            ['running', 'awaiting-merge'].includes(current.status)
-          )
-            this.waitForPhase(current, error.blockers, error.message);
-          continue;
-        }
-        if (retryableControllerError(error)) continue;
+        await this.passCycle(cycle, () => cycleOwnership(snapshot, cycle), held);
+      } finally {
+        this.observer?.cycle(cycle);
+      }
+    }
+  }
+
+  /** Observes each cycle a pass takes up, once it is done with it (the cycles replay, R-B4). */
+  observePass(observer: CyclePassObserver | undefined): void {
+    this.observer = observer;
+  }
+  private observer: CyclePassObserver | undefined;
+
+  private async passCycle(
+    cycle: WorkCycle,
+    owner: () => ReturnType<typeof cycleOwnership>,
+    held: ReadonlySet<string>,
+  ): Promise<void> {
+    if (held.size && held.has(owner()?.roadmap.id ?? '')) return;
+    try {
+      await this.reconcile(cycle);
+    } catch (error) {
+      if (error instanceof PhaseGateError && error.waiting) {
         const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
         if (
           current?.version === cycle.version &&
           ['running', 'awaiting-merge'].includes(current.status)
-        ) {
-          this.attention(
-            current,
-            error instanceof UpstreamTransitionUndeclaredError
-              ? 'upstream-transition-undeclared'
-              : error instanceof UpstreamPinMovedError
-                ? 'upstream-pin-moved'
-                : error instanceof CheckpointAttestationError
-                  ? 'checkpoint-attestation-failed'
-                  : error instanceof RepositoryChecksUndeclaredError
-                    ? 'repository-checks-undeclared'
-                    : error instanceof CheckDefinitionChangedError
-                      ? 'check-definition-changed'
-                      : 'controller-error',
-            error instanceof ExecutionRequestError
-              ? error.message
-              : 'Controller could not advance this step. Inspect the run before resuming.',
-            error instanceof CheckpointAttestationError
-              ? { checkpointId: error.checkpointId }
-              : error instanceof UpstreamPinMovedError
-                ? { definitionId: error.definitionId, pins: error.pins }
+        )
+          this.waitForPhase(current, error.blockers, error.message);
+        return;
+      }
+      if (retryableControllerError(error)) return;
+      const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
+      if (
+        current?.version === cycle.version &&
+        ['running', 'awaiting-merge'].includes(current.status)
+      ) {
+        this.attention(
+          current,
+          error instanceof UpstreamTransitionUndeclaredError
+            ? 'upstream-transition-undeclared'
+            : error instanceof UpstreamPinMovedError
+              ? 'upstream-pin-moved'
+              : error instanceof CheckpointAttestationError
+                ? 'checkpoint-attestation-failed'
                 : error instanceof RepositoryChecksUndeclaredError
-                  ? { repositoryId: error.repositoryId }
+                  ? 'repository-checks-undeclared'
                   : error instanceof CheckDefinitionChangedError
-                    ? { repositoryId: error.repositoryId, checkId: error.checkId }
-                    : undefined,
-          );
-        }
+                    ? 'check-definition-changed'
+                    : 'controller-error',
+          error instanceof ExecutionRequestError
+            ? error.message
+            : 'Controller could not advance this step. Inspect the run before resuming.',
+          error instanceof CheckpointAttestationError
+            ? { checkpointId: error.checkpointId }
+            : error instanceof UpstreamPinMovedError
+              ? { definitionId: error.definitionId, pins: error.pins }
+              : error instanceof RepositoryChecksUndeclaredError
+                ? { repositoryId: error.repositoryId }
+                : error instanceof CheckDefinitionChangedError
+                  ? { repositoryId: error.repositoryId, checkId: error.checkId }
+                  : undefined,
+        );
       }
     }
   }

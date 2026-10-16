@@ -12,7 +12,7 @@
  *   1. copies it and its goldens into a private temporary directory and checks each copy's
  *      SHA-256 against the manifest, so the corpus itself is never opened and a re-recorded
  *      golden is a manifest change;
- *   2. runs `pnpm controller:replay <copy> [--every-run | --scheduler | --evidence-view]
+ *   2. runs `pnpm controller:replay <copy> [--every-run | --scheduler | --cycles | --evidence-view]
  *      --check <golden> --report <file>` for each of its cases, and for a measurement case
  *      (`evidence-decode`, R-H4), which has no golden, `--evidence-decode --report <file>`: its
  *      report lists each way the measurement fails as a changed record, never expected;
@@ -57,6 +57,7 @@ export const MODES = {
   golden: [],
   'every-run': ['--every-run'],
   scheduler: ['--scheduler'],
+  cycles: ['--cycles'],
   'evidence-view': ['--evidence-view'],
   'evidence-decode': ['--evidence-decode'],
 };

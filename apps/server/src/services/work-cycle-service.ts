@@ -57,11 +57,13 @@ import {
   type InvestigationWorktreeChange,
   isTerminalAgentRunStatus,
   mergeAdoptsChecks,
+  noOpenQuestions,
   optionalFinding,
   OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
   parkedFollowUp,
   type PhaseBlocker,
+  raisesOpenQuestions,
   remediationAllowance,
   remediationUsed,
   resumeRedirect,
@@ -102,7 +104,7 @@ import {
 } from './errors.js';
 import { requireScope, requireTreeScope, scopedReviewIssue } from './execution-scope.js';
 import type { ExecutionService } from './execution-service.js';
-import { finalizationForCycle, finalizationHasNoQuestions } from './finalization-policy.js';
+import { finalizationForCycle } from './finalization-policy.js';
 import { assessStageReport, recordStageEvidence } from './finalization-stage-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { cycleOwnership } from './cycle-ownership.js';
@@ -1629,8 +1631,9 @@ export class WorkCycleService {
       turn.payload.outcome !== 'success' ||
       turn.payload.truncated ||
       (!guidedContinuation &&
-        (cycle.finalizationId || /^## Open questions[ \t]*$/m.test(turn.payload.resultText)) &&
-        !finalizationHasNoQuestions(turn.payload.resultText))
+        (cycle.finalizationId
+          ? !noOpenQuestions(turn.payload.resultText)
+          : raisesOpenQuestions(turn.payload.resultText)))
     )
       return 'Resolve the questions or incomplete outcome before authorizing remediation.';
     const assessment = latestReviewReport(this.storage.execution, run);
@@ -3330,7 +3333,7 @@ export class WorkCycleService {
         value,
         run,
         report,
-        noQuestions: finalizationHasNoQuestions(turn.payload.resultText),
+        noQuestions: noOpenQuestions(turn.payload.resultText),
         progress: cycle.finalizationProgress,
       };
     };
@@ -4643,11 +4646,7 @@ export class WorkCycleService {
     const turn =
       run &&
       this.storage.execution.runEvents.latestOfKind(cycle.workspaceId, run.id, 'turn-completed');
-    return (
-      turn?.kind === 'turn-completed' &&
-      /^## Open questions[ \t]*$/m.test(turn.payload.resultText) &&
-      !finalizationHasNoQuestions(turn.payload.resultText)
-    );
+    return turn?.kind === 'turn-completed' && raisesOpenQuestions(turn.payload.resultText);
   }
 
   /**

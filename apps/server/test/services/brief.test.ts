@@ -15,11 +15,8 @@ import {
   RUN_RECORDS,
 } from '../../src/services/brief.js';
 import type { Finalization, ReviewBranchContext, WorkCycle } from '@craftingtable/domain';
-import { asConcurrencyDefinitionId } from '@craftingtable/domain';
-import {
-  finalizationHasNoQuestions,
-  finalizationStageOutput,
-} from '../../src/services/finalization-policy.js';
+import { asConcurrencyDefinitionId, noOpenQuestions } from '@craftingtable/domain';
+import { finalizationStageOutput } from '../../src/services/finalization-policy.js';
 import { assessStageReport } from '../../src/services/finalization-stage-policy.js';
 import { assessReviewReport } from '../../src/services/review-report.js';
 import { STEP_RULES } from '../../src/services/step-rules.js';
@@ -227,7 +224,7 @@ describe('composeBrief output contracts, one module per role (R-G6, AGT-54)', ()
       ),
     ).toMatchObject({ status: 'complete' });
     expect(parseWorkflowReport(message).status).toBe('complete');
-    expect(finalizationHasNoQuestions(message)).toBe(true);
+    expect(noOpenQuestions(message)).toBe(true);
   });
 
   it('asks a design for its design block, then the workflow block, then Open questions', () => {

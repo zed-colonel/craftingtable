@@ -6,9 +6,12 @@ import {
   type CycleStep,
   designHasNoOpenQuestions,
   evaluateCycleCompletion,
+  noOpenQuestions,
   OUTPUT_REPAIR_LIMIT,
-  openQuestionsCheckpoint,
+  openQuestionsSection,
   ownsIntegrationResolution,
+  raisesOpenQuestions,
+  resolutionReady,
   type ProviderFailure,
   remediationAllowance,
   remediationUsed,
@@ -20,7 +23,7 @@ import {
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { designDependencyState } from './design-dependency-policy.js';
 import { scopedReviewIssue } from './execution-scope.js';
-import { finalizationForCycle, finalizationHasNoQuestions } from './finalization-policy.js';
+import { finalizationForCycle } from './finalization-policy.js';
 import { cycleStepRole, drainInterrupted } from './restart-resume.js';
 import { latestReviewReport, runEvents } from './run-handoff.js';
 import { workflowQuestions } from './workflow-policy.js';
@@ -205,7 +208,6 @@ export function stepOutcomeFacts(
   };
 }
 
-const OPEN_QUESTIONS = /^## Open questions[ \t]*$/m;
 const QUESTIONS_AT_LIMIT =
   'Remediation limit reached. Review needs your input. Answer the Open questions when authorizing more remediation.';
 
@@ -442,11 +444,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
     // question or clipped assistant message requires a person, never a service retry.
     const questions = facts
       .assistantMessages()
-      .some(
-        (message) =>
-          message.truncated ||
-          (OPEN_QUESTIONS.test(message.text) && !finalizationHasNoQuestions(message.text)),
-      );
+      .some((message) => message.truncated || raisesOpenQuestions(message.text));
     return serviceRecovery(
       cycle,
       facts,
@@ -479,10 +477,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
     );
   if (ended?.payload.reason) {
     const attempts = cycle.resultContinuations ?? 0;
-    const explicitQuestions =
-      turn !== undefined &&
-      OPEN_QUESTIONS.test(turn.payload.resultText) &&
-      !finalizationHasNoQuestions(turn.payload.resultText);
+    const explicitQuestions = turn !== undefined && raisesOpenQuestions(turn.payload.resultText);
     if (
       run.status !== 'failed' ||
       ended.payload.reason !== 'background-work-incomplete' ||
@@ -537,7 +532,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
     );
   const text = turn.payload.resultText;
   if (ownsIntegrationResolution(cycle)) {
-    if (!/\n## Resolution status\s*\nready\s*$/i.test(`\n${text}`))
+    if (!resolutionReady(text))
       return attention(
         'resolution-needs-guidance',
         'Resolution needs guidance or verification. Inspect the final outcome, then resume with instructions.',
@@ -562,7 +557,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
       );
     if (classified.status === 'complete') {
       const questions = facts.workflowQuestions(cycle, text);
-      if ((questions.length === 0) !== finalizationHasNoQuestions(text))
+      if ((questions.length === 0) !== noOpenQuestions(text))
         return attention(
           'workflow-questions-disagree',
           'Workflow report and Open questions disagree. Inspect the unanswered questions before continuing.',
@@ -606,15 +601,11 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
         'This finalization uses retired improvement rounds. Stop it and start a staged finalization.',
       ),
     );
-  if (
-    finalization &&
-    !(finalization.stages && cycle.step === 'review') &&
-    !finalizationHasNoQuestions(text)
-  ) {
+  if (finalization && !(finalization.stages && cycle.step === 'review') && !noOpenQuestions(text)) {
     const message =
       'Finalization needs your input or a complete Open questions checkpoint. Inspect the outcome and provide guidance before resuming.';
     return withWorkflow(
-      openQuestionsCheckpoint(text) === 'questions'
+      openQuestionsSection(text).status === 'questions'
         ? attention('finalization-needs-input', message)
         : formatFault('finalization-needs-input', message, [CHECKPOINT_ISSUE]),
     );
@@ -694,7 +685,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
       const message =
         'Design has open questions or lacks an explicit “## Open questions” section containing only “none”. Use Resolve design questions to collect evidence and provide guidance.';
       return withWorkflow(
-        openQuestionsCheckpoint(text) === 'questions'
+        openQuestionsSection(text).status === 'questions'
           ? attention('design-open-questions', message)
           : formatFault('design-open-questions', message, [
               `${CHECKPOINT_ISSUE} In a design report it must be the last section.`,
@@ -704,7 +695,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
     return withWorkflow({ kind: 'next-step', step: 'implement', changes: {}, action: 'advance' });
   }
   if (cycle.step === 'implement' || cycle.step === 'remediate') {
-    if (OPEN_QUESTIONS.test(text) && !finalizationHasNoQuestions(text))
+    if (raisesOpenQuestions(text))
       return withWorkflow(
         attention(
           'implementation-open-questions',
@@ -723,12 +714,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
     scopeIssue ? { status: 'invalid', issues: [scopeIssue] } : assessment,
     run.reviewBranchContext,
   );
-  if (
-    !finalization &&
-    !reviewOnly &&
-    OPEN_QUESTIONS.test(text) &&
-    !finalizationHasNoQuestions(text)
-  )
+  if (!finalization && !reviewOnly && raisesOpenQuestions(text))
     return withWorkflow(
       decision.action === 'remediate' && remediationUsed(cycle) >= remediationAllowance(cycle)
         ? attention('review-open-questions-at-limit', QUESTIONS_AT_LIMIT)
@@ -762,7 +748,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
   if (finalization?.stages)
     return withWorkflow(
       assessment?.status === 'complete'
-        ? { kind: 'advance-finalization-stage', noQuestions: finalizationHasNoQuestions(text) }
+        ? { kind: 'advance-finalization-stage', noQuestions: noOpenQuestions(text) }
         : // A missing structured report is repaired as in every other review (R-C2).
           formatFault(
             'finalization-report-rejected',
@@ -781,14 +767,13 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
     verificationFollowUps(assessment) !== undefined;
   if (
     reviewOnly &&
-    (!finalizationHasNoQuestions(text) ||
-      (decision.action !== 'awaiting-merge' && !verificationPasses))
+    (!noOpenQuestions(text) || (decision.action !== 'awaiting-merge' && !verificationPasses))
   ) {
-    if (!finalizationHasNoQuestions(text)) {
+    if (!noOpenQuestions(text)) {
       const message =
         'Scope review has open questions or lacks its Open questions checkpoint. Pause and provide guidance before resuming.';
       return withWorkflow(
-        openQuestionsCheckpoint(text) === 'questions'
+        openQuestionsSection(text).status === 'questions'
           ? attention('scope-review-open-questions', message)
           : formatFault('scope-review-open-questions', message, [CHECKPOINT_ISSUE]),
       );

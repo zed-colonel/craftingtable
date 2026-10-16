@@ -3,7 +3,12 @@ import { architectureDecisionPacket } from './architecture-decision-policy.js';
 import { architectureDecisionInbox } from './architecture-decision-inbox.js';
 import { buildVerificationPolicy } from './build-verification-policy.js';
 import { createHash } from 'node:crypto';
-import type { AgentRunId, DesignRecoverySource, WorkCycle } from '@craftingtable/domain';
+import {
+  type AgentRunId,
+  type DesignRecoverySource,
+  openQuestionsSection,
+  type WorkCycle,
+} from '@craftingtable/domain';
 import type { DesignRecoveryPreview } from '@craftingtable/contracts';
 import { decodeUtf8, readArchive } from '@craftingtable/planning';
 import type { StorageRepositories } from '@craftingtable/storage';
@@ -31,8 +36,9 @@ export function collectDesignRecovery(
   const event = tx.execution.runEvents.latestOfKind(ws, run.id, 'turn-completed');
   const report =
     event?.kind === 'turn-completed' ? event.payload.resultText : (run.outcomeSummary ?? '');
+  const checkpoint = openQuestionsSection(report);
   const questions =
-    report.match(/^## Open questions\s*\n([\s\S]*)/im)?.[1]?.trim() ||
+    (checkpoint.count ? checkpoint.body : '') ||
     report ||
     'No final design report was recorded. Inspect the run before continuing.';
   // Exact contract/requirement IDs are useful cross-package lookup keys; prose is not authority.

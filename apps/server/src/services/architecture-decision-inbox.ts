@@ -9,6 +9,7 @@ import {
   type ArchitectureDecisionInbox,
 } from '@craftingtable/contracts';
 import {
+  openQuestionsSection,
   type AgentRun,
   asCheckpointId,
   type CheckpointId,
@@ -307,9 +308,8 @@ function decisionRecommendations(
     const report = event.payload.resultText;
     const parsed = parseDesignReport(report);
     const workflow = parseWorkflowReport(report);
-    const legacyQuestions = report
-      .match(/^## Open questions[ \t]*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]
-      ?.trim();
+    const checkpoint = openQuestionsSection(report);
+    const legacyQuestions = checkpoint.status === 'questions' ? checkpoint.body : undefined;
     const questions = [
       ...(parsed.status !== 'complete' &&
       workflow.status !== 'complete' &&

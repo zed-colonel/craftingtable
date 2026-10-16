@@ -6,6 +6,7 @@ import type { WorkflowOutput } from './brief-output.js';
 import { createHash } from 'node:crypto';
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import {
+  openQuestionsSection,
   asAgentRunId,
   asCheckpointId,
   effectiveCycleAttention,
@@ -311,10 +312,9 @@ export function operatorQuestionRoutes(
 ): readonly WorkflowQuestion[] {
   const parsed = parseWorkflowReport(text);
   if (parsed.status === 'complete') return workflowQuestions(tx, cycle, text);
-  const section = text
-    .match(/^## Open questions[ \t]*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]
-    ?.trim();
-  if (!section || /^none[.!]?$/i.test(section)) return [];
+  const checkpoint = openQuestionsSection(text);
+  if (checkpoint.status !== 'questions') return [];
+  const section = checkpoint.body;
   const definition =
     cycle.executionScope &&
     tx.imports.definition(cycle.workspaceId, cycle.executionScope.definitionId);

@@ -21,7 +21,6 @@ import {
 } from './build-receipt-policy.js';
 import { checkpointDigest, candidateCheckpointIssues } from './checkpoint-candidate-policy.js';
 import { resolveScope, scopeEvidenceIssues } from './execution-scope.js';
-import { finalizationHasNoQuestions } from './finalization-policy.js';
 import { architectureDecisionInbox } from './architecture-decision-inbox.js';
 import {
   architectureDecisionIssues,
@@ -96,6 +95,7 @@ import {
   type RuntimeRefreshPreview,
 } from '@craftingtable/contracts';
 import {
+  noOpenQuestions,
   asAgentRunId,
   asEvidenceSubmissionId,
   asNativeVerificationApprovalId,
@@ -1227,7 +1227,7 @@ export class RuntimeEvidenceService {
       assessment?.status !== 'complete' ||
       !assessment.report.exitGate.met ||
       assessment.report.findings.some((f) => f.status === 'open' && f.severity !== 'nit') ||
-      !finalizationHasNoQuestions(report)
+      !noOpenQuestions(report)
     )
       commonIssues.push(
         'Finish a successful, question-free review with no unresolved blocking, major or minor findings.',

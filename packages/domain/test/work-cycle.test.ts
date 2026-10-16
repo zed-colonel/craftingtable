@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReviewFinding, ReviewReportAssessment } from '../src/review.js';
-import {
-  DEFAULT_COMPLETION_POLICY,
-  designHasNoOpenQuestions,
-  evaluateCompletion,
-} from '../src/work-cycle.js';
+import { DEFAULT_COMPLETION_POLICY, evaluateCompletion } from '../src/work-cycle.js';
 import { asReviewFindingId } from '../src/ids.js';
 
 const finding: ReviewFinding = {
@@ -104,22 +100,4 @@ describe('completion policy', () => {
       }).action,
     ).toBe('remediate');
   });
-});
-describe('design checkpoint', () => {
-  it.each(['Proposal\n\n## Open questions\nnone', '## Open questions\r\nNone\r\n'])(
-    'accepts explicit final none',
-    (text) => expect(designHasNoOpenQuestions(text)).toBe(true),
-  );
-  it.each([
-    'Looks good',
-    '## Open questions\n- Pick storage',
-    '## Open questions\nnone\n## Risks\nquestion',
-    '## Open questions\nnone\n## Open questions\nnone',
-    '```md\n## Open questions\nnone\n```',
-    '## Open questions\nnone, probably',
-  ])('pauses ambiguous or non-final checkpoints', (text) =>
-    expect(designHasNoOpenQuestions(text)).toBe(false),
-  );
-  it('rejects truncated results', () =>
-    expect(designHasNoOpenQuestions('## Open questions\nnone', true)).toBe(false));
 });

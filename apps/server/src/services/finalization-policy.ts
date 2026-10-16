@@ -23,25 +23,6 @@ export function finalizationForCycle(
   return value;
 }
 
-/** One explicit questions section, bounded by the next heading (review reports follow it). */
-export function finalizationHasNoQuestions(text: string): boolean {
-  let fenced = false;
-  let collecting = false;
-  let count = 0;
-  const body: string[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    if (/^\s*(```|~~~)/.test(line)) {
-      fenced = !fenced;
-      if (collecting) body.push(line);
-      continue;
-    }
-    if (!fenced && /^## /u.test(line)) {
-      collecting = /^## Open questions\s*$/u.test(line);
-      if (collecting) count++;
-    } else if (collecting) body.push(line);
-  }
-  return count === 1 && body.join('\n').trim().toLowerCase() === 'none';
-}
 /** What a review of this stage reports in its finalization object (`brief-review.ts`). */
 export function finalizationStageOutput(
   value: Finalization,

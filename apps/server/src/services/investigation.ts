@@ -9,7 +9,7 @@ import {
   type InvestigationWorktreePart,
   INVESTIGATION_STOPS,
   isTerminalAgentRunStatus,
-  openQuestionsCheckpoint,
+  openQuestionsSection,
   stopCode,
   type WorkCycle,
 } from '@craftingtable/domain';
@@ -66,40 +66,9 @@ export function stopQuestions(
     : undefined;
 }
 
-/**
- * The items of a report's single "## Open questions" section; its text if it has no list.
- * Fenced blocks are text, as `openQuestionsCheckpoint` reads them: a fenced heading neither
- * opens nor ends the section. Indented lines, sub-bullets included, belong to their item.
- */
+/** The questions of a report's single `## Open questions` section (`openQuestionsSection`). */
 export function openQuestions(text: string): readonly string[] {
-  if (openQuestionsCheckpoint(text) !== 'questions') return [];
-  let fence: string | undefined;
-  let collecting = false;
-  const body: { line: string; fenced: boolean }[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    const fenced = fence !== undefined || marker !== undefined;
-    if (marker !== undefined) {
-      if (fence === undefined) fence = marker;
-      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
-    } else if (!fenced && /^## /.test(line)) {
-      collecting = /^## Open questions[ \t]*$/.test(line);
-      continue;
-    }
-    if (collecting) body.push({ line, fenced });
-  }
-  const items: string[] = [];
-  for (const { line, fenced } of body) {
-    const item = fenced ? null : /^ ?(?:[-*+]|\d+[.)])\s+(.*)$/.exec(line);
-    if (item) items.push(item[1]!.trim());
-    else if (items.length && line.trim()) items[items.length - 1] += `\n${line.trim()}`;
-  }
-  const whole = body
-    .map((b) => b.line)
-    .join('\n')
-    .trim();
-  const questions = items.length ? items : whole ? [whole] : [];
-  return questions.filter((q) => q.trim()).slice(0, MAX_QUESTIONS);
+  return openQuestionsSection(text).items.slice(0, MAX_QUESTIONS);
 }
 
 export const questionsDigest = (questions: readonly string[]) =>

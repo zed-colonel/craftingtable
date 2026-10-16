@@ -18,6 +18,7 @@ export * from './map-amendment.js';
 export * from './concurrency-amendment.js';
 export * from './storage-policy.js';
 export * from './work-cycle.js';
+export * from './open-questions.js';
 export * from './workspace.js';
 export * from './workspace-events.js';
 

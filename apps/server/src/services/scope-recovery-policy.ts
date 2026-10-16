@@ -6,9 +6,12 @@ import type {
   WorkCycle,
   RoadmapEntryId,
 } from '@craftingtable/domain';
-import { isTerminalAgentRunStatus, sameExecutionScope } from '@craftingtable/domain';
+import {
+  isTerminalAgentRunStatus,
+  noOpenQuestions,
+  sameExecutionScope,
+} from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
-import { finalizationHasNoQuestions } from './finalization-policy.js';
 import { classifyRecoveryProgress, type RecoveryRoundReport } from './recovery-progress.js';
 import { collectScopeRepair } from './scope-repair.js';
 import { resolveScope, scopedReviewIssue } from './execution-scope.js';
@@ -54,7 +57,7 @@ export function scopeRecoveryDecision(
     turn?.kind !== 'turn-completed' ||
     turn.payload.outcome !== 'success' ||
     turn.payload.truncated ||
-    !finalizationHasNoQuestions(turn.payload.resultText) ||
+    !noOpenQuestions(turn.payload.resultText) ||
     turn.payload.reviewReport?.status !== 'complete'
   )
     return {
@@ -129,7 +132,7 @@ export function scopeRecoveryDecision(
       !isTerminalAgentRunStatus(sourceRun.status) ||
       sourceTurn?.kind !== 'turn-completed' ||
       sourceTurn.payload.truncated ||
-      !finalizationHasNoQuestions(sourceTurn.payload.resultText)
+      !noOpenQuestions(sourceTurn.payload.resultText)
     )
       return {
         reason:

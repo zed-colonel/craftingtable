@@ -5,6 +5,7 @@ import {
   HOLD_RELEASE,
   type HoldOrigin,
   heldEntry,
+  holdOrigin,
   holdRelease,
   roadmapHeld,
 } from '../../src/services/entry-holds.js';
@@ -28,6 +29,7 @@ describe('HOLD_RELEASE', () => {
     const origins: HoldOrigin[] = [
       { kind: 'pause' as const },
       { kind: 'adoption' as const },
+      { kind: 'unattributed' as const },
       ...ROADMAP_ATTENTION_CODES.flatMap((code) => [
         { kind: 'stop' as const, code },
         ...REFUSAL_STOPS.map((cause) => ({ kind: 'stop' as const, code, cause })),
@@ -47,10 +49,12 @@ describe('HOLD_RELEASE', () => {
       `${code}/phase-gate:phase-gate`,
       `${code}/predecessor-merge-missing:predecessor-merge`,
     ];
-    // A code that names its own fact keeps it, whatever cause it also records.
+    // A code that names its own fact keeps it, unless its cause is one the operator owns (an
+    // item the item gate refuses, increment 2 review L-1).
     const own = (code: string, name: string) => [
       `${code}:${name}`,
-      ...REFUSAL_STOPS.map((cause) => `${code}/${cause}:${name}`),
+      `${code}/phase-gate:${name}`,
+      `${code}/predecessor-merge-missing:${name}`,
     ];
     expect(released.toSorted()).toEqual(
       [
@@ -63,10 +67,66 @@ describe('HOLD_RELEASE', () => {
     );
   });
 
+  it('leaves a cause it does not know to the operator, whatever the code (review N-2)', () => {
+    expect(
+      holdRelease({ kind: 'stop', code: 'scheduler-error', cause: 'step-incomplete' }),
+    ).toMatchObject({ operator: true });
+    expect(
+      holdRelease({ kind: 'stop', code: 'entry-blocked', cause: 'item-unavailable' }),
+    ).toMatchObject({ operator: true });
+  });
+
   it('leaves a refusal without a typed cause to the operator', () =>
     expect(holdRelease({ kind: 'stop', code: 'entry-preparation-failed' })).toMatchObject({
       operator: true,
     }));
+});
+
+describe('holdOrigin (increment 2 review M-2)', () => {
+  const needs = (code: Parameters<typeof roadmapAttention>[0], refs?: object) => ({
+    status: 'needs-attention' as const,
+    reason: 'Held.',
+    attention: roadmapAttention(code, refs as never),
+  });
+  it('tells a stored hold’s origin from what it records, never from its text', () => {
+    expect(holdOrigin('e', { status: 'paused', reason: 'Item paused by operator.' })).toEqual({
+      kind: 'pause',
+    });
+    // A failed adoption is the one hold that names a cycle.
+    expect(
+      holdOrigin('e', needs('entry-preparation-failed', { entryId: 'e', cycleId: 'repair' })),
+    ).toEqual({ kind: 'adoption' });
+    // LIVE-06's stored hold (2026-09-30d) names its own entry, not the round's owner.
+    expect(holdOrigin('e', needs('entry-blocked', { entryId: 'e' }))).toEqual({
+      kind: 'unattributed',
+    });
+    expect(holdRelease(holdOrigin('e', needs('entry-blocked', { entryId: 'e' })))).toMatchObject({
+      operator: true,
+    });
+    // A hold of its own gate names none; a round's hold names the owner it was asked of.
+    expect(holdOrigin('e', needs('entry-blocked'))).toEqual({
+      kind: 'stop',
+      code: 'entry-blocked',
+      cause: undefined,
+    });
+    expect(holdOrigin('e', needs('entry-blocked', { entryId: 'owner' }))).toMatchObject({
+      kind: 'stop',
+      code: 'entry-blocked',
+    });
+    expect(
+      holdOrigin('e', needs('entry-preparation-failed', { cause: 'predecessor-merge-missing' })),
+    ).toEqual({
+      kind: 'stop',
+      code: 'entry-preparation-failed',
+      cause: 'predecessor-merge-missing',
+    });
+    // A hold stored before codes is legacy, the operator's.
+    expect(holdOrigin('e', { status: 'needs-attention', reason: 'Old.' })).toEqual({
+      kind: 'stop',
+      code: 'legacy-attention',
+      cause: undefined,
+    });
+  });
 });
 
 describe('heldEntry (decision 3)', () => {

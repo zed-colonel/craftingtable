@@ -3648,38 +3648,44 @@ export class RoadmapService {
           (e) => e.id === owner.id,
         );
         if (!frozen) conflict('Recovery settings are unavailable.');
-        await this.cycles.delegateScopeRepair(
-          context,
-          ws,
-          sourceCycle.id,
-          {
-            expectedVersion: sourceCycle.version,
-            snapshotDigest: preview.snapshotDigest,
-            sourceId: owner.executionScope!.sourceId,
-            maxRemediationRounds: frozen.policy.maxRemediationRounds,
-            instructions: frozen.instructions,
-          },
-          {
-            worktreeId: reserved.worktreeId,
-            cycleId: reserved.cycleId,
-            owner: ownerOf(roadmap, reserved),
-            profiles: frozen.profiles,
-            policy: frozen.policy,
-            check: () => {
-              check();
-              const blocker = this.blocker(
-                this.find(ws, roadmap.id),
-                owner,
-                reserved,
-                this.storage,
-                true,
-              );
-              if (blocker) refuseBlocked(blocker, owner.id);
+        // The owner slice's own gates (its start phase, its predecessors' merges) refuse inside
+        // the delegation: they are the owner's (increment 2 review M-1).
+        await this.cycles
+          .delegateScopeRepair(
+            context,
+            ws,
+            sourceCycle.id,
+            {
+              expectedVersion: sourceCycle.version,
+              snapshotDigest: preview.snapshotDigest,
+              sourceId: owner.executionScope!.sourceId,
+              maxRemediationRounds: frozen.policy.maxRemediationRounds,
+              instructions: frozen.instructions,
             },
-            attach: () =>
-              this.updateRecovery(this.find(ws, roadmap.id), reserved, { status: 'active' }),
-          },
-        );
+            {
+              worktreeId: reserved.worktreeId,
+              cycleId: reserved.cycleId,
+              owner: ownerOf(roadmap, reserved),
+              profiles: frozen.profiles,
+              policy: frozen.policy,
+              check: () => {
+                check();
+                const blocker = this.blocker(
+                  this.find(ws, roadmap.id),
+                  owner,
+                  reserved,
+                  this.storage,
+                  true,
+                );
+                if (blocker) refuseBlocked(blocker, owner.id);
+              },
+              attach: () =>
+                this.updateRecovery(this.find(ws, roadmap.id), reserved, { status: 'active' }),
+            },
+          )
+          .catch((error: unknown) => {
+            throw gated(error, owner.id);
+          });
         return MOVED;
       }
       const repair = this.storage.execution.cycles.find(ws, reserved.cycleId);
@@ -3777,27 +3783,22 @@ export class RoadmapService {
           ),
         });
       };
-      if (cycle.status === 'completed')
-        await this.cycles.repeatScopeReview(
-          context,
-          ws,
-          cycle.id,
-          cycle.version,
-          '',
-          check,
-          attach,
-        );
-      else
-        await this.cycles.control(
-          context,
-          ws,
-          cycle.id,
-          'resume',
-          cycle.version,
-          undefined,
-          check,
-          attach,
-        );
+      // The target review's own gates refuse its restart: they are the target's (review M-1).
+      await (cycle.status === 'completed'
+        ? this.cycles.repeatScopeReview(context, ws, cycle.id, cycle.version, '', check, attach)
+        : this.cycles.control(
+            context,
+            ws,
+            cycle.id,
+            'resume',
+            cycle.version,
+            undefined,
+            check,
+            attach,
+          )
+      ).catch((error: unknown) => {
+        throw gated(error, target.id);
+      });
       return MOVED;
     }
     if (['needs-attention', 'paused', 'stopped'].includes(cycle.status)) {

@@ -131,7 +131,8 @@ export function carriedHold(
     ?.sourceEntryId;
   const holds = [
     own && !inRound ? own : undefined,
-    source ? heldEntry(roadmap, source) : undefined,
+    // A round runs only in a parallel roadmap, whose holds are stored.
+    source ? roadmap.entryHolds?.[source] : undefined,
   ].filter((hold): hold is RoadmapEntryHold => hold?.status === 'needs-attention');
   // Both, when the repair's own entry is held too: neither has an item of its own.
   return holds.length > 1

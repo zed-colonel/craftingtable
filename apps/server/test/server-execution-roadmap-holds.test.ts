@@ -104,7 +104,47 @@ it('stops a sequential roadmap whose blocker refuses the attempt being made as `
       .recent(state.workspaceId, 100)
       .find((item) => item.state === 'open' && item.subjectKey === `roadmap:${roadmapId}`)?.refs,
   ).toEqual({ roadmapId, entryId: entryIds[0], workItemId: state.workItemId });
+  // The status list shows the stop on its entry.
+  expect(
+    state.context.services.roadmapService
+      .statusOf(storedRoadmap(state))
+      .entries.find((e) => e.entryId === entryIds[0])?.waitsOn,
+  ).toMatchObject({ source: 'attention-item', code: 'entry-blocked' });
   blocked.mockRestore();
+});
+
+it('carries a sequential stop by its own entry’s cycle, not an earlier unfinished attempt’s (decision 3, review L-3)', async () => {
+  const { state } = await roadmapFixture();
+  await saveRoadmapRequest(state);
+  await roadmapControl(state, 'start');
+  const first = await awaitRoadmapMerge(state, 0);
+  // The first entry's cycle is at its merge with its own item, its attempt unfinished; the stop
+  // names the next entry, which has no cycle yet, so the roadmap's own item shows it.
+  const running = storedRoadmap(state);
+  const next = running.definition.entries[1]!;
+  state.context.storage.transaction((tx) =>
+    tx.roadmaps.save(
+      {
+        ...running,
+        version: running.version + 1,
+        status: 'needs-attention',
+        reason: 'AQ-02: Bound plan item is unavailable.',
+        attention: roadmapAttention('entry-blocked', {
+          entryId: next.id,
+          cause: 'item-unavailable',
+        }),
+      },
+      running.version,
+    ),
+  );
+  const open = state.context.storage.attention
+    .recent(state.workspaceId, 100)
+    .filter((item) => item.state === 'open');
+  expect(open.some((item) => item.subjectKey === `cycle:${first.cycleId}`)).toBe(true);
+  expect(open.find((item) => item.subjectKey === `roadmap:${roadmapId}`)).toMatchObject({
+    code: 'entry-blocked',
+    refs: { roadmapId, entryId: next.id },
+  });
 });
 
 it('carries a sequential stop on an entry at its merge in that cycle’s one item, as a hold (decision 3, LIVE-24)', async () => {

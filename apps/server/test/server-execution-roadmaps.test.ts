@@ -264,6 +264,12 @@ describe('sequential roadmaps', () => {
       owner: 'operator',
       refs: { cycleId: cycle.id, entryId: first },
     });
+    // No item carries the stopped cycle, so the roadmap's own item names the entry and cycle.
+    expect(
+      state.context.storage.attention
+        .recent(state.workspaceId, 100)
+        .find((item) => item.state === 'open' && item.subjectKey === `roadmap:${roadmapId}`)?.refs,
+    ).toEqual({ roadmapId, entryId: first, workItemId: state.workItemId, cycleId: cycle.id });
   });
 
   it('waits on design questions without starting later entries, and stops for manual takeover', async () => {

@@ -18,7 +18,7 @@ import {
   supervisedMapFixture,
   waitFor,
 } from './execution-test-support.js';
-import { ExecutionRequestError } from '../src/services/errors.js';
+import { ExecutionRequestError, TypedRefusalError } from '../src/services/errors.js';
 
 /**
  * R-C12: a stopped review that automatic recovery does not answer with a round records why.
@@ -187,6 +187,70 @@ itNeedsCargo.each([
     // An unchanged wait is not written again.
     await state.context.services.roadmapService.tick();
     expect(storedRoadmap(state).version).toBe(roadmap.version);
+  },
+);
+
+// Increment 2 review M-1: a refusal of the round owner's own gate, met while its repair is
+// prepared, names the owner, so a release asks the owner's gate and not the source's.
+itNeedsCargo.each(['predecessor merge', 'blocker'] as const)(
+  'a round’s hold names the owner whose %s refused it (R-C10 follow-up, decision 2)',
+  async (gate) => {
+    const { state, ws, sourceEntryId, ownerEntryId } = await stoppedVerification();
+    await roadmapControl(state, 'pause');
+    const enabled = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/scope-recovery`,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: storedRoadmap(state).version,
+        enabled: true,
+        maxRoundsPerParent: 3,
+      },
+    });
+    expect(enabled.statusCode, enabled.body).toBe(200);
+    const owner = storedRoadmap(state).definition.entries.find((e) => e.id === ownerEntryId)!;
+    const scheduler = state.context.services.roadmapService as unknown as {
+      blocker: (...args: unknown[]) => unknown;
+      execution: { branches: { requirePredecessors: (...args: unknown[]) => Promise<void> } };
+    };
+    if (gate === 'predecessor merge') {
+      // The owner slice's predecessor merge is absent when its repair worktree is created.
+      const branches = scheduler.execution.branches;
+      const real = branches.requirePredecessors.bind(branches);
+      vi.spyOn(branches, 'requirePredecessors').mockImplementation(async (...args: unknown[]) => {
+        const scope = args[5] as ExecutionScope | undefined;
+        if (scope?.kind === 'slice' && scope.sourceId === owner.executionScope!.sourceId)
+          throw new TypedRefusalError(
+            'predecessor-merge-missing',
+            "Required predecessor AQ-00's merge is absent from the integration branch",
+          );
+        return real(...args);
+      });
+    } else {
+      // The owner's blocker, asked as a round, needs the operator.
+      const real = scheduler.blocker.bind(scheduler);
+      vi.spyOn(scheduler, 'blocker').mockImplementation((...args: unknown[]) =>
+        args[4] === true
+          ? {
+              reason: 'local/AQ-01/a: Bound plan item is unavailable.',
+              needsAttention: true,
+              kind: 'dependency-blocked',
+              cause: 'item-unavailable',
+            }
+          : real(...args),
+      );
+    }
+    await roadmapControl(state, 'resume');
+    for (let i = 0; i < 6 && !storedRoadmap(state).entryHolds?.[sourceEntryId]; i++)
+      await state.context.services.roadmapService.tick();
+    expect(storedRoadmap(state).entryHolds?.[sourceEntryId]?.attention).toMatchObject(
+      gate === 'predecessor merge'
+        ? {
+            code: 'entry-preparation-failed',
+            refs: { entryId: ownerEntryId, cause: 'predecessor-merge-missing' },
+          }
+        : { code: 'entry-blocked', refs: { entryId: ownerEntryId, cause: 'item-unavailable' } },
+    );
   },
 );
 

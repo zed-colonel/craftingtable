@@ -1,4 +1,5 @@
 import type {
+  CycleAttentionCode,
   PlanVersionId,
   Roadmap,
   RoadmapAttentionCode,
@@ -52,6 +53,11 @@ export const HOLD_RELEASE = {
   pause: operator('A pause carries no code: the operator resumes what they paused.'),
   /** An open repair the scheduler could not adopt into the roadmap. */
   adoption: operator('A failed adoption is an event; the repair runs as the operator’s cycle.'),
+  /**
+   * A hold of a gate stored before R-C10's follow-up: it names its own entry, which says nothing
+   * of which gate refused (LIVE-06's hold sits on a round's source, for its owner's capacity).
+   */
+  unattributed: operator('It names no gate it could be asked of again, but by its text (rule 4).'),
   codes: {
     'restart-resume': operator('After a crash someone should look.'),
     'scheduler-error': 'by-cause',
@@ -91,29 +97,60 @@ export const HOLD_RELEASE = {
 export type HoldOrigin =
   | { readonly kind: 'pause' }
   | { readonly kind: 'adoption' }
+  | { readonly kind: 'unattributed' }
   | {
       readonly kind: 'stop';
       readonly code: RoadmapAttentionCode;
-      readonly cause?: RefusalStop | undefined;
+      readonly cause?: CycleAttentionCode | undefined;
     };
 
-/** How a stored stop or hold of this origin is cleared. A refusal without a cause is the operator's. */
+/**
+ * A stored entry hold's origin (`entryId` is the hold's own key): an item pause, a failed
+ * adoption (the only `entry-preparation-failed` hold that names a cycle), a blocker hold stored
+ * before the follow-up (it names its own entry, so not the round's owner the gate was asked of),
+ * or a stop by its code and cause.
+ */
+export function holdOrigin(entryId: string, hold: RoadmapEntryHold): HoldOrigin {
+  if (hold.status === 'paused') return { kind: 'pause' };
+  const attention = hold.attention ?? { code: 'legacy-attention' as const };
+  const refs = 'refs' in attention ? attention.refs : undefined;
+  if (attention.code === 'entry-preparation-failed' && refs?.cycleId !== undefined)
+    return { kind: 'adoption' };
+  if (attention.code === 'entry-blocked' && refs?.entryId === entryId)
+    return { kind: 'unattributed' };
+  return { kind: 'stop', code: attention.code, cause: refs?.cause };
+}
+
+const UNKNOWN_CAUSE = operator('A cause the table does not know stays the operator’s.');
+const UNCAUSED = operator(
+  'A refusal without a typed cause could be read only by its text (rule 4).',
+);
+
+/**
+ * How a stored stop or hold of this origin is cleared. A refusal's typed cause decides it; a code
+ * that names its own fact keeps it, unless its cause is one the table leaves to the operator (an
+ * `entry-blocked` hold for an item the item gate refuses: the item needs a person, increment 2
+ * review L-1). A refusal without a cause, or with one the table does not know, is the operator's.
+ */
 export function holdRelease(origin: HoldOrigin): HoldRelease {
-  if (origin.kind === 'pause') return HOLD_RELEASE.pause;
-  if (origin.kind === 'adoption') return HOLD_RELEASE.adoption;
+  if (origin.kind !== 'stop') return HOLD_RELEASE[origin.kind];
+  const cause =
+    origin.cause === undefined
+      ? undefined
+      : Object.hasOwn(HOLD_RELEASE.causes, origin.cause)
+        ? HOLD_RELEASE.causes[origin.cause as RefusalStop]
+        : UNKNOWN_CAUSE;
   const byCode = HOLD_RELEASE.codes[origin.code];
-  if (byCode !== 'by-cause') return byCode;
-  return origin.cause === undefined
-    ? operator('A refusal without a typed cause could be read only by its text (rule 4).')
-    : HOLD_RELEASE.causes[origin.cause];
+  if (byCode !== 'by-cause') return cause && 'operator' in cause ? cause : byCode;
+  return cause ?? UNCAUSED;
 }
 
 /**
  * The hold on a roadmap entry: its stored hold, or a sequential roadmap's own stop on it. A
  * sequential roadmap holds no entry; the fact that would hold one stops the roadmap with its
- * code and the entry in `refs.entryId` (decision 3), so the controls that read a hold (Re-verify,
- * the items that carry it) read that stop the same way. A stop for the entry's cycle
- * (`cycle-needs-attention`) is the cycle's, not a hold.
+ * code and the entry in `refs.entryId` (decision 3), so the items that carry a hold read that
+ * stop the same way. A stop for the entry's cycle (`cycle-needs-attention`) is the cycle's, not a
+ * hold.
  */
 export function heldEntry(
   roadmap: Pick<Roadmap, 'entryHolds'> &

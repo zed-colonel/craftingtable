@@ -133,15 +133,19 @@ function cycleDigest(after: WorkCycle, known: ReadonlySet<string>): string {
   return digest(canonicalJson(after).replace(UUID, (id) => (known.has(id) ? id : '(minted)')));
 }
 
-/** The top-level fields whose values differ, but for the version and time every write moves. */
+/**
+ * The top-level fields that differ, but for the version and time every write moves. A field
+ * appearing or going is a change even when one side is an explicit `null` (stored as one).
+ */
 function changedFields(after: WorkCycle, before: WorkCycle): string[] {
   const keys = new Set([...Object.keys(after), ...Object.keys(before)]);
   return [...keys]
     .filter((key) => key !== 'version' && key !== 'updatedAt')
     .filter(
       (key) =>
+        Object.hasOwn(after, key) !== Object.hasOwn(before, key) ||
         canonicalJson((after as unknown as Record<string, unknown>)[key]) !==
-        canonicalJson((before as unknown as Record<string, unknown>)[key]),
+          canonicalJson((before as unknown as Record<string, unknown>)[key]),
     )
     .sort();
 }

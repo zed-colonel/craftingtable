@@ -175,8 +175,12 @@ it('records each cycle’s own commands, ended turns, a reservation and the whol
       reserved: true,
       fields: [
         'currentRunId',
+        // A launch writes these as explicit nulls.
+        'designWait',
         'housekeepingInstructions',
+        'outputRepair',
         'parentRunId',
+        'providerRecovery',
         'reason',
         'resultContinuations',
         'runDeadlineAt',

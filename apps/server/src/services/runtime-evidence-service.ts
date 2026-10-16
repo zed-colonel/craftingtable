@@ -1230,7 +1230,9 @@ export class RuntimeEvidenceService {
       !noOpenQuestions(report)
     )
       commonIssues.push(
-        'Finish a successful, question-free review with no unresolved blocking, major or minor findings.',
+        // A checkpoint's evidence reads the review strictly: its checkpoint must say none, so
+        // name it when it is missing (R-B4 increment 3 re-check).
+        'Finish a successful review whose final report ends with an Open questions checkpoint of none, with no unresolved blocking, major or minor findings.',
       );
     if (assessment?.status === 'complete')
       commonIssues.push(...scopeEvidenceIssues(scope, assessment.report.scopeEvidence));

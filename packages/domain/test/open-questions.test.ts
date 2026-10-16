@@ -149,6 +149,30 @@ const rows: readonly {
     raises: true,
     design: false,
   },
+  // A real section, once found, is trusted: a fence left open later that quotes the heading
+  // raises nothing (re-check finding 6), nor does a closed quote then an unclosed fence (H2), nor
+  // an unclosed fence holding another heading (H4).
+  {
+    name: 'none, then an unclosed fence quoting the heading',
+    text: '## Open questions\nnone\n\n## Notes\n```md\n## Open questions\nnone',
+    status: 'none',
+    raises: false,
+    design: false,
+  },
+  {
+    name: 'a quoted heading in a closed fence, then an unclosed fence',
+    text: 'Example:\n```md\n## Open questions\n- Q\n```\nLog:\n```\noutput',
+    status: 'malformed',
+    raises: false,
+    design: false,
+  },
+  {
+    name: 'an unclosed fence holding another heading',
+    text: 'Done.\n```md\n## Notes\nx',
+    status: 'malformed',
+    raises: false,
+    design: false,
+  },
   {
     name: 'a fence left open after the section raises nothing',
     text: '## Open questions\nnone\n\n## Notes\n```\ntrailing',

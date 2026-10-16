@@ -60,6 +60,8 @@ async function checkpointCandidateFixture(
   daemonChecks = true,
   /** The contract checkpoint's evidence profile id (R-F2: only `contract-checkpoint` is recognized). */
   profile = 'contract-checkpoint',
+  /** The review's Open questions checkpoint, before its report. */
+  checkpoint = '## Open questions\nnone\n\n',
 ) {
   const f = await slicedFixture((source) => ({
     ...source,
@@ -148,9 +150,7 @@ async function checkpointCandidateFixture(
   f.backend.replyForRequest = async (request) => {
     await check(request);
     return {
-      resultText:
-        '## Open questions\nnone\n\n## Review report\n' +
-        scopeReport(f.state, tree.executionScope!),
+      resultText: `${checkpoint}## Review report\n${scopeReport(f.state, tree.executionScope!)}`,
     };
   };
   const run = await runToFinish(f.state, tree.id, { role: 'review' });
@@ -183,6 +183,27 @@ itNeedsCargo(
     }
   },
 );
+// R-B4 increment 3 re-check, finding 7: a checkpoint's evidence needs a review whose checkpoint
+// says none; one that omits it is refused, and the refusal names the checkpoint.
+itNeedsCargo('names the missing Open questions checkpoint of a candidate review', async () => {
+  const f = await checkpointCandidateFixture(
+    undefined,
+    true,
+    true,
+    true,
+    'contract-checkpoint',
+    '',
+  );
+  const recovery = await f.svc.checkpointRecovery(
+    f.auth,
+    f.state.workspaceId,
+    f.parentScope.definitionId,
+    f.tree.id,
+  );
+  expect(recovery.candidates[0]?.issues).toContain(
+    'Finish a successful review whose final report ends with an Open questions checkpoint of none, with no unresolved blocking, major or minor findings.',
+  );
+});
 itNeedsCargo(
   'prepares candidate checkpoint evidence, retains later slice cases and permits only its reviewed merge',
   async () => {

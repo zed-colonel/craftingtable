@@ -139,13 +139,14 @@ export function noOpenQuestions(text: string): boolean {
 
 /**
  * The report raises questions for the operator: it has a checkpoint and the checkpoint is not
- * `none` alone, or a fence left open swallowed its checkpoint's heading (R-B4 increment 3
+ * `none` alone, or it has none because a fence left open swallowed its heading (R-B4 increment 3
  * review). A report without the section raises none; the step that requires it reads that as
  * `malformed` instead.
  */
 export function raisesOpenQuestions(text: string): boolean {
   const section = openQuestionsSection(text);
-  return (section.count > 0 && section.status !== 'none') || section.hidden;
+  // A real section, once found, is trusted; only a report with none reads a swallowed heading.
+  return section.count > 0 ? section.status !== 'none' : section.hidden;
 }
 
 /**

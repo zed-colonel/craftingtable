@@ -656,7 +656,7 @@ it('lists a slice whose review has no record as scope-blocked once its repositor
   });
 });
 
-it("a roadmap cycle awaiting the operator's merge with a review prepared before its checks were adopted recovers by Pause, then Resume (R-G13 increment 4, re-check R1)", async () => {
+it("a roadmap cycle awaiting the operator's merge with a review prepared before its checks were adopted recovers by Pause, then Resume, and the roadmap with it (R-G13 increment 4, re-check R1; R-C10 follow-up, decision 1)", async () => {
   const { state, backend } = await roadmapFixture([
     designDone,
     implementationDone,
@@ -687,13 +687,15 @@ it("a roadmap cycle awaiting the operator's merge with a review prepared before 
     const refused = await merge(state, attempt.worktreeId);
     expect(refused.statusCode, refused.body).toBe(409);
     expect(refused.body).toContain('prepared without the repository');
-    // The refusal names the cycle's own exit, the roadmap's resume included.
-    expect(refused.body).toContain('Pause its cycle, resume it, merge, then resume its roadmap');
+    // The refusal names the cycle's own exit, which the roadmap follows (R-C10's follow-up,
+    // decision 1).
+    expect(refused.body).toContain('Pause its cycle, then resume it');
     backend.replyForRequest = () => ({ resultText: reviewText([]) });
     const paused = await controlCycle(state, first, 'pause');
-    // A roadmap pass while the cycle is paused holds the roadmap on it.
+    // A roadmap pass while the cycle is paused waits on it, running: one fact, one stop.
     await state.context.services.roadmapService.tick();
-    expect(held()).toEqual({ status: 'needs-attention', code: 'cycle-needs-attention' });
+    expect(held()).toEqual({ status: 'running', code: undefined });
+    expect(storedRoadmap(state).entryWaits?.[attempt.entryId]?.code).toBe('cycle-paused');
     await controlCycle(state, paused, 'resume');
     await waitFor(() => {
       const cycle = storage.execution.cycles.find(state.workspaceId, first.id)!;
@@ -711,11 +713,7 @@ it("a roadmap cycle awaiting the operator's merge with a review prepared before 
   } finally {
     hidden.mockRestore();
   }
-  // The roadmap stays held until the operator resumes it, and kept its cycle throughout.
-  await state.context.services.roadmapService.tick();
-  expect(held()).toEqual({ status: 'needs-attention', code: 'cycle-needs-attention' });
-  expect(storedRoadmap(state).attempts[0]!.cycleId).toBe(first.id);
-  await roadmapControl(state, 'resume');
+  // The roadmap went on with its cycle, with no Resume of its own, and kept the cycle throughout.
   await state.context.services.roadmapService.tick();
   expect(storedRoadmap(state).status).toBe('running');
   expect(storedRoadmap(state).attempts[0]!.cycleId).toBe(first.id);

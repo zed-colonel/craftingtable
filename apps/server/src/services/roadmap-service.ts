@@ -125,6 +125,7 @@ import {
 import {
   blockerWait,
   cycleStep,
+  cycleWait,
   type EntryBlocker,
   type EntryStep,
   MOVED,
@@ -3192,7 +3193,10 @@ export class RoadmapService {
     parallel: boolean,
   ): EntryStep {
     if (parallel) return cycleStep(cycle);
-    if (['paused', 'needs-attention', 'stopped', 'completed'].includes(cycle.status))
+    // One fact, one stop (R-C10's follow-up, decision 1): a cycle at its own stop, or paused,
+    // carries the fact, and the roadmap waits on it running. Only a cycle that ended, which no
+    // item carries, stops the roadmap.
+    if (cycle.status === 'stopped' || cycle.status === 'completed')
       this.change(roadmap, {
         status: 'needs-attention',
         attention: roadmapAttention('cycle-needs-attention', {
@@ -3535,7 +3539,10 @@ export class RoadmapService {
       if (!decision.owner) {
         if (decision.escalation)
           throw new EntryHoldError('recovery-not-converging', decision.reason!);
-        conflict(decision.reason!);
+        // One fact, one stop (R-C10's follow-up, decision 1): the review's own stop carries a
+        // round recovery declined; the entry waits on it with the reason, and recovery asks again
+        // on the next pass, so the round starts once the reason clears.
+        return cycleWait(sourceCycle, decision.reason!, entry.id);
       }
       const ownerAttempt = roadmap.attempts.find(
         (a) => a.entryId === decision.owner!.id && !a.recovery,
@@ -3677,11 +3684,14 @@ export class RoadmapService {
       }
       const repair = this.storage.execution.cycles.find(ws, reserved.cycleId);
       if (!repair) conflict('The reserved recovery cycle is unavailable.');
-      if (
-        ['needs-attention', 'paused', 'stopped'].includes(repair.status) &&
-        !repair.integrationResolution
-      )
-        conflict(`Owning-slice recovery needs your input: ${repair.reason}`);
+      if (!repair.integrationResolution) {
+        // A repair that stopped ends the round's work: the operator decides how it goes on.
+        if (repair.status === 'stopped')
+          conflict(`Owning-slice recovery needs your input: ${repair.reason}`);
+        // One fact, one stop (decision 1): the repair's own stop, or its pause, carries it.
+        if (repair.status === 'needs-attention' || repair.status === 'paused')
+          return cycleStep(repair);
+      }
       return roundStep(
         await this.advanceEntry(roadmap, owner, reserved),
         'Roadmap recovery: owning-slice repair and integration.',

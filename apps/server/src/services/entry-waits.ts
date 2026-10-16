@@ -72,6 +72,18 @@ export function cycleStep(cycle: WorkCycle): EntryStep {
 }
 
 /**
+ * An entry that waits on a cycle's stop for a reason of the scheduler's own (R-C10's follow-up,
+ * decision 1): a stopped review whose recovery round the scheduler declined waits on the review's
+ * stop, with why it declined, where it used to hold. The wait names the entry it is for, so the
+ * cycle's item carries that reason (`carriedWait`); a cycle that is not waiting on the operator
+ * gives the plain step.
+ */
+export function cycleWait(cycle: WorkCycle, reason: string, entryId: RoadmapEntryId): EntryStep {
+  const step = cycleStep(cycle);
+  return 'wait' in step ? waiting(step.wait.code, reason, { cycleId: cycle.id, entryId }) : step;
+}
+
+/**
  * The stopped review a recovery round carries waits on the round: on whatever holds the round
  * up, or on the round itself while its repair or review is at work.
  */

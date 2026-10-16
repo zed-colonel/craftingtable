@@ -6,7 +6,7 @@ import {
   asWorkCycleId,
 } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
-import { carriedHold } from '../../src/services/attention-projector.js';
+import { carriedHold, carriedWait } from '../../src/services/attention-projector.js';
 
 const hold = (reason: string, status: RoadmapEntryHold['status'] = 'needs-attention') =>
   ({ status, reason }) as RoadmapEntryHold;
@@ -107,6 +107,58 @@ it('carries a sequential roadmap’s stop on its entry as that entry’s hold (R
         definition: { scheduling: { ...stopped.definition.scheduling, mode: 'parallel' as const } },
       },
       cycle,
+    ),
+  ).toBeUndefined();
+});
+
+it('carries a wait’s own reason on the cycle it waits on, unless a round from its entry is open (R-C10 follow-up, decision 1)', () => {
+  const review = { id: asWorkCycleId('review') };
+  const declined = {
+    code: 'cycle-attention' as const,
+    reason: 'Finding ownership is ambiguous.',
+    since: '2026-10-16T00:00:00.000Z',
+    refs: { cycleId: review.id, entryId: asRoadmapEntryId('verification') },
+  };
+  expect(carriedWait({ attempts: [], entryWaits: { verification: declined } }, review)).toBe(
+    'Finding ownership is ambiguous.',
+  );
+  // A wait that only repeats the cycle's stop names no entry; another cycle's wait is not this one's.
+  const { entryId: _entry, ...plain } = declined.refs;
+  expect(
+    carriedWait(
+      { attempts: [], entryWaits: { verification: { ...declined, refs: plain } } },
+      review,
+    ),
+  ).toBeUndefined();
+  expect(
+    carriedWait(
+      { attempts: [], entryWaits: { verification: declined } },
+      { id: asWorkCycleId('other') },
+    ),
+  ).toBeUndefined();
+  // A controller-owned wait is not the operator's to read.
+  expect(
+    carriedWait(
+      {
+        attempts: [],
+        entryWaits: { verification: { ...declined, code: 'cycle-waiting' as const } },
+      },
+      review,
+    ),
+  ).toBeUndefined();
+  // Once a round from the entry is open, its repair's item carries the round's stops.
+  expect(
+    carriedWait(
+      {
+        attempts: [
+          attempt({
+            cycleId: 'repair',
+            recovery: { sourceEntryId: 'verification', phase: 'repair' },
+          }),
+        ],
+        entryWaits: { verification: declined },
+      },
+      review,
     ),
   ).toBeUndefined();
 });

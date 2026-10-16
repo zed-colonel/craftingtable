@@ -12,6 +12,7 @@ import {
   branchCommand,
   CycleBackend,
   cleanupExecutionFixtures,
+  controlCycle,
   designDone,
   git,
   implementationDone,
@@ -241,13 +242,45 @@ describe('sequential roadmaps', () => {
     expect(storedRoadmap(state).attempts[0]?.status).toBe('completed');
   });
 
-  it('stops for design questions and manual takeover without starting later entries', async () => {
+  it('stops on a cycle that ended, which no item carries (R-C10 follow-up, decision 1)', async () => {
+    const { state } = await roadmapFixture([
+      { resultText: '## Open questions\nChoose an approach.' },
+    ]);
+    await saveRoadmapRequest(state);
+    await roadmapControl(state, 'start');
+    const first = storedRoadmap(state).definition.entries[0]!.id;
+    await waitFor(
+      () => storedRoadmap(state).entryWaits?.[first]?.code === 'cycle-attention',
+      'design question',
+    );
+    const cycle = state.context.storage.execution.cycles.find(
+      state.workspaceId,
+      storedRoadmap(state).attempts[0]!.cycleId,
+    )!;
+    await controlCycle(state, cycle, 'stop');
+    await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'the roadmap stops');
+    expect(storedRoadmap(state).attention).toEqual({
+      code: 'cycle-needs-attention',
+      owner: 'operator',
+      refs: { cycleId: cycle.id, entryId: first },
+    });
+  });
+
+  it('waits on design questions without starting later entries, and stops for manual takeover', async () => {
     const { state, backend } = await roadmapFixture([
       { resultText: '## Open questions\nChoose an approach.' },
     ]);
     await saveRoadmapRequest(state);
     await roadmapControl(state, 'start');
-    await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'design question');
+    // One fact, one stop (R-C10's follow-up, decision 1): the cycle's own stop carries the
+    // question, and the roadmap waits on it, running.
+    const first = storedRoadmap(state).definition.entries[0]!.id;
+    await waitFor(
+      () => storedRoadmap(state).entryWaits?.[first]?.code === 'cycle-attention',
+      'design question',
+    );
+    expect(storedRoadmap(state).status).toBe('running');
+    expect(storedRoadmap(state).attention).toBeUndefined();
     expect(backend.launches).toHaveLength(1);
     await roadmapControl(state, 'stop');
     expect(storedRoadmap(state).status).toBe('stopped');

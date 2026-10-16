@@ -289,8 +289,14 @@ it("stops a roadmap's cycle, not its scheduler, on a saved display name, and the
     present(state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId));
   await waitFor(() => cycle().attention?.code === 'agent-model-misnamed', 'typed stop');
   expect(backend.launches).toHaveLength(0);
-  // The fix the stop names: the id in the roadmap's agent profiles, then resume.
-  await waitFor(() => storedRoadmap(state).status !== 'running', 'roadmap held');
+  // The roadmap waits on its cycle's stop, running (R-C10's follow-up, decision 1); the fix the
+  // stop names: the id in the roadmap's agent profiles, which a paused roadmap takes, then resume.
+  await waitFor(
+    () => storedRoadmap(state).entryWaits?.[entryIds[0]!]?.code === 'cycle-attention',
+    'roadmap waits on the cycle',
+  );
+  expect(storedRoadmap(state).status).toBe('running');
+  await roadmapControl(state, 'pause');
   const selection = (model: string) => ({ backend: 'claude-code' as const, model });
   const applied = await state.context.app.inject({
     method: 'POST',

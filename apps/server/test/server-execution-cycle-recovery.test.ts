@@ -23,6 +23,7 @@ import { openDaemonStorage } from '../src/persisted-records.js';
 import {
   beginFinalization,
   cleanupExecutionFixtures,
+  entryIds,
   commitFile,
   currentCycle,
   cycleFixture,
@@ -1105,10 +1106,12 @@ it('holds provider backoff after a daemon restart and while its roadmap is pause
     .find((c) => c.providerRecovery)!;
   state.context.services.workCycleService.recoverInterrupted();
   expect(currentCycle(state, cycle).status).toBe('needs-attention');
+  // The roadmap waits on its cycle's restart stop, running (R-C10's follow-up, decision 1).
   await waitFor(
-    () => storedRoadmap(state).status === 'needs-attention',
-    'restart supervision hold',
+    () => storedRoadmap(state).entryWaits?.[entryIds[0]!]?.code === 'cycle-attention',
+    'restart supervision wait',
   );
+  expect(storedRoadmap(state).status).toBe('running');
   await roadmapControl(state, 'pause');
   const command = async () =>
     state.context.app.inject({

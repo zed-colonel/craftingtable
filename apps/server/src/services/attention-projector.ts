@@ -139,6 +139,31 @@ export function carriedHold(
     : holds[0];
 }
 
+/**
+ * Why the roadmap waits on a cycle's stop, when it is a reason of the scheduler's own (R-C10's
+ * follow-up, decision 1): a round recovery declined for a stopped review used to hold the entry,
+ * and the review's item carried the hold's reason; the entry now waits on the review with that
+ * reason (`cycleWait`), and the item carries it from the wait. A wait that only repeats the
+ * cycle's stop names no entry, and is not carried.
+ */
+export function carriedWait(
+  roadmap: Pick<Roadmap, 'attempts' | 'entryWaits'> | null | undefined,
+  cycle: Pick<WorkCycle, 'id'>,
+): string | undefined {
+  const [entryId, wait] =
+    Object.entries(roadmap?.entryWaits ?? {}).find(
+      ([, wait]) =>
+        (wait.code === 'cycle-attention' || wait.code === 'cycle-paused') &&
+        wait.refs?.cycleId === cycle.id &&
+        wait.refs.entryId !== undefined,
+    ) ?? [];
+  // A round started from the entry since carries its stops in its repair's item (LIVE-20 review).
+  const inRound = roadmap?.attempts.some(
+    (a) => a.recovery?.sourceEntryId === entryId && a.recovery?.phase !== 'completed',
+  );
+  return inRound ? undefined : wait?.reason;
+}
+
 export class AttentionProjector implements WriteObserver {
   private readonly pending = new Set<string>();
   private flushing: string[] = [];
@@ -776,7 +801,12 @@ export class AttentionProjector implements WriteObserver {
           ? hold
           : undefined;
       const carried = escalated ? undefined : carriedHold(roadmap, cycle);
-      const held = carried ? `\nThe roadmap holds this item: ${carried.reason}` : '';
+      const waited = escalated || carried ? undefined : carriedWait(roadmap, cycle);
+      const held = carried
+        ? `\nThe roadmap holds this item: ${carried.reason}`
+        : waited
+          ? `\nThe roadmap waits on this item: ${waited}`
+          : '';
       const kind =
         // A held merge is the roadmap's, and it did not happen: not a merge to approve (LIVE-24).
         !carried &&

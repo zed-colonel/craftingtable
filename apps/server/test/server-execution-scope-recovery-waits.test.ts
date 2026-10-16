@@ -5,6 +5,7 @@ import { afterEach, expect, vi } from 'vitest';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
+  controlCycle,
   itNeedsCargo,
   mutationHeaders,
   parallelScheduling,
@@ -306,10 +307,15 @@ itNeedsCargo(
       state.context.services.roadmapService.syncAttention(true);
       return tx.attention.open(ws).map((item) => item.subjectKey);
     };
+    // One fact, one stop (R-C10's follow-up, decision 1): the review waits on its round's
+    // stopped repair, which carries the question, instead of holding.
     await waitFor(
-      () => !!storedRoadmap(state).entryHolds?.[sourceEntryId],
-      'the stopped round holds its review',
+      () =>
+        storedRoadmap(state).entryWaits?.[sourceEntryId]?.code === 'cycle-attention' &&
+        storedRoadmap(state).entryWaits?.[sourceEntryId]?.refs?.cycleId === round()?.cycleId,
+      'the stopped round’s review waits on its repair',
     );
+    expect(storedRoadmap(state).entryHolds ?? {}).toEqual({});
     await waitFor(
       () => repairRuns === 2 && repair()?.status === 'running',
       'the round reassesses its repair',
@@ -320,5 +326,15 @@ itNeedsCargo(
     await waitFor(() => repair()?.status === 'needs-attention', 'the repair stops on its question');
     // The repair's own item carries the question; the review's hold does not repeat it.
     expect(openSubjects()).toEqual([`cycle:${round()!.cycleId}`]);
+    // A repair that is stopped ends the round's work: that still holds the review for the
+    // operator, since no item carries a stopped cycle.
+    await controlCycle(state, repair()!, 'stop');
+    await waitFor(
+      () => !!storedRoadmap(state).entryHolds?.[sourceEntryId],
+      'the stopped repair holds its review',
+    );
+    expect(storedRoadmap(state).entryHolds?.[sourceEntryId]?.reason).toContain(
+      'Owning-slice recovery needs your input',
+    );
   },
 );

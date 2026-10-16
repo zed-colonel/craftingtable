@@ -5,6 +5,7 @@ import {
   asRoadmapAttemptId,
   asWorkCycleId,
   type ExecutionScope,
+  type RoadmapEntryHold,
 } from '@craftingtable/domain';
 import { afterEach, expect } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
@@ -297,23 +298,26 @@ export async function boundedScopeRecovery(outcome: ScopeRecoveryOutcome): Promi
       expect(parentPrompt).toContain(f.scopes[1]!.sourceId);
     }
   } else {
+    // A round recovery declined is no hold: the entry waits on the review's own stop with the
+    // reason (R-C10's follow-up, decision 1). Recovery that stops converging still holds.
+    const declined = ['questions', 'ambiguous', 'split-owners', 'partly-named'].includes(outcome);
+    const stopping =
+      outcome === 'questions'
+        ? 'resolve questions'
+        : outcome === 'unchanged'
+          ? 'same substantive findings'
+          : outcome === 'exhausted'
+            ? 'allowance exhausted'
+            : outcome === 'passing-forever'
+              ? 'lifetime ceiling'
+              : outcome === 'stalled'
+                ? 'without progress'
+                : 'ambiguous';
     await waitFor(
       () =>
-        Object.values(storedRoadmap(state).entryHolds ?? {}).some((h) =>
-          h.reason.includes(
-            outcome === 'questions'
-              ? 'resolve questions'
-              : outcome === 'unchanged'
-                ? 'same substantive findings'
-                : outcome === 'exhausted'
-                  ? 'allowance exhausted'
-                  : outcome === 'passing-forever'
-                    ? 'lifetime ceiling'
-                    : outcome === 'stalled'
-                      ? 'without progress'
-                      : 'ambiguous',
-          ),
-        ),
+        Object.values(
+          (declined ? storedRoadmap(state).entryWaits : storedRoadmap(state).entryHolds) ?? {},
+        ).some((h) => h.reason.includes(stopping)),
       'bounded recovery stopping reason',
     );
     expect(repairs).toBe(
@@ -326,11 +330,16 @@ export async function boundedScopeRecovery(outcome: ScopeRecoveryOutcome): Promi
             : 1,
     );
     // Automatic recovery that stops converging is one typed escalation with its progress
-    // (R-C5 increment 4); other refusals keep their own stop.
-    const [heldEntryId, hold] = Object.entries(storedRoadmap(state).entryHolds ?? {})[0]!;
-    if (outcome === 'passing-forever') expect(hold.attention?.code).toBe('recovery-not-converging');
+    // (R-C5 increment 4); a declined round waits on the review's own stop (decision 1).
+    const [heldEntryId, hold] = declined
+      ? Object.entries(storedRoadmap(state).entryWaits ?? {}).find(([, w]) =>
+          w.reason.includes(stopping),
+        )!
+      : Object.entries(storedRoadmap(state).entryHolds ?? {})[0]!;
+    if (outcome === 'passing-forever')
+      expect((hold as RoadmapEntryHold).attention?.code).toBe('recovery-not-converging');
     else if (['unchanged', 'stalled', 'exhausted'].includes(outcome)) {
-      expect(hold.attention?.code).toBe('recovery-not-converging');
+      expect((hold as RoadmapEntryHold).attention?.code).toBe('recovery-not-converging');
       expect(hold.reason).toContain('F003 (major)');
       // One inbox item: the stopped review's own, saying why recovery stopped (increment 5).
       state.context.services.roadmapService.syncAttention(true);
@@ -370,11 +379,16 @@ export async function boundedScopeRecovery(outcome: ScopeRecoveryOutcome): Promi
       const afterPause = await entryControl('resume');
       expect(afterPause.statusCode, afterPause.body).toBe(409);
     } else {
-      expect(hold.attention?.code).not.toBe('recovery-not-converging');
-      // The stopped review's own item replaces the hold's in the inbox, so it carries the
-      // hold's reason, and the status list names it too (LIVE-20).
-      state.context.services.roadmapService.syncAttention(true);
+      // No hold: the entry waits on the review's own stop, naming the review and itself.
+      expect(storedRoadmap(state).entryHolds ?? {}).toEqual({});
       const review = storedRoadmap(state).attempts.find((a) => a.entryId === heldEntryId)!;
+      expect(hold).toMatchObject({
+        code: 'cycle-attention',
+        refs: { cycleId: review.cycleId, entryId: heldEntryId },
+      });
+      // The stopped review's own item carries the wait's reason, and the status list names it
+      // too (LIVE-20).
+      state.context.services.roadmapService.syncAttention(true);
       const item = tx.attention.open(ws).find((i) => i.subjectKey === `cycle:${review.cycleId}`);
       expect(item?.message).toContain(hold.reason);
       const status = state.context.services.roadmapService
@@ -406,7 +420,7 @@ export async function boundedScopeRecovery(outcome: ScopeRecoveryOutcome): Promi
       state.context.services.roadmapService.syncAttention(true);
       expect(
         tx.attention.open(ws).find((i) => i.subjectKey === `cycle:${review.cycleId}`)?.message,
-      ).not.toContain('The roadmap holds this item');
+      ).not.toContain('The roadmap waits on this item');
       // The later checks read the roadmap as the scheduler left it.
       expect(
         tx.roadmaps.save({ ...current, version: current.version + 2 }, current.version + 1),

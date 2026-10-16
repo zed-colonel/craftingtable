@@ -46,6 +46,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C14](#r-c14) | P2 | S-M | done (2026-09-28) | Attention says only what needs the operator now, and what the operator can act on (added 2026-09-28) |
 | [R-C15](#r-c15) | P2 | S | done (2026-09-28) | A checkpoint review is given the decisions its checkpoint requires (added 2026-09-28) |
 | [R-C16](#r-c16) | P2 | M | open (design approved 2026-10-01) | Investigate: dispatch a read-only investigation from any question stop (added 2026-10-01) |
+| [R-C17](#r-c17) | P4 | M (four S parts) | open (found live 2026-10-16) | Step time limits: hung checks, cut-off handoffs and the operator's controls |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -2356,6 +2357,22 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - **NIT, recorded (RC F-3):** drafts are held in module memory for the browser session, so a reload or a discarded phone tab loses them. That is the 16b design.
 
 ## Workstream D — Read side and browser performance (pain point 3)
+
+### R-C17
+
+**Step time limits: hung checks, cut-off handoffs and the operator's controls** · Phase P4 · Effort M (four S parts) · Status: open (found live 2026-10-16; recorded at the operator's request)
+
+- **Found 2026-10-16,** on WorldInterface's WIP-07, the remediate step correcting F-020 (Codex `gpt-6.1-sol`, `xhigh`). Two runs (3d81fea8, 9b5278a9) were cancelled at exactly the step's 120 minutes (`maxRunMinutes`, the default in `packages/domain/src/work-cycle.ts`), and the cycle stopped twice as `step-time-limit`. Neither was stuck: 159 and 207 tool calls, events in every ten minutes.
+- **Where the time went.** The remediation made `flow_capacity_is_enforced_without_losing_existing_history` take far longer than before. Before it, `runtime-test` passed in 10 to 12 minutes. After it, every run (3 in the first step, 5 in the second) ended "Check interrupted or timed out." at the 30-minute check cap (`checkTimeoutMs`, `runtime-evidence-service.ts`). Each log's last line was "test flow_capacity_… has been running for over 60 seconds". The agent also ran that test directly, without a timeout, for 42 minutes. The second run fixed the slowness (three commits) and was rerunning the full checks when the deadline cancelled it.
+- **What the resume lost.** A resumed step starts a fresh agent session. A run cut off with no completed turn leaves no final message, so the handoff said only "no completed turn; the final-message file contains only the available summary", and the second run rediscovered the problem from scratch.
+- **What the operator could do.** The Needs-you item offered only **Resume automation**. The daemon's resume already accepts `instructions` and runs a guided continuation of the step (the step is implement, remediate or review, the latest run is the cycle's, nothing is live). But for this stop the browser renders a plain resume. A cancelled implement run has no handoff target (`handoff.ts`), and a handoff from the last review starts another lineage, which resume refuses ("does not continue this cycle's handoff lineage"). The step's minutes and agents are set only when a cycle starts or while its roadmap entry is queued, with no workspace default, so after two time-limit stops neither could be changed. A browser-console request with the guidance was offered as the workaround.
+- **Change, in four independent parts:**
+  1. *Hung checks.* A declared check may set its own timeout in `checks.json` (within the step's time), so a suite that takes 10 minutes stops at 15 rather than 30. A check that times out names what was still running in its diagnostic: cargo's "has been running for over 60 seconds" line, or the log's tail.
+  2. *The handoff after a cut-off run.* When a run ends with no completed turn, its handoff carries the run's last assistant messages, its head commit and the worktree's uncommitted files, read from the event log and the worktree.
+  3. *The briefs.* Implement and remediate briefs tell the agent to run a slow or hanging test alone under a hard timeout before rerunning whole suites, and to put a timeout on any test command it runs directly.
+  4. *The operator's controls.* The `step-time-limit` stop offers **Continue with guidance**, the existing form, through `cycleActions`, not a new panel. One general control, wherever a cycle is paused or needs attention, changes its minutes per step and its agents for the remaining steps. A workspace default sets minutes per step for new cycles and entries.
+- **Done when:** a test that never finishes ends its check at the check's own timeout, with a diagnostic naming the test. A resumed step after a cut-off run starts from the previous run's last messages and state. The time-limit stop takes guidance from the browser. A stopped cycle's limit and agents can be changed without stopping it.
+- **Priority:** parts 1 to 3 are small and independent and each saves a whole step when a test hangs; part 4 is controller and browser work, best after R-B4b.
 
 ### R-D1
 

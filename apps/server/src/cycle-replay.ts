@@ -10,7 +10,12 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import { openDaemonStorage } from './persisted-records.js';
-import { compareRecords, type ReplayCheck, type ReplayRecord } from './replay-check.js';
+import {
+  canonicalJson,
+  compareRecords,
+  type ReplayCheck,
+  type ReplayRecord,
+} from './replay-check.js';
 import { replayServices } from './replay-services.js';
 import { ConcurrentModificationError } from './services/errors.js';
 
@@ -22,15 +27,16 @@ import { ConcurrentModificationError } from './services/errors.js';
  * come before any run is classified. This runs one real `WorkCycleService.tick()` on a private
  * copy of the snapshot and records, for every cycle that had not ended, what the pass did to it:
  * the commands it reached that the replay intercepts (Git, an agent launch, ending a turn, a
- * checkpoint attestation), the transitions it wrote (their audit actions, in order), and the
- * cycle as the pass left it. Every Git call is recorded and stops that cycle's reconciliation as
+ * checkpoint's recovery preview), the transitions it wrote (their audit actions, in order), and
+ * the cycle as the pass left it: its stop and waits, and a digest of the whole stored record. Every Git call is recorded and stops that cycle's reconciliation as
  * a contention the pass retries later, so nothing runs and the snapshot is never modified.
  *
  * Most cycles of a snapshot wait for the operator, and the pass leaves them alone. So a second
- * pass runs on another copy with every stopped or paused cycle lifted to `running`, its stop
- * cleared and its step given a new window, as if each were resumed at once (`resumed`): what the
- * controller's checks would decide for that cycle now, as the every-run replay asks of a run that
- * is no longer current. Its records characterize the checks, not anything the daemon would do.
+ * pass runs on another copy with every stopped or paused cycle lifted to `running` as a resume
+ * leaves it (its stop cleared, its investigation and output repair ended, a new step window), as
+ * if each were resumed at once (`resumed`): what the controller's checks would decide for that
+ * cycle now, as the every-run replay asks of a run that is no longer current. Its records
+ * characterize the checks, not anything the daemon would do.
  *
  * Both passes take the snapshot as the live daemon's next pass would find it, at the time of its
  * last controller write: live runs stay live and no restart recovery runs. A path that catches
@@ -52,6 +58,11 @@ export interface CycleReplayState {
   /** The pass reserved a new run for the step. */
   readonly reserved?: true;
   readonly reason: string;
+  /**
+   * A digest of the whole stored cycle as the pass left it, with every id the pass minted (a
+   * reserved run, a detected conflict) read as `(minted)`: any field the pass wrote changes it.
+   */
+  readonly cycle?: string;
 }
 
 /** What one pass did to one cycle. */
@@ -91,7 +102,15 @@ class ReplayIntercept extends ConcurrentModificationError {
 const digest = (text: string) =>
   `sha256:${createHash('sha256').update(text).digest('hex').slice(0, 16)}`;
 
-function replayState(cycle: WorkCycle, reserved = false): CycleReplayState {
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+
+/** The stored cycle's digest, each UUID it did not hold before the pass read as `(minted)`. */
+function cycleDigest(after: WorkCycle, before: WorkCycle): string {
+  const known = new Set(JSON.stringify(before).match(UUID) ?? []);
+  return digest(canonicalJson(after).replace(UUID, (id) => (known.has(id) ? id : '(minted)')));
+}
+
+function replayState(cycle: WorkCycle, reserved = false, before?: WorkCycle): CycleReplayState {
   const attention = effectiveCycleAttention(cycle);
   return {
     status: cycle.status,
@@ -107,6 +126,7 @@ function replayState(cycle: WorkCycle, reserved = false): CycleReplayState {
     ...(cycle.designWait ? { designWait: true as const } : {}),
     ...(reserved ? { reserved: true as const } : {}),
     reason: digest(cycle.reason),
+    ...(before ? { cycle: cycleDigest(cycle, before) } : {}),
   };
 }
 
@@ -155,11 +175,14 @@ export async function replayCyclePass(
     if (lift)
       for (const cycle of stored)
         if (LIFTED.has(cycle.status)) {
-          // As a resume does: the stop cleared, and a new window for the step.
-          const { attention: _stop, ...rest } = cycle;
+          // As every resume leaves a cycle (`change()`'s rules for an operator command): its stop
+          // cleared, its investigation and output repair ended, and a new window for the step.
+          // Waits stay: only one resume path clears a phase wait.
+          const { attention: _stop, investigation: _ended, ...rest } = cycle;
           storage.execution.cycles.replace(
             {
               ...rest,
+              ...(cycle.outputRepair ? { outputRepair: null } : {}),
               status: 'running',
               runDeadlineAt: new Date(
                 now.getTime() + cycle.policy.maxRunMinutes * 60_000,
@@ -198,9 +221,11 @@ export async function replayCyclePass(
     runs.cancelInvestigation = () => {
       pending.push('cancel-investigation');
     };
-    // An attestation writes evidence and reads the plan's checkpoints: the replay stops there.
-    services.runtimeEvidenceService.acceptWorkflowCheckpoint = async () =>
-      intercepted('accept-workflow-checkpoint');
+    // A checkpoint's attestation is checked as the daemon checks it; its recovery preview, which
+    // captures the candidate and may audit the host, is where the replay stops.
+    (
+      services.runtimeEvidenceService as unknown as { checkpointRecovery: () => Promise<never> }
+    ).checkpointRecovery = async () => intercepted('checkpoint-recovery');
     services.workCycleService.observePass({
       cycle: (cycle) => {
         if (pending.length) calls.set(cycle.id, pending);
@@ -228,7 +253,7 @@ export async function replayCyclePass(
             ...(calls.has(cycle.id) ? { calls: calls.get(cycle.id) } : {}),
             ...(actions.has(cycle.id) ? { actions: actions.get(cycle.id) } : {}),
             ...(changed
-              ? { after: replayState(after, after.currentRunId !== cycle.currentRunId) }
+              ? { after: replayState(after, after.currentRunId !== cycle.currentRunId, cycle) }
               : {}),
           },
         };

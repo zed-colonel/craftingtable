@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { checkCycleReplay, type CycleReplay, replayCycleSnapshot } from '../src/cycle-replay.js';
-import { createCycleFixture, type CycleFixture } from './cycle-test-support.js';
+import { asAgentRunId, asWorkCycleId, asWorkItemId, asWorktreeId } from '@craftingtable/domain';
+import { createCycleFixture, type CycleFixture, storedCycle } from './cycle-test-support.js';
 import {
   cleanupExecutionFixtures,
+  designDone,
+  git,
+  implementationDone,
   openQuestions,
   startCycle,
   stepDaemon,
@@ -57,7 +61,8 @@ it('records what one pass does to each cycle, and with its stop lifted, without 
   f.backend.latest.release(openQuestions);
   await stepDaemon(f.services, 2);
   const stopped = await snapshot(f);
-  const replay = await replayCycleSnapshot(stopped, new Date());
+  const at = new Date();
+  const replay = await replayCycleSnapshot(stopped, at);
   const stop = {
     status: 'needs-attention',
     step: 'design',
@@ -70,12 +75,15 @@ it('records what one pass does to each cycle, and with its stop lifted, without 
       cycleId: cycle.id,
       before: stop,
       pass: {},
-      resumed: { actions: ['advance'], after: stop },
+      resumed: {
+        actions: ['advance'],
+        after: { ...stop, cycle: expect.stringMatching(/^sha256:/) },
+      },
     },
   ]);
 
   // The same snapshot replays the same way; a golden that differs is reported by its cycle.
-  const again = await replayCycleSnapshot(stopped, new Date());
+  const again = await replayCycleSnapshot(stopped, at);
   expect(checkCycleReplay(replay, again)).toMatchObject({
     records: 1,
     changed: [],
@@ -88,4 +96,83 @@ it('records what one pass does to each cycle, and with its stop lifted, without 
   expect(checkCycleReplay(altered, again).changed.map((change) => change.key)).toEqual([
     `cycle:${cycle.id}`,
   ]);
+});
+
+it('records each cycle’s own commands, ended turns, a reservation and the whole stored cycle', async () => {
+  const f = await createCycleFixture();
+  const cycle = await startCycle(f, f.worktreeId);
+  await stepDaemon(f.services);
+  const ofCycle = (replay: CycleReplay, id: string = cycle.id) =>
+    replay.cycles.find((record) => record.cycleId === id);
+
+  // A live design past its time limit is cancelled and stops; within it, it is left to run.
+  const live = await snapshot(f);
+  expect(ofCycle(await replayCycleSnapshot(live, new Date()))?.pass).toEqual({});
+  const late = ofCycle(await replayCycleSnapshot(live, new Date(Date.now() + 2 * 86_400_000)));
+  expect(late?.pass).toMatchObject({
+    calls: ['cancel-turn'],
+    actions: ['advance'],
+    after: { status: 'needs-attention', code: 'step-time-limit' },
+  });
+
+  // A finished turn whose session is still open is ended.
+  f.backend.latest.release(designDone);
+  await f.services.agentRunService.quiesce();
+  expect(ofCycle(await replayCycleSnapshot(await snapshot(f), new Date()))?.pass).toEqual({
+    calls: ['end-turn'],
+  });
+
+  // The finished design reserves the implementation: a run id the pass mints, which the
+  // record's digest reads as minted, so two replays agree.
+  await stepDaemon(f.services);
+  const designed = await snapshot(f);
+  const at = new Date();
+  const reserving = ofCycle(await replayCycleSnapshot(designed, at));
+  expect(reserving?.pass).toMatchObject({
+    actions: ['advance'],
+    after: { status: 'running', step: 'implement', reserved: true },
+  });
+  expect(reserving?.pass.after?.cycle).toMatch(/^sha256:/);
+  expect(ofCycle(await replayCycleSnapshot(designed, at))).toEqual(reserving);
+
+  // Two cycles in one pass: each record holds only its own commands. The finished
+  // implementation's checkpoint reaches Git.
+  await stepDaemon(f.services, 2);
+  const tree = f.backend.latest.request.cwd;
+  writeFileSync(join(tree, 'change.txt'), 'change');
+  git(['add', '.'], tree);
+  git(['commit', '--no-gpg-sign', '-m', 'change'], tree);
+  f.backend.latest.release(implementationDone);
+  await stepDaemon(f.services);
+  // A second cycle, later in the pass, on the second item: its predecessor gate refuses it, so
+  // it reaches no command, and one left over from the first cycle would show in its record.
+  const first = f.context.storage.execution.worktrees.find(f.workspaceId, f.worktreeId)!;
+  const second = asWorktreeId('00000000-0000-4000-8000-000000000004');
+  f.context.storage.execution.worktrees.insert({
+    ...first,
+    id: second,
+    workItemId: asWorkItemId('item-2'),
+    branchName: `${first.branchName}-second`,
+    path: `${first.path}-second`,
+  });
+  const other = asWorkCycleId('00000000-0000-4000-8000-000000000002');
+  f.context.storage.execution.cycles.insert({
+    ...storedCycle(f, cycle.id),
+    id: other,
+    workItemId: asWorkItemId('item-2'),
+    worktreeId: second,
+    version: 1,
+    step: 'design',
+    currentRunId: asAgentRunId('00000000-0000-4000-8000-000000000003'),
+  });
+  const two = await replayCycleSnapshot(await snapshot(f), new Date());
+  expect(ofCycle(two)?.pass).toMatchObject({
+    calls: ['git:inspectWorktreeChanges'],
+    after: { code: 'implementation-commit-failed' },
+  });
+  expect(ofCycle(two, other)?.pass).toMatchObject({
+    actions: ['advance'],
+    after: { code: 'controller-error' },
+  });
+  expect(ofCycle(two, other)?.pass).not.toHaveProperty('calls');
 });

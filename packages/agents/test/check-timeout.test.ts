@@ -150,6 +150,20 @@ describe('what a timed-out check was still running', () => {
     expect(timedOutDiagnostic(binaries, 2_000, false)).toContain('The end of its log:\n');
   });
 
+  it('reads a result line that names the test’s mode (re-check LOW-R1)', () => {
+    const watch = new OutputWatch();
+    watch.push('running 4 tests\n');
+    watch.push('test tests::hung has been running for over 60 seconds\n');
+    watch.push('test tests::slow_panics has been running for over 60 seconds\n');
+    // As the host's cargo printed it for a scratch crate (the re-check's capture).
+    watch.push('test tests::slow_panics - should panic ... ok\n');
+    watch.push('test src/lib.rs - Queue::push (line 3) has been running for over 60 seconds\n');
+    watch.push('test src/lib.rs - Queue::push (line 3) - compile ... ok\n');
+    watch.push('test tests::skipped ... ignored, needs a database\n');
+    expect(watch.stillRunning).toBe('test tests::hung has been running for over 60 seconds');
+    expect(watch.othersRunning).toEqual([]);
+  });
+
   it('names the other tests still running, newest first, bounded', () => {
     const watch = new OutputWatch();
     for (let i = 1; i <= 8; i++) watch.push(`test t${i} has been running for over 60 seconds\n`);
@@ -340,6 +354,17 @@ describe('a declared check with its own time limit', () => {
     expect(outcome.diagnostic).toContain('The end of its log:\n');
     expect(outcome.diagnostic).toContain('  step 40');
     expect(outcome.diagnostic).not.toContain('  step 1\n');
+  });
+
+  it('keeps a notice whole when the other stream writes between its halves (re-check NIT-R1)', async () => {
+    const f = fixture(
+      "#!/bin/sh\nprintf 'test hung has been runn'\nsleep 0.5\necho '     Running tests/flow.rs' >&2\nsleep 0.5\nprintf 'ing for over 60 seconds\\n'\nexec sleep 600\n",
+      1,
+    );
+    const outcome = await f.execute({ stepDeadline: Date.now() + 3_000 });
+    expect(outcome.diagnostic).toContain(
+      'Still running: test hung has been running for over 60 seconds',
+    );
   });
 
   it('says when its step’s deadline passed before it could run', async () => {

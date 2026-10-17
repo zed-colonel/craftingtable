@@ -782,17 +782,37 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
     expect(
       files({ path, messages: 5, headSha: 'a'.repeat(40), uncommitted: { paths, total: 12 } }),
     ).toContain(
-      `Where it stopped is in \`${path}\`: its last 5 assistant messages; its head commit was \`${'a'.repeat(12)}\`, and it left 12 uncommitted files: \`src/f0.rs\`, \`src/f1.rs\`, \`src/f2.rs\`, \`src/f3.rs\`, \`src/f4.rs\`, \`src/f5.rs\`, \`src/f6.rs\`, \`src/f7.rs\`, \`src/f8.rs\`, \`src/f9.rs\` (untracked), and 2 more. Read it and check the worktree before redoing its work.`,
+      `The previous run ended without completing a turn, so its final-message file holds only its summary. Where it stopped is in \`${path}\`: its last 5 assistant messages; the worktree as this run starts: head commit \`${'a'.repeat(12)}\`, and 12 uncommitted files: \`src/f0.rs\`, \`src/f1.rs\`, \`src/f2.rs\`, \`src/f3.rs\`, \`src/f4.rs\`, \`src/f5.rs\`, \`src/f6.rs\`, \`src/f7.rs\`, \`src/f8.rs\`, \`src/f9.rs\` (untracked), and 2 more. Read it and check the worktree before redoing its work.`,
     );
     expect(
-      files({ path, messages: 1, headSha: 'b'.repeat(40), uncommitted: { paths: [], total: 0 } }),
+      files({
+        path,
+        messages: 1,
+        headSha: 'b'.repeat(40),
+        uncommitted: { paths: [], total: 0 },
+        merging: true,
+      }),
     ).toContain(
-      `its last assistant message; its head commit was \`${'b'.repeat(12)}\`, with nothing uncommitted.`,
+      `its last assistant message; the worktree as this run starts: head commit \`${'b'.repeat(12)}\`, with nothing uncommitted, with a merge in progress.`,
     );
     const unreadable = files({ path, messages: 0, unreadable: 'fatal: not a git\nrepository `x`' });
     expect(unreadable).toContain(
       'it recorded no assistant message; the worktree could not be read (fatal: not a git?repository ?x?).',
     );
+    expect(
+      files({ path, messages: 2, headSha: 'c'.repeat(40), unreadable: 'output exceeds 16 MiB' }),
+    ).toContain(
+      `its last 2 assistant messages; the worktree as this run starts: head commit \`${'c'.repeat(12)}\`; its uncommitted files could not be read (output exceeds 16 MiB).`,
+    );
+    const long = `deep/${'d'.repeat(400)}.rs`;
+    const cut = files({
+      path,
+      messages: 1,
+      headSha: 'e'.repeat(40),
+      uncommitted: { paths: [{ path: long, untracked: false }], total: 1 },
+    });
+    expect(cut).toContain(`\`${long.slice(0, 300)}…\``);
+    expect(cut).not.toContain(long);
     expect(files()).not.toContain('ended without completing a turn');
   });
 });

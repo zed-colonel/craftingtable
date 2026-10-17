@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import type { AgentRunRole } from '@craftingtable/domain';
-import { type CutOffRecord, type HandoffFiles, oneLine } from './run-handoff.js';
+import { type CutOffRecord, type HandoffFiles, oneLine, shownPath } from './run-handoff.js';
 
 /**
  * The run a brief continues from, as the brief carries it (ADR-024, amended by R-G6): the
@@ -226,26 +226,30 @@ export function parentSections(
 }
 
 /**
- * Where a parent that ended with no completed turn stopped (R-C17 part 2): its record, head
- * commit and the first of its uncommitted files, so the next run starts from them.
+ * Where a parent that ended with no completed turn stopped (R-C17 part 2): its record, and the
+ * worktree as this run starts from it, so the next run begins from them.
  */
 function cutOffParagraph(record: CutOffRecord, at: (path: string) => string): string {
   const uncommitted = record.uncommitted;
+  const head = record.headSha && `head commit \`${record.headSha.slice(0, 12)}\``;
+  const files = !uncommitted?.total
+    ? 'with nothing uncommitted'
+    : `and ${uncommitted.total} uncommitted ${uncommitted.total === 1 ? 'file' : 'files'}: ${uncommitted.paths
+        .map(({ path, untracked }) => `\`${shownPath(path)}\`${untracked ? ' (untracked)' : ''}`)
+        .join(
+          ', ',
+        )}${uncommitted.total > uncommitted.paths.length ? `, and ${uncommitted.total - uncommitted.paths.length} more` : ''}`;
   const worktree =
-    record.unreadable !== undefined
-      ? `the worktree could not be read (${oneLine(record.unreadable)})`
-      : !uncommitted?.total
-        ? `its head commit was \`${record.headSha?.slice(0, 12)}\`, with nothing uncommitted`
-        : `its head commit was \`${record.headSha?.slice(0, 12)}\`, and it left ${uncommitted.total} uncommitted ${uncommitted.total === 1 ? 'file' : 'files'}: ${uncommitted.paths
-            .map(({ path, untracked }) => `\`${oneLine(path)}\`${untracked ? ' (untracked)' : ''}`)
-            .join(
-              ', ',
-            )}${uncommitted.total > uncommitted.paths.length ? `, and ${uncommitted.total - uncommitted.paths.length} more` : ''}`;
+    record.unreadable === undefined
+      ? `the worktree as this run starts: ${head}, ${files}${record.merging ? ', with a merge in progress' : ''}`
+      : head
+        ? `the worktree as this run starts: ${head}; its uncommitted files could not be read (${oneLine(record.unreadable)})`
+        : `the worktree could not be read (${oneLine(record.unreadable)})`;
   const messages =
     record.messages === 0
       ? 'it recorded no assistant message'
       : `its last ${record.messages === 1 ? 'assistant message' : `${record.messages} assistant messages`}`;
-  return `The previous run ended without completing a turn, so it left no final message. Where it stopped is in \`${at(record.path)}\`: ${messages}; ${worktree}. Read it and check the worktree before redoing its work.`;
+  return `The previous run ended without completing a turn, so its final-message file holds only its summary. Where it stopped is in \`${at(record.path)}\`: ${messages}; ${worktree}. Read it and check the worktree before redoing its work.`;
 }
 
 /** The handoff in the files to read: where the lineage is; how to read it is in its manifest. */

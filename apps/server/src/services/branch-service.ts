@@ -34,6 +34,7 @@ import {
   TypedRefusalError,
 } from './errors.js';
 import { retiredVersionIds } from './retired-versions.js';
+import type { StoppedWorktree } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -630,16 +631,21 @@ export class BranchService {
   }
 
   /**
-   * A worktree's head commit and what differs from it, tracked and untracked: where a run that
-   * ended with no completed turn left it, for the next run's handoff (R-C17 part 2).
+   * A worktree's head commit and what differs from it, tracked and untracked, for the handoff of
+   * a run that ended with no completed turn (R-C17 part 2). The head is read on its own, so a
+   * listing Git cannot give (a vast untracked directory) still leaves the head.
    */
-  async uncommitted(worktree: Worktree): Promise<{
-    readonly headSha: string;
-    readonly changed: readonly string[];
-    readonly untracked: readonly string[];
-  }> {
-    const state = value(await this.requireGit().inspectWorktreeChanges(worktree.path));
-    return { headSha: state.headSha, changed: state.paths, untracked: state.untracked };
+  async uncommitted(worktree: Worktree): Promise<StoppedWorktree> {
+    const git = this.requireGit();
+    const headSha = value(await git.inspectRepository(worktree.path)).headSha;
+    const state = await git.inspectWorktreeChanges(worktree.path);
+    if (!state.ok) return { headSha, unreadable: state.failure.message };
+    return {
+      headSha: state.value.headSha,
+      changed: state.value.paths,
+      untracked: state.value.untracked,
+      ...(state.value.conflicted ? { merging: true } : {}),
+    };
   }
 
   async captureReview(worktree: Worktree): Promise<ReviewBranchContext> {

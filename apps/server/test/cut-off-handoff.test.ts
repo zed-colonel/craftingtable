@@ -2,7 +2,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
 import { asAgentRunId } from '@craftingtable/domain';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BranchService } from '../src/services/branch-service.js';
 import { CUT_OFF_BOUNDS, cutOffRecord } from '../src/services/run-handoff.js';
 import {
   cleanupExecutionFixtures,
@@ -23,7 +24,10 @@ import {
  * messages, bounded, its head commit and the worktree's uncommitted files, beside the warning.
  */
 
-afterEach(cleanupExecutionFixtures);
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await cleanupExecutionFixtures();
+});
 
 const runDirectory = (request: AgentLaunchRequest) => {
   const root = request.additionalDirectories?.[0];
@@ -152,8 +156,13 @@ it("hands a resumed step the cut-off run's last messages, head commit and uncomm
     () => storage.execution.runs.find(state.workspaceId, secondRun)?.status === 'cancelled',
     'the resumed run cancelled',
   );
+  // Git failing as the worktree is read does not stop the launch; the record says why.
+  const read = vi
+    .spyOn(state.context.services.executionService.branches, 'uncommitted')
+    .mockRejectedValue(new Error('git exploded'));
   await controlCycle(state, currentCycle(state, cycle), 'resume');
   await waitFor(() => backend.launches.length === 4, 'the second resume');
+  expect(read).toHaveBeenCalledTimes(1);
   const third = join(runDirectory(backend.launches[3]!), 'handoff');
   const lineage = JSON.parse(readFileSync(join(third, 'manifest.json'), 'utf8'));
   expect(lineage.sources.map((source: { runId: string }) => source.runId).slice(0, 2)).toEqual([
@@ -169,8 +178,11 @@ it("hands a resumed step the cut-off run's last messages, head commit and uncomm
   const latest = readFileSync(join(third, '0000-cut-off.md'), 'utf8');
   expect(latest).toContain('Second attempt 2: bisecting the slow test.');
   expect(latest).not.toContain('Progress 7');
+  expect(latest).toContain('The worktree could not be read: git exploded');
   const thirdBrief = readFileSync(join(runDirectory(backend.launches[3]!), 'brief.md'), 'utf8');
-  expect(thirdBrief).toContain('`handoff/0000-cut-off.md`: its last 2 assistant messages');
+  expect(thirdBrief).toContain(
+    '`handoff/0000-cut-off.md`: its last 2 assistant messages; the worktree could not be read (git exploded).',
+  );
 });
 
 describe('the cut-off record (R-C17 part 2)', () => {
@@ -224,6 +236,32 @@ describe('the cut-off record (R-C17 part 2)', () => {
     });
   });
 
+  it('fences each message, notes a merge in progress, keeps the head when only the files are unreadable', () => {
+    const { text, summary } = cutOffRecord(
+      run,
+      [message(5, 'Tried:\n```rust\nunfinished fence\n\n## Not a heading of the record')],
+      1,
+      { headSha: 'f'.repeat(40), changed: ['src/conflict.rs'], untracked: [], merging: true },
+    );
+    expect(text).toContain(
+      '````text\nTried:\n```rust\nunfinished fence\n\n## Not a heading of the record\n````',
+    );
+    expect(text).toContain('A merge is in progress.');
+    expect(summary.merging).toBe(true);
+    const partial = cutOffRecord(run, [], 0, {
+      headSha: 'a'.repeat(40),
+      unreadable: 'output exceeds 16 MiB',
+    });
+    expect(partial.text).toContain(
+      `Head commit: ${'a'.repeat(40)}\n\nIts uncommitted files could not be read: output exceeds 16 MiB`,
+    );
+    expect(partial.summary).toEqual({
+      messages: 0,
+      headSha: 'a'.repeat(40),
+      unreadable: 'output exceeds 16 MiB',
+    });
+  });
+
   it('records why the worktree could not be read, on one line', () => {
     const { text, summary } = cutOffRecord(run, [message(3, 'Working.')], 4, {
       unreadable: 'fatal:\nnot a `git` repository',
@@ -231,5 +269,54 @@ describe('the cut-off record (R-C17 part 2)', () => {
     expect(text).toContain('The worktree could not be read: fatal:?not a ?git? repository');
     expect(text).toContain('The last 1 of its 4 assistant messages');
     expect(summary).toEqual({ messages: 1, unreadable: 'fatal:\nnot a `git` repository' });
+  });
+});
+
+describe("reading where a run's worktree stands (R-C17 part 2 review L-2)", () => {
+  const head = 'a'.repeat(40);
+  const reader = (changes: unknown) =>
+    new BranchService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {
+        inspectRepository: async () => ({
+          ok: true,
+          value: { topLevel: '/w', headSha: head, branch: 'b', clean: false },
+        }),
+        inspectWorktreeChanges: async () => changes,
+      } as never,
+      {} as never,
+      () => new Date(),
+    );
+
+  it('keeps the head when Git cannot list the uncommitted files', async () => {
+    const failed = { ok: false, failure: { kind: 'git-failed', message: 'output exceeds 16 MiB' } };
+    expect(await reader(failed).uncommitted({ path: '/w' } as never)).toEqual({
+      headSha: head,
+      unreadable: 'output exceeds 16 MiB',
+    });
+  });
+
+  it('says when a merge is in progress', async () => {
+    const listed = {
+      ok: true,
+      value: {
+        clean: false,
+        trackedClean: false,
+        headSha: head,
+        branch: 'b',
+        paths: ['src/conflict.rs'],
+        untracked: ['notes.txt'],
+        fingerprint: 'f',
+        conflicted: true,
+      },
+    };
+    expect(await reader(listed).uncommitted({ path: '/w' } as never)).toEqual({
+      headSha: head,
+      changed: ['src/conflict.rs'],
+      untracked: ['notes.txt'],
+      merging: true,
+    });
   });
 });

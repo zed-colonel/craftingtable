@@ -59,8 +59,10 @@ const LINE_KEPT_CHARS = 8 * 1024;
  * only choose what a diagnostic quotes; nothing is decided on them.
  */
 const STILL_RUNNING = /\btest (.+?) has been running for over 60 seconds/;
-// A doc-test's name has spaces: `src/lib.rs - queue::Queue::push (line 12)`.
-const TEST_RESULT = /\btest (.+?) \.\.\. (?:ok|FAILED|ignored)\b/;
+// A doc-test's name has spaces: `src/lib.rs - queue::Queue::push (line 12)`; a result line may add
+// the test's mode after its name (`test tests::slow - should panic ... ok`).
+const TEST_RESULT =
+  /\btest (.+?)(?: - (?:should panic|compile fail|compile))? \.\.\. (?:ok|FAILED|ignored)\b/;
 const RUN_START = /^running \d+ tests?$/;
 /** The most tests a watch tracks as still running at once. */
 const RUNNING_KEPT = 64;

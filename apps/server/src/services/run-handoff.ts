@@ -8,7 +8,7 @@ import type {
   RunHandoffSource,
   WorkCycle,
 } from '@craftingtable/domain';
-import { stagedFollowUpIds } from '@craftingtable/domain';
+import { fitsUtf8Bytes, stagedFollowUpIds, truncateUtf8Bytes } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { ExecutionRequestError } from './errors.js';
 import { assessReviewReport } from './review-report.js';
@@ -204,23 +204,29 @@ export function latestReviewReport(
 export const HANDOFF_READING =
   'Paths here are relative to this manifest. Reports with status complete are structurally validated reviewer assertions; reconcile unstructured or invalid reports against the conversation, and ask the operator about unresolved ambiguity. Earlier findings may be corrected or withdrawn later: do not treat every historical statement as a current finding, and preserve finding IDs across review rounds. The findings file, when there is one, is derived from valid reports at the delivered event cursors; an omitted closed finding keeps its last reviewer disposition.';
 
-/** Where a run's worktree stood when its handoff was written, or why it could not be read. */
+/**
+ * Where a run's worktree stood when its handoff was written: its head commit and uncommitted
+ * files (and whether a merge was in progress), or why they could not be read, with the head when
+ * that alone could be.
+ */
 export type StoppedWorktree =
   | {
       readonly headSha: string;
       readonly changed: readonly string[];
       readonly untracked: readonly string[];
+      readonly merging?: boolean;
     }
-  | { readonly unreadable: string };
+  | { readonly headSha?: string; readonly unreadable: string };
 
 /** How much of a cut-off run its handoff carries (R-C17 part 2). */
 export const CUT_OFF_BOUNDS = {
   /** Its last assistant messages, each cut to a size. */
   messages: 5,
   messageBytes: 4 * 1024,
-  /** The uncommitted files the record lists, and the few the brief names. */
+  /** The uncommitted files the record lists, and the few the brief names, each cut to a length. */
   paths: 200,
   briefPaths: 10,
+  pathChars: 300,
 } as const;
 
 /**
@@ -237,6 +243,8 @@ export interface CutOffRecord {
     readonly total: number;
   };
   readonly unreadable?: string;
+  /** A merge was in progress in the worktree. */
+  readonly merging?: boolean;
 }
 
 export interface HandoffFiles {
@@ -257,15 +265,19 @@ export function oneLine(text: string): string {
   return text.replace(/[\u0000-\u001f\u007f`]/g, '?');
 }
 
-function utf8Prefix(text: string, bytes: number): { text: string; cut: boolean } {
-  if (Buffer.byteLength(text) <= bytes) return { text, cut: false };
-  return {
-    text: Buffer.from(text)
-      .subarray(0, bytes)
-      .toString('utf8')
-      .replace(/\uFFFD$/, ''),
-    cut: true,
-  };
+/** A repository path as one line, cut to a length (R-C17 part 2). */
+export function shownPath(path: string): string {
+  const line = oneLine(path);
+  return line.length > CUT_OFF_BOUNDS.pathChars
+    ? `${line.slice(0, CUT_OFF_BOUNDS.pathChars)}…`
+    : line;
+}
+
+/** A message inside a fence longer than any backtick run it holds, so it opens no section. */
+function fencedMessage(text: string): string {
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((run) => run[0].length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}text\n${text}\n${fence}`;
 }
 
 /**
@@ -285,24 +297,35 @@ export function cutOffRecord(
   const lines = [
     `# Where run ${run.id} stopped`,
     '',
-    `The ${run.role} run ended (${run.status}) without completing a turn, so it left no final message. This is what it left, as this handoff was written.`,
+    `The ${run.role} run ended (${run.status}) without completing a turn, so it left no final message. Below: the worktree as this handoff was written, which the next run starts from (it can hold changes made after the run stopped, by the operator or CraftingTable), and the run's last assistant messages.`,
     '',
-    '## Head commit and uncommitted files',
+    '## The worktree as this handoff was written',
     '',
   ];
   let summary: Omit<CutOffRecord, 'path'> = { messages: messages.length };
-  if (worktree === undefined || 'unreadable' in worktree) {
-    const why = worktree?.unreadable ?? 'it was not read';
-    lines.push(`The worktree could not be read: ${oneLine(why)}`);
-    summary = { ...summary, unreadable: why };
+  const state = worktree ?? { unreadable: 'it was not read' };
+  if ('unreadable' in state) {
+    if (state.headSha)
+      lines.push(
+        `Head commit: ${state.headSha}`,
+        '',
+        `Its uncommitted files could not be read: ${oneLine(state.unreadable)}`,
+      );
+    else lines.push(`The worktree could not be read: ${oneLine(state.unreadable)}`);
+    summary = {
+      ...summary,
+      ...(state.headSha ? { headSha: state.headSha } : {}),
+      unreadable: state.unreadable,
+    };
   } else {
     const paths = [
-      ...worktree.changed.map((path) => ({ path, untracked: false })),
-      ...worktree.untracked.map((path) => ({ path, untracked: true })),
+      ...state.changed.map((path) => ({ path, untracked: false })),
+      ...state.untracked.map((path) => ({ path, untracked: true })),
     ];
     const shown = ({ path, untracked }: (typeof paths)[number]) =>
-      `${oneLine(path)}${untracked ? ' (untracked)' : ''}`;
-    lines.push(`Head commit: ${worktree.headSha}`, '');
+      `${shownPath(path)}${untracked ? ' (untracked)' : ''}`;
+    lines.push(`Head commit: ${state.headSha}`, '');
+    if (state.merging) lines.push('A merge is in progress.', '');
     if (!paths.length) lines.push('Nothing uncommitted: the worktree matched its head commit.');
     else {
       lines.push(
@@ -316,8 +339,9 @@ export function cutOffRecord(
     }
     summary = {
       ...summary,
-      headSha: worktree.headSha,
+      headSha: state.headSha,
       uncommitted: { paths: paths.slice(0, CUT_OFF_BOUNDS.briefPaths), total: paths.length },
+      ...(state.merging ? { merging: true } : {}),
     };
   }
   lines.push(
@@ -325,17 +349,19 @@ export function cutOffRecord(
     '## Its last assistant messages',
     '',
     messages.length
-      ? `The last ${messages.length} of its ${total} assistant ${total === 1 ? 'message' : 'messages'}, oldest first; its conversation file has every message whole.`
+      ? `The last ${messages.length} of its ${total} assistant ${total === 1 ? 'message' : 'messages'}, oldest first, each in a fence; its conversation file has every message whole.`
       : 'It recorded no assistant message.',
   );
   for (const message of messages) {
-    const shown = utf8Prefix(message.text, CUT_OFF_BOUNDS.messageBytes);
+    const cut = !fitsUtf8Bytes(message.text, CUT_OFF_BOUNDS.messageBytes);
     lines.push(
       '',
       `### Event ${message.sequence} (${message.occurredAt})`,
       '',
-      shown.text,
-      ...(shown.cut ? ['', '[cut here; the conversation file has the rest]'] : []),
+      fencedMessage(
+        cut ? truncateUtf8Bytes(message.text, CUT_OFF_BOUNDS.messageBytes, '') : message.text,
+      ),
+      ...(cut ? ['', '[cut here; the conversation file has the rest]'] : []),
     );
   }
   return { text: `${lines.join('\n')}\n`, summary };

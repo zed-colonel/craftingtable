@@ -534,7 +534,9 @@ it('native resource approval is scoped, revocable and never admits Kata or devel
   const { nativeHostDigest } = await import('@craftingtable/agents');
   const { phaseResources } = await import('../src/services/phase-resources.js');
   const { resolveScope } = await import('../src/services/execution-scope.js');
-  const { currentScopeReceipt } = await import('../src/services/runtime-evidence-policy.js');
+  const { currentScopeReceipt, receiptStaleness } = await import(
+    '../src/services/runtime-evidence-policy.js'
+  );
   const f = await slicedFixture((source) => ({
     ...source,
     slices: source.slices.map((s, i) => ({
@@ -700,6 +702,18 @@ it('native resource approval is scoped, revocable and never admits Kata or devel
         reviewRunId: runId,
       } as import('@craftingtable/domain').ScopeReceipt;
       expect(currentScopeReceipt(tx, ws, parentReceipt)).toBe(true);
+      expect(receiptStaleness(tx, ws, parentReceipt)).toEqual([]);
+      // Typed (R-C10's follow-up, decision 4): a native approval it no longer ran under, which
+      // a fresh review alone does not answer.
+      runSpy.mockReturnValueOnce({
+        runId,
+        workspaceId: ws,
+        runtimeId: runtime.id,
+        manifestPath: '/unused',
+        manifestDigest,
+        nativeApprovalId: asNativeVerificationApprovalId(randomUUID()),
+      });
+      expect(receiptStaleness(tx, ws, parentReceipt)).toEqual(['native-approval']);
       runSpy.mockReturnValueOnce({
         runId,
         workspaceId: ws,

@@ -204,6 +204,17 @@ export interface Roadmap {
     readonly grantedByUserId: UserId;
     readonly grantedAt: string;
   };
+  /**
+   * Standing, revocable authority for the scheduler to re-verify an entry whose evidence went
+   * stale for reasons the operator caused and a fresh review answers (R-C10's follow-up, decision
+   * 4): in place, after approvals settle, once per stale receipt. Off until the operator turns it
+   * on; the queued review names the grantor as its requester.
+   */
+  readonly reverificationGrant?: {
+    readonly enabled: boolean;
+    readonly grantedByUserId: UserId;
+    readonly grantedAt: string;
+  };
   /** Separate, explicit execution delegation. Changing it never changes the accepted plan. */
   readonly scopeRecovery?: {
     readonly enabled: boolean;

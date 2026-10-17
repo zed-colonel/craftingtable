@@ -23,6 +23,7 @@ import {
   saveRoadmapCapacitySchema,
   saveRoadmapRequestSchema,
   decisionPreparationGrantRequestSchema,
+  reverificationGrantRequestSchema,
   scopeRecoveryPolicyRequestSchema,
 } from '@craftingtable/contracts';
 import type { FastifyInstance } from 'fastify';
@@ -369,6 +370,29 @@ export function registerRoadmapRoutes(
       return noStore(reply).send(
         roadmapViewSchema.parse(
           roadmaps.configureDecisionPreparation(context, workspaceId, roadmapId, request.body),
+        ),
+      );
+    },
+  );
+  app.post<{
+    Body: BodyOf<typeof reverificationGrantRequestSchema>;
+  }>(
+    '/api/workspaces/:workspaceId/roadmaps/:roadmapId/reverification',
+    {
+      config: {
+        access: 'editor',
+        params: ROADMAP,
+        tag: 'config',
+        body: reverificationGrantRequestSchema,
+        invalidBody: 'Invalid re-verification grant',
+      },
+    },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const { workspaceId, roadmapId } = paramsOf(request, ROADMAP);
+      return noStore(reply).send(
+        roadmapViewSchema.parse(
+          roadmaps.configureReverification(context, workspaceId, roadmapId, request.body),
         ),
       );
     },

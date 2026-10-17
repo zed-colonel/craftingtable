@@ -350,7 +350,7 @@ it('grants standing decision preparation while paused, and audits it (R-C3b)', a
   expect(storedRoadmap(f.state).decisionPreparationGrant?.enabled).toBe(false);
 });
 
-it('an applied planning amendment revokes the standing preparation grant (R-C3b)', async () => {
+it('an applied planning amendment revokes the standing preparation and re-verification grants (R-C3b, R-C10)', async () => {
   const f = await supervisedMapFixture(true);
   const ws = f.state.workspaceId;
   await adoptSupervisedMap(f);
@@ -358,6 +358,14 @@ it('an applied planning amendment revokes the standing preparation grant (R-C3b)
   expect(
     (await grant({ f, saved, ws }, { enabled: true, minutes: 10, maxConcurrent: 1 })).statusCode,
   ).toBe(200);
+  // R-C10's follow-up, decision 4: the re-verification grant is a standing grant like it.
+  const reverification = await f.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${ws}/roadmaps/${saved.id}/reverification`,
+    headers: mutationHeaders(f.state),
+    payload: { expectedVersion: storedRoadmap(f.state).version, enabled: true },
+  });
+  expect(reverification.statusCode, reverification.body).toBe(200);
   const amend = (action: string, payload: Record<string, unknown>) =>
     f.state.context.app.inject({
       method: 'POST',
@@ -387,6 +395,7 @@ it('an applied planning amendment revokes the standing preparation grant (R-C3b)
   });
   expect(applied.statusCode, applied.body).toBe(200);
   expect(storedRoadmap(f.state).decisionPreparationGrant?.enabled).toBe(false);
+  expect(storedRoadmap(f.state).reverificationGrant?.enabled).toBe(false);
 });
 
 const prepared = (fixture: Fixture) =>

@@ -253,7 +253,11 @@ into `main`, `master`, the repository default, a finalization destination or a p
 It reconciles completed attempts, manual merges included, before selection, and never preempts a
 running agent. Only a started attempt's own merge releases its successors (ADR-029, ADR-030,
 ADR-033). Automatic scope recovery rounds (R-C5) start from a pinned source review and stop when
-consecutive reports show they are not converging (`services/recovery-progress.ts`).
+consecutive reports show they are not converging (`services/recovery-progress.ts`). A stored hold
+or a sequential stop whose typed fact cleared is released by the scheduler, after the same gate the
+pass refused with and the operator Resume's own guards (`services/entry-holds.ts`); under a
+revocable roadmap grant it also re-verifies stale evidence itself, in place and after approvals
+settle (R-C10's follow-up).
 
 Capacity is layered: workstation pools for development and for verification/acceptance
 (`CRAFTINGTABLE_DEVELOPMENT_CAPACITY` / `CRAFTINGTABLE_VERIFICATION_CAPACITY`, overridden by the

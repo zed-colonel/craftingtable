@@ -28,6 +28,7 @@ import type {
   SaveRoadmapRequest,
   RoadmapEntryFields,
   DecisionPreparationGrantRequest,
+  ReverificationGrantRequest,
   ScopeRecoveryPolicyRequest,
   ScopeRepairRequest,
   CrossProjectView,
@@ -70,6 +71,7 @@ import {
   operatorOwnsAll,
   resumeRedirect,
   sameExecutionScope,
+  type UserId,
   type WorkCycle,
   type WorkspaceId,
   type Worktree,
@@ -103,6 +105,8 @@ import {
   bindingIssues,
   crossProjectState,
   effectiveMapLevel,
+  evidenceChangedAt,
+  evidenceStaleness,
   mapActivity,
   milestoneSatisfied,
 } from './cross-project-service.js';
@@ -140,6 +144,7 @@ import {
   cycleCarriesOn,
   gatePhase,
   holdCheck,
+  selfReverification,
   phaseGateClears,
   type ReleaseCheck,
   roadmapHeld,
@@ -1053,7 +1058,10 @@ export class RoadmapService {
   private readonly targetMovedRefusals = new Map<string, number>();
   /** Whoever granted standing preparation, while they may still prepare decisions. */
   private grantor(roadmap: Roadmap) {
-    const id = roadmap.decisionPreparationGrant?.grantedByUserId;
+    return this.activeEditor(roadmap, roadmap.decisionPreparationGrant?.grantedByUserId);
+  }
+  /** A user who is active and still an owner or editor of the roadmap's workspace. */
+  private activeEditor(roadmap: Roadmap, id: UserId | undefined) {
     const user = id && this.storage.users.findById(id);
     if (user?.status !== 'active') return undefined;
     const access = this.storage.workspaces.findAuthorized(user.id, roadmap.workspaceId);
@@ -1681,6 +1689,43 @@ export class RoadmapService {
       ),
     );
   }
+  /**
+   * The standing, revocable grant for the scheduler to re-verify stale evidence itself (R-C10's
+   * follow-up, decision 4), set as scope recovery's is: on a cross-project roadmap that is not
+   * running, with no amendment pending.
+   */
+  configureReverification(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: RoadmapId,
+    input: ReverificationGrantRequest,
+  ): RoadmapView {
+    this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
+    const roadmap = this.find(workspaceId, id);
+    if (this.controlling.has(id) || roadmap.version !== input.expectedVersion)
+      conflict('Roadmap changed; refresh before changing automatic re-verification.');
+    if (
+      !roadmap.definition.crossProject ||
+      !['draft', 'paused', 'needs-attention'].includes(roadmap.status)
+    )
+      conflict('Pause this cross-project roadmap before changing automatic re-verification.');
+    if (this.storage.amendments.pending(workspaceId, id))
+      conflict('Decide the pending amendment first.');
+    return this.view(
+      this.change(
+        roadmap,
+        {
+          reverificationGrant: {
+            enabled: input.enabled,
+            grantedByUserId: context.user.id,
+            grantedAt: this.now().toISOString(),
+          },
+        },
+        'configure-reverification',
+        context,
+      ),
+    );
+  }
   /** The standing grant to prepare shared decisions while the roadmap runs (R-C3b, ADR-065). */
   configureDecisionPreparation(
     context: AuthContext,
@@ -1914,6 +1959,10 @@ export class RoadmapService {
                         enabled: false,
                       },
                     }
+                  : {}),
+                // A standing grant, revoked with the others (R-C10's follow-up, decision 4).
+                ...(old.reverificationGrant
+                  ? { reverificationGrant: { ...old.reverificationGrant, enabled: false } }
                   : {}),
                 attempts: old.attempts.filter((a) => amendment.retainAttemptIds.includes(a.id)),
                 entryHolds: {},
@@ -3259,13 +3308,81 @@ export class RoadmapService {
     const current = this.find(roadmap.workspaceId, roadmap.id);
     if (current.version !== roadmap.version || current.status !== 'running') return;
     const { [entry.id]: _released, ...entryHolds } = current.entryHolds ?? {};
+    if (check.fact !== 'reverify')
+      return this.change(
+        current,
+        { entryHolds },
+        'release-hold',
+        undefined,
+        releaseRecord(entry.id, hold.attention, check),
+      );
+    // Stale evidence the scheduler re-verifies itself, in place, as Re-verify would (decision 4):
+    // the queued review names the grantor as its requester; the audit's system actor tells it
+    // apart from the operator's own Re-verify.
+    const queued = this.selfReverify(current, entry);
+    if (!queued) return;
     return this.change(
       current,
-      { entryHolds },
-      'release-hold',
+      {
+        entryHolds,
+        attempts: current.attempts.map((a) =>
+          a.id === queued.attempt.id
+            ? {
+                ...a,
+                reverification: {
+                  requestedAt: this.now().toISOString(),
+                  requestedByUserId: queued.requestedByUserId,
+                  sourceRunId: queued.sourceRunId,
+                },
+              }
+            : a,
+        ),
+      },
+      'reverify-entry',
       undefined,
       releaseRecord(entry.id, hold.attention, check),
     );
+  }
+
+  /** The in-place re-verification the scheduler makes itself, if decision 4's facts all hold. */
+  private selfReverify(roadmap: Roadmap, entry: RoadmapEntry) {
+    const scope = entry.executionScope;
+    const grant = roadmap.reverificationGrant;
+    if (!scope || !grant) return undefined;
+    const plan = this.reverification(roadmap, entry);
+    const inPlace = 'refused' in plan ? undefined : plan.inPlace ? plan : undefined;
+    const definition = inPlace && attemptDefinition(this.storage, roadmap, inPlace.attempt);
+    const { reasons, receipt } = evidenceStaleness(
+      this.storage,
+      roadmap.workspaceId,
+      scope,
+      entry.workItemId,
+    );
+    const verdict = selfReverification({
+      // The review names its grantor as requester, so they must still be able to request it,
+      // as a standing preparation's grantor must (R-C3b).
+      granted: grant.enabled && !!this.activeEditor(roadmap, grant.grantedByUserId),
+      inPlace: !!inPlace,
+      // The roadmap verifies the entry itself: a slice verification, or a parent acceptance
+      // under automatic acceptance.
+      automatic:
+        scope.kind === 'slice-verification' ||
+        (scope.kind === 'parent-acceptance' &&
+          definition?.crossProject?.parentAcceptance === 'automatic'),
+      reasons,
+      receiptRunId: receipt?.reviewRunId,
+      sourceRunId: inPlace?.sourceRunId,
+      reverifiedRunId: inPlace?.attempt.reverification?.sourceRunId,
+      changedAt: evidenceChangedAt(this.storage, roadmap.workspaceId, scope, entry.workItemId),
+      now: this.now(),
+    });
+    return verdict === 'reverifies' && inPlace
+      ? {
+          attempt: inPlace.attempt,
+          sourceRunId: inPlace.sourceRunId,
+          requestedByUserId: grant.grantedByUserId,
+        }
+      : undefined;
   }
 
   /**
@@ -3389,9 +3506,9 @@ export class RoadmapService {
           : undefined;
         return cycleCarriesOn(cycle?.status, this.complete(roadmap, entry));
       }
-      // The scheduler's own re-verification under the roadmap's grant is decision 4's.
+      // Stale evidence the scheduler re-verifies itself, under the roadmap's grant (decision 4).
       case 'reverify':
-        return false;
+        return this.selfReverify(roadmap, entry) !== undefined;
     }
   }
 
@@ -4986,6 +5103,9 @@ export class RoadmapService {
               preparationMinutes: roadmap.decisionPreparationGrant.minutes,
               preparationConcurrency: roadmap.decisionPreparationGrant.maxConcurrent,
             }
+          : {}),
+        ...(action === 'configure-reverification' && roadmap.reverificationGrant
+          ? { reverificationEnabled: roadmap.reverificationGrant.enabled }
           : {}),
         ...(action === 'configure-scope-recovery' && roadmap.scopeRecovery
           ? {

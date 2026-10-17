@@ -733,14 +733,36 @@ export function prerequisiteInputKey(input: PrerequisiteInput): string {
   }
 }
 
+/**
+ * Why a scope receipt no longer stands, by its own fields (R-C10's follow-up, decision 4): its
+ * binding was superseded or rebound, a newer repository policy was adopted, the approved
+ * decisions changed, the native approval it ran under is gone, or the dependency environment
+ * changed. None means the receipt is current.
+ */
+export type ReceiptStaleReason =
+  | 'binding'
+  | 'repository-policy'
+  | 'decisions'
+  | 'native-approval'
+  | 'dependency-environment';
+
+/** A receipt is current when it has no reason of its own to be stale. */
 export function currentScopeReceipt(
   tx: StorageRepositories,
   ws: WorkspaceId,
   p: import('@craftingtable/domain').ScopeReceipt,
 ): boolean {
+  return receiptStaleness(tx, ws, p).length === 0;
+}
+/** The receipt's own reasons to be stale, each asked once per read snapshot (R-D8). */
+export function receiptStaleness(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  p: import('@craftingtable/domain').ScopeReceipt,
+): readonly ReceiptStaleReason[] {
   // Within a read snapshot the answer depends only on the fields read below, so each receipt
   // is asked once however many blockers, prerequisites and acceptances consult it (R-D8).
-  return snapshotCalculation(tx, receiptCurrencyKey(ws, p), () => receiptCurrent(tx, ws, p));
+  return snapshotCalculation(tx, receiptCurrencyKey(ws, p), () => receiptReasons(tx, ws, p));
 }
 /** The memo key of `currentScopeReceipt`: every field of the receipt its answer reads (R-D8). */
 export function receiptCurrencyKey(
@@ -755,16 +777,17 @@ export function receiptCurrencyKey(
     p.reviewRunId,
   ]);
 }
-function receiptCurrent(
+function receiptReasons(
   tx: StorageRepositories,
   ws: WorkspaceId,
   p: import('@craftingtable/domain').ScopeReceipt,
-): boolean {
+): readonly ReceiptStaleReason[] {
+  const reasons: ReceiptStaleReason[] = [];
   if (
     tx.amendments.superseded(ws, p.scope.definitionId, p.scope.bindingRevision) ||
     tx.imports.bindings(ws, p.scope.definitionId)[0]?.revision !== p.scope.bindingRevision
   )
-    return false;
+    reasons.push('binding');
   const item = tx.planning.workItems.find(ws, p.workItemId);
   const policy = item && tx.execution.branchSettings.policy(ws, item.planVersionId);
   if (
@@ -772,17 +795,20 @@ function receiptCurrent(
     tx.execution.runs.find(ws, p.reviewRunId)?.reviewBranchContext?.repositoryPolicyVersion !==
       policy.version
   )
-    return false;
+    reasons.push('repository-policy');
   const run = tx.runtimeEvidence.run(ws, p.reviewRunId);
-  if (run?.architectureDecisionDigest !== architectureDecisionDigest(tx, ws, p.scope)) return false;
+  if (run?.architectureDecisionDigest !== architectureDecisionDigest(tx, ws, p.scope))
+    reasons.push('decisions');
   const runtime = activeRuntime(tx, ws, p.scope.definitionId, p.scope.bindingRevision);
-  if (!runtime) return true;
+  if (!runtime) return reasons;
   const d = tx.imports.definition(ws, p.scope.definitionId);
   if (d && needsNativeEvidence(d, p.scope)) {
     const approval = nativeApproval(tx, ws, p.scope);
-    if (!approval || run?.nativeApprovalId !== approval.id) return false;
+    if (!approval || run?.nativeApprovalId !== approval.id) reasons.push('native-approval');
   }
-  return scopeRuntimeChanges(tx, ws, p.scope, run?.runtimeId, runtime).length === 0;
+  if (scopeRuntimeChanges(tx, ws, p.scope, run?.runtimeId, runtime).length)
+    reasons.push('dependency-environment');
+  return reasons;
 }
 
 /** Completion in another adopted scope is history, not acceptance of these requirements. */

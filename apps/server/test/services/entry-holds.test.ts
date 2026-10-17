@@ -11,6 +11,7 @@ import {
   holdOrigin,
   holdRelease,
   phaseGateClears,
+  selfReverification,
   roadmapHeld,
   stopCheck,
 } from '../../src/services/entry-holds.js';
@@ -119,6 +120,66 @@ describe('the cycle a stored cycle-needs-attention stop waits on (increment 4 re
     for (const status of ['needs-attention', 'paused', 'stopped', 'completed'] as const)
       expect(cycleCarriesOn(status, false)).toBe(false);
     expect(cycleCarriesOn(undefined, false)).toBe(false);
+  });
+});
+
+describe('selfReverification (increment 5, decision 4)', () => {
+  const now = new Date('2026-10-16T12:00:00.000Z');
+  const reverifies = {
+    granted: true,
+    inPlace: true,
+    automatic: true,
+    reasons: ['repository-policy'],
+    receiptRunId: 'run-1',
+    sourceRunId: 'run-1',
+    changedAt: '2026-10-16T11:50:00.000Z',
+    now,
+  };
+  it('re-verifies only when every condition holds', () => {
+    expect(selfReverification(reverifies)).toBe('reverifies');
+    expect(selfReverification({ ...reverifies, reasons: ['decisions', 'repository-policy'] })).toBe(
+      'reverifies',
+    );
+    expect(selfReverification({ ...reverifies, changedAt: undefined })).toBe('reverifies');
+  });
+  it('names the first condition that fails', () => {
+    expect(selfReverification({ ...reverifies, granted: false })).toBe('not-granted');
+    expect(selfReverification({ ...reverifies, inPlace: false })).toBe('not-in-place');
+    expect(selfReverification({ ...reverifies, automatic: false })).toBe('not-automatic');
+    expect(selfReverification({ ...reverifies, reasons: [] })).toBe('no-reason');
+    // Any reason a fresh review does not answer, or the operator did not cause, keeps the hold.
+    for (const reason of [
+      'binding',
+      'native-approval',
+      'dependency-environment',
+      'no-receipt',
+      'merged-again',
+      'parent-incomplete',
+    ])
+      expect(selfReverification({ ...reverifies, reasons: ['decisions', reason] })).toBe(
+        'reason-not-answered',
+      );
+    // Approvals settle for ten minutes: 9:59 is not enough, 10:00 is.
+    expect(selfReverification({ ...reverifies, changedAt: '2026-10-16T11:50:01.000Z' })).toBe(
+      'settling',
+    );
+    expect(selfReverification({ ...reverifies, changedAt: '2026-10-16T11:50:00.000Z' })).toBe(
+      'reverifies',
+    );
+    // Once per stale review run: one is already queued for it, or the stale receipt is not its own.
+    expect(selfReverification({ ...reverifies, reverifiedRunId: 'run-1' })).toBe(
+      'already-reverified',
+    );
+    expect(selfReverification({ ...reverifies, reverifiedRunId: 'run-0' })).toBe('reverifies');
+    expect(selfReverification({ ...reverifies, receiptRunId: 'run-0' })).toBe('already-reverified');
+    expect(selfReverification({ ...reverifies, receiptRunId: undefined })).toBe(
+      'already-reverified',
+    );
+  });
+  it('leaves a roadmap’s own stop for stale evidence to the operator', () => {
+    expect(
+      stopCheck(roadmapAttention('evidence-not-current', { entryId: 'review' as never })),
+    ).toBeUndefined();
   });
 });
 

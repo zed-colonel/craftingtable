@@ -22,7 +22,7 @@ decision boundary test reads each `decision` route from it.
   parse, given once step-up and the body are settled: 404 with its message. An id that parses
   but names nothing is its service's to answer.
 
-**137 routes:** 64 GET, 73 POST; 64 read, 29 decision, 19 control, 25 config. 126 take path parameters, 95 beyond the workspace's.
+**138 routes:** 64 GET, 74 POST; 64 read, 29 decision, 19 control, 26 config. 127 take path parameters, 96 beyond the workspace's.
 
 | Method | Path (under `/api/`) | Access | Tag | Step-up | Body | Parameters | Refused |
 |---|---|---|---|---|---|---|---|
@@ -128,6 +128,7 @@ decision boundary test reads each `decision` route from it.
 | GET | `workspaces/:workspaceId/roadmaps/:roadmapId/graph/:revision` | member | read |  |  | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema`, `revision` `roadmapRevisionParamSchema` | 404 Roadmap not found |
 | GET | `workspaces/:workspaceId/roadmaps/:roadmapId/history` | member | read |  |  | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Resource not found |
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/prepare-decision` | editor | decision |  | `prepareRoadmapDecisionSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |
+| POST | `workspaces/:workspaceId/roadmaps/:roadmapId/reverification` | editor | config |  | `reverificationGrantRequestSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Resource not found |
 | POST | `workspaces/:workspaceId/roadmaps/:roadmapId/scope-recovery` | editor | config |  | `scopeRecoveryPolicyRequestSchema` | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Resource not found |
 | GET | `workspaces/:workspaceId/roadmaps/:roadmapId/status` | member | read |  |  | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |
 | GET | `workspaces/:workspaceId/roadmaps/:roadmapId/view` | member | read |  |  | `workspaceId` `workspaceIdSchema`, `roadmapId` `roadmapIdSchema` | 404 Roadmap not found |

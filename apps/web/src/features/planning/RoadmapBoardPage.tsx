@@ -46,6 +46,7 @@ import { ATTENTION_CODE_LABELS } from '../../lib/attention-labels.js';
 import { RoadmapStatusList } from './RoadmapStatusList.js';
 import { RoadmapWindDown } from './RoadmapWindDown.js';
 import { RuntimeEvidencePanel } from './RuntimeEvidencePanel.js';
+import { ReverificationGrantPanel } from './ReverificationGrantPanel.js';
 import { ScopeRecoveryPanel } from './ScopeRecoveryPanel.js';
 import { Link, useNavigation } from '../../lib/navigation.js';
 import type { BoardView, Route, RoadmapTab } from '../../lib/route.js';
@@ -698,6 +699,12 @@ export function RoadmapPage({
           canMutate={canMutate}
           onChange={apply}
           onOpenWorkItem={onOpenWorkItem}
+        />
+        <ReverificationGrantPanel
+          roadmap={roadmap}
+          csrfToken={csrfToken}
+          canMutate={canMutate}
+          onChange={apply}
         />
       </SetupStepPart>
       <CrossProjectPanel

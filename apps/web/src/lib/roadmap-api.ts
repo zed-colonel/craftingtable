@@ -13,6 +13,7 @@ import {
   roadmapAgentSettingsSchema,
   roadmapGraphSchema,
   type saveRoadmapRequestSchema,
+  type ReverificationGrantRequest,
   type ScopeRecoveryPolicyRequest,
   roadmapDefinitionSchema,
   roadmapPageSchema,
@@ -41,6 +42,17 @@ export const configureScopeRecovery = (
 ) =>
   request(
     `${base(roadmap.workspaceId)}/${roadmap.id}/scope-recovery`,
+    roadmapViewSchema,
+    mutation(csrfToken, input),
+  );
+/** The standing grant to re-verify stale evidence automatically (R-C10's follow-up, decision 4). */
+export const configureReverification = (
+  roadmap: Roadmap,
+  input: ReverificationGrantRequest,
+  csrfToken: string,
+) =>
+  request(
+    `${base(roadmap.workspaceId)}/${roadmap.id}/reverification`,
     roadmapViewSchema,
     mutation(csrfToken, input),
   );

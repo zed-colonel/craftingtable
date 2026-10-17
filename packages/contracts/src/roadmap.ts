@@ -165,6 +165,12 @@ export const scopeRecoveryPolicyRequestSchema = z.strictObject({
   maxRoundsPerParent: z.number().int().min(1).max(20),
 });
 export type ScopeRecoveryPolicyRequest = z.infer<typeof scopeRecoveryPolicyRequestSchema>;
+/** The standing grant to re-verify stale evidence (R-C10's follow-up, decision 4). */
+export const reverificationGrantRequestSchema = z.strictObject({
+  expectedVersion: z.number().int().positive(),
+  enabled: z.boolean(),
+});
+export type ReverificationGrantRequest = z.infer<typeof reverificationGrantRequestSchema>;
 /** The standing decision preparation grant (R-C3b, ADR-065). */
 export const decisionPreparationGrantRequestSchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
@@ -288,6 +294,10 @@ export const roadmapSchema = z.strictObject({
     )
     .optional(),
   decisionPreparationGrant: decisionPreparationGrantRequestSchema
+    .omit({ expectedVersion: true })
+    .extend({ grantedByUserId: userIdSchema, grantedAt: z.iso.datetime() })
+    .optional(),
+  reverificationGrant: reverificationGrantRequestSchema
     .omit({ expectedVersion: true })
     .extend({ grantedByUserId: userIdSchema, grantedAt: z.iso.datetime() })
     .optional(),

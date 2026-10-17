@@ -17,6 +17,8 @@ import {
   type CrossProjectConfiguration,
   type ConcurrencyRequirement,
   type WorkspaceId,
+  type ExecutionScope,
+  type WorkItemId,
   type ConcurrencyDefinition,
   type MapActivity,
   type MapActivitySettings,
@@ -44,6 +46,8 @@ import {
   activeRuntime,
   currentScopeReceipt,
   parentAccepted,
+  type ReceiptStaleReason,
+  receiptStaleness,
 } from './runtime-evidence-policy.js';
 import { scopePhaseBlockers } from './execution-scope.js';
 function conflict(m: string): never {
@@ -130,6 +134,79 @@ function milestoneMet(
       )
   );
 }
+/**
+ * Why a review entry's evidence is not current, typed (R-C10's follow-up, decision 4), read as
+ * `milestoneMet` reads it: the latest receipt's own reasons (`receiptStaleness`), and the
+ * milestone's, no receipt at all, the slice merged again since the receipt, or the parent item not
+ * completed. Empty when the milestone is met. `receipt` is the receipt the reasons are for.
+ */
+export function evidenceStaleness(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  scope: ExecutionScope,
+  workItemId: WorkItemId,
+): {
+  readonly reasons: readonly EvidenceStaleReason[];
+  readonly receipt?: import('@craftingtable/domain').ScopeReceipt;
+} {
+  if (scope.kind === 'slice') return { reasons: [] };
+  const d = tx.imports.definition(ws, scope.definitionId);
+  if (!d) return { reasons: ['binding'] };
+  const requirement: ConcurrencyRequirement =
+    scope.kind === 'parent-acceptance'
+      ? { kind: 'work_item', id: scope.sourceId, state: 'accepted' }
+      : { kind: 'slice', id: scope.sourceId, state: 'verified' };
+  if (milestoneMet(tx, ws, d, scope.bindingRevision, requirement)) return { reasons: [] };
+  // The receipts `milestoneMet` reads: the slice's own, or the parent acceptance's.
+  const own: ExecutionScope =
+    scope.kind === 'parent-acceptance' ? scope : { ...scope, kind: 'slice' };
+  const latest = tx.scopeReceipts
+    .list(ws, workItemId)
+    .filter((p) => sameExecutionScope(p.scope, own))
+    .toSorted((a, b) => a.recordedAt.localeCompare(b.recordedAt))
+    .at(-1);
+  const reasons: EvidenceStaleReason[] = [];
+  if (scope.kind === 'parent-acceptance') {
+    if (tx.planning.workItems.find(ws, workItemId)?.status !== 'completed')
+      reasons.push('parent-incomplete');
+  } else if (
+    latest &&
+    integratedSlice(tx, ws, workItemId, { ...scope, kind: 'slice' })?.mergeSha !==
+      latest.integrationSha
+  )
+    reasons.push('merged-again');
+  if (!latest) return { reasons: [...reasons, 'no-receipt'] };
+  return { reasons: [...reasons, ...receiptStaleness(tx, ws, latest)], receipt: latest };
+}
+/** Why a review entry's evidence is not current (`evidenceStaleness`). */
+export type EvidenceStaleReason =
+  | ReceiptStaleReason
+  | 'no-receipt'
+  | 'merged-again'
+  | 'parent-incomplete';
+
+/**
+ * When the evidence of a scope last changed by the operator's hand: the latest acceptance of an
+ * approved decision it reads, or the adoption of its plan's repository policy (decision 4's
+ * settle window reads it).
+ */
+export function evidenceChangedAt(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  scope: ExecutionScope,
+  workItemId: WorkItemId,
+): string | undefined {
+  const decided = new Set(scopeArchitectureDecisions(tx, ws, scope).map((s) => s.id));
+  const times = tx.runtimeEvidence
+    .decisions(ws)
+    .filter((a) => a.outcome === 'accepted' && decided.has(a.submissionId))
+    .map((a) => a.decidedAt);
+  const item = tx.planning.workItems.find(ws, workItemId);
+  const policy = item && tx.execution.branchSettings.policy(ws, item.planVersionId);
+  if (policy) times.push(policy.adoptedAt);
+  return times.toSorted().at(-1);
+}
+
 export function crossProjectState(
   tx: StorageRepositories,
   ws: WorkspaceId,

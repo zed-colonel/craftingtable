@@ -186,12 +186,74 @@ export function stopCheck(attention: RoadmapAttention | undefined): ReleaseCheck
   const release = holdRelease({ kind: 'stop', code: attention.code, cause: refs.cause });
   if (!('fact' in release)) return undefined;
   if (release.fact === 'cycle' && refs.cycleId === undefined) return undefined;
+  // A sequential roadmap holds no review entry (decision 3's finding), so a stop for stale
+  // evidence has no re-verification to queue: resuming it would only stop again. The operator's.
+  if (release.fact === 'reverify') return undefined;
   return {
     fact: release.fact,
     entryId: refs.entryId,
     asRound: false,
     ...(refs.cycleId ? { cycleId: refs.cycleId } : {}),
   };
+}
+
+/** How long approvals must have settled before the scheduler re-verifies by itself (decision 4). */
+export const REVERIFY_SETTLE_MS = 10 * 60_000;
+/** The reasons a fresh review answers and the operator caused: approved decisions, a policy. */
+const ANSWERED_BY_REVIEW: ReadonlySet<string> = new Set(['decisions', 'repository-policy']);
+
+/** Whether the scheduler re-verifies a stale entry itself, or the first condition that fails. */
+export type SelfReverification =
+  | 'reverifies'
+  | 'not-granted'
+  | 'not-in-place'
+  | 'not-automatic'
+  | 'no-reason'
+  | 'reason-not-answered'
+  | 'settling'
+  | 'already-reverified';
+
+/**
+ * The scheduler's own Re-verify of an entry whose evidence went stale (R-C10's follow-up,
+ * decision 4), under the roadmap's grant. Every condition must hold: the grant is on; Re-verify
+ * takes its in-place route (the fresh route retires an attempt and stays the operator's); the
+ * roadmap verifies the entry automatically; the evidence has at least one typed reason it is not
+ * current, and each is one a fresh review answers and the operator caused (the approved
+ * decisions, the repository policy); approvals settled (none in the last ten minutes); and no
+ * re-verification was made for the stale review run (`reverification.sourceRunId`). A launched
+ * re-verification clears its record, so the stale receipt must also be that run's own: the next
+ * one then needs a new receipt, which only a passing review records, and a cycle that completed
+ * without recording one stays the operator's rather than being reviewed on every pass.
+ */
+export function selfReverification(facts: {
+  readonly granted: boolean;
+  readonly inPlace: boolean;
+  readonly automatic: boolean;
+  readonly reasons: readonly string[];
+  readonly receiptRunId?: string | undefined;
+  readonly sourceRunId?: string | undefined;
+  /** The review run a re-verification is already queued for. */
+  readonly reverifiedRunId?: string | undefined;
+  readonly changedAt?: string | undefined;
+  readonly now: Date;
+}): SelfReverification {
+  if (!facts.granted) return 'not-granted';
+  if (!facts.inPlace) return 'not-in-place';
+  if (!facts.automatic) return 'not-automatic';
+  if (!facts.reasons.length) return 'no-reason';
+  if (facts.reasons.some((reason) => !ANSWERED_BY_REVIEW.has(reason))) return 'reason-not-answered';
+  if (
+    facts.changedAt !== undefined &&
+    facts.now.getTime() - Date.parse(facts.changedAt) < REVERIFY_SETTLE_MS
+  )
+    return 'settling';
+  if (
+    facts.reverifiedRunId === facts.sourceRunId ||
+    facts.receiptRunId === undefined ||
+    facts.receiptRunId !== facts.sourceRunId
+  )
+    return 'already-reverified';
+  return 'reverifies';
 }
 
 /**

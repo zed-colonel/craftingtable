@@ -725,6 +725,17 @@ it('native resource approval is scoped, revocable and never admits Kata or devel
         nativeApprovalId: native.id,
       });
       expect(receiptStaleness(tx, ws, parentReceipt)).toEqual(['dependency-environment']);
+      // A run whose approved decisions differ from the scope's now (review LOW-1).
+      runSpy.mockReturnValueOnce({
+        runId,
+        workspaceId: ws,
+        runtimeId: runtime.id,
+        manifestPath: '/unused',
+        manifestDigest,
+        nativeApprovalId: native.id,
+        architectureDecisionDigest: 'a'.repeat(64),
+      });
+      expect(receiptStaleness(tx, ws, parentReceipt)).toEqual(['decisions']);
       expect(
         receiptStaleness(tx, ws, {
           ...parentReceipt,

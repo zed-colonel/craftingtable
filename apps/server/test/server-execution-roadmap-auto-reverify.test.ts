@@ -14,6 +14,7 @@ import {
   roadmapFixture,
   saveRoadmapRequest,
   mutationHeaders,
+  recordScope,
   roadmapControl,
   roadmapId,
   stepDaemons,
@@ -66,6 +67,17 @@ itNeedsCargo(
         .listForWorkspace(ws)
         .find((c) => c.executionScope?.kind === 'parent-acceptance');
     await waitFor(() => parent()?.status === 'awaiting-merge', 'manual parent review');
+    // The operator accepts the parent by hand (manual acceptance), and its cycle completes.
+    const parentEntry = storedRoadmap(state).definition.entries.find(
+      (e) => e.executionScope?.kind === 'parent-acceptance',
+    )!;
+    const parentTree = tx.execution.worktrees
+      .listForWorkItem(ws, state.workItemId)
+      .find((t) => t.executionScope?.kind === 'parent-acceptance')!;
+    expect((await recordScope(f, parentTree)).statusCode).toBe(200);
+    await stepDaemons();
+    await state.context.services.roadmapService.tick();
+    expect(parent()?.status).toBe('completed');
     const grant = (enabled: boolean) =>
       state.context.app.inject({
         method: 'POST',
@@ -214,8 +226,18 @@ itNeedsCargo(
     const rows = reverifyRows();
     expect(rows.map((row) => row.metadata.release)).toEqual(
       expect.arrayContaining([
-        { entryId: A.id, code: 'evidence-not-current', fact: 'reverify' },
-        { entryId: B.id, code: 'evidence-not-current', fact: 'reverify' },
+        {
+          entryId: A.id,
+          code: 'evidence-not-current',
+          fact: 'reverify',
+          requestedByUserId: state.userId,
+        },
+        {
+          entryId: B.id,
+          code: 'evidence-not-current',
+          fact: 'reverify',
+          requestedByUserId: state.userId,
+        },
       ]),
     );
     expect(rows.every((row) => row.actorKind === 'system')).toBe(true);
@@ -237,19 +259,24 @@ itNeedsCargo(
     expect(cycle(A.id)?.currentRunId).not.toBe(oldA.currentRunId);
     expect(evidenceStaleness(tx, ws, A.executionScope!, A.workItemId).reasons).toEqual([]);
 
-    // A queued in-place review that cannot run (its worktree was removed) is held; its in-place
-    // route is gone, so it stays the operator's even under the grant, while B, stale again with
-    // its route intact, is re-verified once more.
+    // The parent acceptance, asked once its verifications are current again, is stale too, with
+    // its in-place route; the operator accepts it by hand, so it stays theirs to re-verify.
+    settled();
+    await tick();
+    await tick();
+    expect(storedRoadmap(state).entryHolds?.[parentEntry.id]?.attention?.code).toBe(
+      'evidence-not-current',
+    );
+    expect((await progress(parentEntry.id)).reverifiable).toBe(true);
+    expect(
+      reverifyRows().map((row) => (row.metadata.release as { entryId: string }).entryId),
+    ).not.toContain(parentEntry.id);
+
+    // A stale entry whose worktree is gone has no in-place route, so it stays the operator's under
+    // the grant (Re-verify offers them the fresh route), while B, stale again with its route
+    // intact, is re-verified once more (review LOW-2).
     await roadmapControl(state, 'pause');
     expect((await adopt(1, 'Controller gates, revised.')).statusCode).toBe(200);
-    scheduler.now = () => new Date();
-    const queuedRequest = await state.context.app.inject({
-      method: 'POST',
-      url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/control`,
-      headers: mutationHeaders(state),
-      payload: { action: 'reverify', entryId: A.id, expectedVersion: storedRoadmap(state).version },
-    });
-    expect(queuedRequest.statusCode, queuedRequest.body).toBe(200);
     expect(
       (
         await state.context.app.inject({
@@ -261,27 +288,34 @@ itNeedsCargo(
       ).statusCode,
     ).toBe(200);
     const before = reverifyRows().length;
+    scheduler.now = () => new Date();
     await roadmapControl(state, 'resume');
-    await waitFor(
-      () => storedRoadmap(state).entryHolds?.[A.id]?.status === 'needs-attention',
-      'failed in-place review holds the item',
-    );
-    expect(attempt(A.id)?.reverification).toBeDefined();
+    await tick();
+    expect(storedRoadmap(state).entryHolds?.[A.id]?.attention?.code).toBe('evidence-not-current');
     settled();
     await tick();
-    expect(storedRoadmap(state).entryHolds?.[A.id]).toBeDefined();
+    expect(storedRoadmap(state).entryHolds?.[A.id]?.attention?.code).toBe('evidence-not-current');
+    expect((await progress(A.id)).reverifiable).toBe(true);
     expect(
       reverifyRows()
         .slice(before)
         .map((row) => row.metadata.release),
-    ).toEqual([{ entryId: B.id, code: 'evidence-not-current', fact: 'reverify' }]);
+    ).toEqual([
+      {
+        entryId: B.id,
+        code: 'evidence-not-current',
+        fact: 'reverify',
+        requestedByUserId: state.userId,
+      },
+    ]);
     for (let step = 0; (await progress(B.id)).status !== 'completed'; step++) {
       if (step > 300) throw new Error('Timed out waiting for B’s fresh verification.');
       await stepDaemons();
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
-    // Revoked, the grant re-verifies nothing more: B's stale evidence is held for the operator.
+    // Revoked, the grant starts no new re-verification: B's stale evidence, settled, is held for
+    // the operator.
     await roadmapControl(state, 'pause');
     const revoked = await grant(false);
     expect(revoked.statusCode, revoked.body).toBe(200);
@@ -290,6 +324,7 @@ itNeedsCargo(
     const revokedAt = reverifyRows().length;
     await roadmapControl(state, 'resume');
     await stepDaemons();
+    settled();
     await tick();
     expect(storedRoadmap(state).entryHolds?.[B.id]?.attention?.code).toBe('evidence-not-current');
     expect(reverifyRows().slice(revokedAt)).toEqual([]);

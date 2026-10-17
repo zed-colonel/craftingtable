@@ -173,6 +173,9 @@ export function holdCheck(entryId: string, hold: RoadmapEntryHold): ReleaseCheck
   const release = holdRelease(origin);
   if (!('fact' in release)) return undefined;
   const gated = hold.attention?.refs?.entryId ?? entryId;
+  // Stale evidence is re-verified on the entry that holds it, so a hold naming another entry
+  // stays the operator's: none is written so today (increment 5 review NIT-1).
+  if (release.fact === 'reverify' && gated !== entryId) return undefined;
   return { fact: release.fact, entryId: gated, asRound: gated !== entryId };
 }
 

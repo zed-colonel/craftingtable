@@ -200,6 +200,22 @@ describe('selfReverification (increment 5, decision 4)', () => {
       'already-reverified',
     );
   });
+  it('leaves a stale-evidence hold naming another entry to the operator (review NIT-1)', () => {
+    const hold = (entryId?: string) => ({
+      status: 'needs-attention' as const,
+      reason: 'Held.',
+      attention: roadmapAttention(
+        'evidence-not-current',
+        entryId ? { entryId: entryId as never } : undefined,
+      ),
+    });
+    expect(holdCheck('review', hold())).toEqual({
+      fact: 'reverify',
+      entryId: 'review',
+      asRound: false,
+    });
+    expect(holdCheck('review', hold('other'))).toBeUndefined();
+  });
   it('leaves a roadmap’s own stop for stale evidence to the operator', () => {
     expect(
       stopCheck(roadmapAttention('evidence-not-current', { entryId: 'review' as never })),

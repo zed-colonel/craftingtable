@@ -3340,7 +3340,11 @@ export class RoadmapService {
       },
       'reverify-entry',
       undefined,
-      releaseRecord(entry.id, hold.attention, check),
+      // The audit names the grantor the review is queued for (increment 5 review NIT-4).
+      {
+        ...releaseRecord(entry.id, hold.attention, check),
+        requestedByUserId: queued.requestedByUserId,
+      },
     );
   }
 

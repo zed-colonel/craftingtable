@@ -7,6 +7,16 @@ import {
 } from './brief-output.js';
 
 /**
+ * How an implement or remediate run treats slow and hanging tests (R-C17 part 3, found live
+ * 2026-10-16: an agent ran one hung test directly, without a timeout, for 42 minutes): one
+ * sentence each, for every language.
+ */
+export const HANGING_TEST_RULES = [
+  'When a test is slow or seems to hang, run it alone under a hard timeout to find out why before rerunning whole suites.',
+  'Put a timeout on every test command you run directly, so a hanging test cannot spend the step’s time.',
+] as const;
+
+/**
  * The implement role (R-G6, AGT-54), and the remediation and accepted-design runs it takes:
  * what the agent does and the one final message it returns, ending with `## Open questions`.
  */
@@ -16,11 +26,14 @@ export function implementInstructions(context: OutputContext): RoleInstructions 
       'You are the implementation agent for this work item. Implement it completely inside this worktree, with focused tests where behaviour is non-trivial, run the project’s quality checks, and commit your work on this branch with clear commit messages as you reach coherent increments. Do not push or switch branches; scratch files go in the temporary directory.',
       'After all verification, inspect git status including untracked files: commit intended source changes, and stage any intended new source file even if you cannot finish the commit, but never generated test output, scratch files, credentials or unrelated files.',
     ].join(' '),
-    rules: context.planFinalization
-      ? [
-          'Findings scope: address the open findings and report dispositions for this attempt’s work; closed findings stay in the recorded history, not repeated or re-resolved without new evidence.',
-        ]
-      : [],
+    rules: [
+      HANGING_TEST_RULES.join(' '),
+      ...(context.planFinalization
+        ? [
+            'Findings scope: address the open findings and report dispositions for this attempt’s work; closed findings stay in the recorded history, not repeated or re-resolved without new evidence.',
+          ]
+        : []),
+    ],
     finalMessage: [
       ...(context.remediation
         ? [

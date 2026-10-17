@@ -47,6 +47,36 @@ function briefInput(overrides: Partial<BriefInput> = {}): BriefInput {
   };
 }
 
+describe('composeBrief on slow and hanging tests (R-C17 part 3)', () => {
+  const alone =
+    'When a test is slow or seems to hang, run it alone under a hard timeout to find out why before rerunning whole suites.';
+  const bounded =
+    'Put a timeout on every test command you run directly, so a hanging test cannot spend the step’s time.';
+  const count = (brief: string, text: string) => brief.split(text).length - 1;
+
+  it('tells implement and remediate runs, once each', () => {
+    for (const brief of [
+      composeBrief(briefInput()),
+      composeBrief(briefInput({ parentRun: { role: 'review', finalMessage: 'Fix the queue.' } })),
+      composeBrief(briefInput({ parentRun: { role: 'design', finalMessage: 'A proposal.' } })),
+    ]) {
+      expect(count(brief, alone)).toBe(1);
+      expect(count(brief, bounded)).toBe(1);
+    }
+  });
+
+  it('leaves design, review and integration resolution briefs as they were', () => {
+    for (const brief of [
+      composeBrief(briefInput({ role: 'design' })),
+      composeBrief(briefInput({ role: 'review' })),
+      composeBrief(briefInput({ resolvingIntegration: true })),
+    ]) {
+      expect(brief).not.toContain(alone);
+      expect(brief).not.toContain(bounded);
+    }
+  });
+});
+
 describe('composeBrief design handoff', () => {
   it('asks a design run to end with its open questions', () => {
     const brief = composeBrief(briefInput({ role: 'design' }));

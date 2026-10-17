@@ -529,6 +529,7 @@ export class CheckRequestService {
     while (served.cargoSlots.has(slot)) slot++;
     served.cargoSlots.add(slot);
     try {
+      const stepDeadline = this.stepDeadline(context);
       const outcome = await executeCheck({
         tool: request.tool,
         // Named by the daemon, not by the request: two requests with one id never share it.
@@ -555,6 +556,7 @@ export class CheckRequestService {
         cargoHomeDirectory: join(this.config.checkLogRoot, context.runId, `cargo-home-${slot}`),
         hiddenRoots: checkHiddenRoots(this.config),
         ...(this.config.toolchains ? { unitLimits: this.config.toolchains.limits } : {}),
+        ...(stepDeadline === undefined ? {} : { stepDeadline }),
       });
       if (outcome.toolchain) this.toolchains?.record(outcome.toolchain);
       served.logBudget = Math.max(0, served.logBudget - outcome.logBytes);
@@ -571,6 +573,18 @@ export class CheckRequestService {
     } finally {
       served.cargoSlots.delete(slot);
     }
+  }
+
+  /**
+   * When the step that owns the run ends: the deadline of the cycle whose current run it is, read
+   * as the check starts, since a cycle's deadline can move. A run no cycle's step owns has none
+   * (R-C17 part 1).
+   */
+  private stepDeadline(context: CheckRunContext): number | undefined {
+    const run = this.storage.execution.runs.find(context.workspaceId, context.runId);
+    const cycle =
+      run && this.storage.execution.cycles.activeForWorktree(context.workspaceId, run.worktreeId);
+    return cycle?.currentRunId === context.runId ? Date.parse(cycle.runDeadlineAt) : undefined;
   }
 
   /** Records a finished check's receipt while its run is still live and unfrozen. */

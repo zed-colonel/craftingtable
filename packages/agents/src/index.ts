@@ -17,6 +17,7 @@ export {
   type CheckOutcome,
   type LocalCiConfig,
 } from './local-check.js';
+export { spoolLimitMs } from './check-timeout.js';
 export { agentEnvironment, allowlistedEnvironment } from './child-environment.js';
 export {
   CheckReply,

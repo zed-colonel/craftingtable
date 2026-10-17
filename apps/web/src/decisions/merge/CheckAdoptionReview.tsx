@@ -2,7 +2,7 @@ import type { CheckDefinitionDiagnosisView } from '@craftingtable/contracts';
 import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import { useEffect, useMemo, useState } from 'react';
 import { loadCheckDefinitions } from '../../lib/execution-api.js';
-import { shortSha } from '../../lib/execution-labels.js';
+import { checkTimeLimit, shortSha } from '../../lib/execution-labels.js';
 import { lineDiff } from '../../lib/line-diff.js';
 import {
   differsOnlyInWhitespace,
@@ -125,6 +125,8 @@ function CheckChange({
   adopted: Check | undefined;
   proposed: Check | undefined;
 }) {
+  // A time limit shows on both sides once either sets one, so a change to it alone shows.
+  const limited = adopted?.timeoutMinutes !== undefined || proposed?.timeoutMinutes !== undefined;
   const facts = (label: string, check: Check | undefined) =>
     check && (
       <>
@@ -137,6 +139,9 @@ function CheckChange({
           ) : (
             'none'
           )}
+          {limited
+            ? `; time limit: ${check.timeoutMinutes === undefined ? "the run's" : checkTimeLimit(check.timeoutMinutes)}`
+            : null}
         </dd>
       </>
     );

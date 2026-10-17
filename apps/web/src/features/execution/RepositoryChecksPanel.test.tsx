@@ -266,3 +266,22 @@ it('labels a receipt a run wrote itself as self-reported (review F4)', async () 
   const table = await screen.findByRole('table', { name: 'Recent check runs' });
   expect(table.textContent).toContain('Self-reported true');
 });
+
+it('shows a check’s own time limit beside its command (R-C17 part 1)', async () => {
+  respond([
+    {
+      repositoryId,
+      declarations: [
+        {
+          ...declaration(1),
+          checks: [{ ...checks[0], timeoutMinutes: 15 }, checks[1]],
+        },
+      ],
+    },
+  ]);
+  renderPanel();
+  const table = await screen.findByRole('table');
+  const rows = table.querySelectorAll('tbody tr');
+  expect(rows[0]?.textContent).toContain('Time limit: 15 minutes');
+  expect(rows[1]?.textContent).not.toContain('Time limit');
+});

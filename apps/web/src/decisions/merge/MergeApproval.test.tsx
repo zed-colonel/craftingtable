@@ -228,6 +228,30 @@ it('shows a changed check as it is adopted and as the merge adopts it, exactly (
   expect(change.textContent).toContain('none');
 });
 
+it('shows a check whose time limit alone changed, on both sides (R-C17 part 1)', async () => {
+  const argv = ['scripts/check.sh'];
+  respond({
+    ...diagnosis(),
+    merge: {
+      ...diagnosis().merge,
+      adoptedChecks: [{ id: 'tests', argv, definitionPaths: ['scripts/check.sh'] }],
+      proposedChecks: [
+        { id: 'tests', argv, definitionPaths: ['scripts/check.sh'], timeoutMinutes: 15 },
+      ],
+      checks: [{ id: 'tests', change: 'changed' }],
+      definitions: [],
+    },
+  });
+  renderPanel();
+  const review = await screen.findByRole('region', { name: 'Check definitions this merge adopts' });
+  const change = within(review).getByRole('group', { name: 'Check tests changed' });
+  const sides = [...change.querySelectorAll('dd')].map((dd) => dd.textContent);
+  expect(sides).toEqual([
+    expect.stringContaining("time limit: the run's"),
+    expect.stringContaining('time limit: 15 minutes'),
+  ]);
+});
+
 it('says when a definition is shown only in part (review F1)', async () => {
   const shortened = diagnosis([
     'scripts/check.sh is not short UTF-8 text, so it cannot be shown in full',

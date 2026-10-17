@@ -49,14 +49,22 @@ const argument = z
 const DEFINITION_PATHS_MAX = 50;
 
 /**
+ * A check's own time limit, in whole minutes (R-C17 part 1): at most a day, the longest a step
+ * may run; the daemon ends it at its step's deadline at the latest.
+ */
+const timeoutMinutesSchema = z.number().int().min(1).max(1440);
+
+/**
  * One check as a repository proposes it. Its program is a name on PATH or a repository path;
- * its definition files default to the program when that is a repository path.
+ * its definition files default to the program when that is a repository path. Without a time
+ * limit of its own, the run's applies.
  */
 const proposedCheckSchema = z
   .strictObject({
     id: checkIdSchema,
     argv: z.array(argument).min(1).max(64),
     definitionPaths: z.array(repositoryPathSchema).max(DEFINITION_PATHS_MAX).optional(),
+    timeoutMinutes: timeoutMinutesSchema.optional(),
   })
   .refine((check) => !check.argv[0]!.startsWith('-'), {
     message: 'A check starts with its program, not an option',
@@ -82,6 +90,7 @@ const declaredCheckSchema = equivalentSchema<DeclaredCheck>()(
     id: checkIdSchema,
     argv: z.array(argument).min(1).max(64),
     definitionPaths: z.array(repositoryPathSchema).max(DEFINITION_PATHS_MAX),
+    timeoutMinutes: timeoutMinutesSchema.optional(),
   }),
 );
 

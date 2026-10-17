@@ -747,6 +747,8 @@ export class RepositoryChecksService {
         id: c.id,
         argv: c.argv,
         definitionPaths: [...new Set([...own, ...(c.definitionPaths ?? [])])],
+        // Its own time limit (R-C17 part 1), adopted with it; changing it changes the check.
+        ...(c.timeoutMinutes === undefined ? {} : { timeoutMinutes: c.timeoutMinutes }),
       };
     });
     const issues: string[] = [];

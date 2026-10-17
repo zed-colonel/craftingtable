@@ -347,6 +347,13 @@ previous daemon left.
   adoption is held to it, and its merge needs a clean, successful daemon run of each check on the
   reviewed commit. A roadmap's cycle in a repository with no adoption stops as
   `repository-checks-undeclared`; other runs there merge on their review alone.
+- **Time limits** (R-C17). A check runs for at most 30 minutes, or its step's time limit if that
+  is shorter. A check in `checks.json` may set its own `"timeoutMinutes"` (a whole number from 1
+  to 1440): it then runs for at most that long, shorter or longer than 30 minutes, and ends at its
+  step's deadline at the latest. Changing it changes the checks file, so it is adopted like any
+  other change: on the Repositories page, or by the merge approval of the slice that makes it. A
+  check that times out says what was still running: the last "has been running for over 60
+  seconds" line Rust's test harness printed, or else the last lines of its log.
 - **Toolchains.** When `cargo` on the daemon's PATH is rustup's proxy (a link, hard link or copy of
   rustup), each check runs the checked commit's rustup-managed toolchain, with automatic installs
   off: install the toolchains a repository pins, or its checks fail saying so. A shim script in

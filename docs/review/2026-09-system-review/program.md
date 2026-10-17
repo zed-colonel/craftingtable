@@ -1219,7 +1219,7 @@ R-B7 part, `RuntimeEvidenceService`, after the scheduler half.
 
 **Operator decisions, 2026-10-17.** All six of R-B7's cycle-half decisions as recommended (option A
 each; recorded in [R-B7](register.md#r-b7)): the launch reservation with the one-time removal of today's
-orphan run directories (migration 0045), today's refusal order, the worktree guard naming its holder, one
+orphan run directories (migration 0045, now 0046: R-C17's part 1 took 0045), today's refusal order, the worktree guard naming its holder, one
 rule per validator with each site's refusal kept, `RuntimeEvidenceService` as R-B7's third part, and the
 non-null rule converted half by half. The order above now has R-C17's parts 1 to 3 before the cycle half
 and its part 4 after R-B4b, and R-B7's third part after its scheduler half. R-C10's wake is to be scoped

@@ -8,7 +8,7 @@ import type { WorkspaceId, WorktreeId } from '@craftingtable/domain';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { loadCheckDefinitions, loadRepositoryChecks } from '../../lib/execution-api.js';
 import { adoptChecks, previewChecks } from './checks-api.js';
-import { shortSha } from '../../lib/execution-labels.js';
+import { checkTimeLimit, shortSha } from '../../lib/execution-labels.js';
 import { lineDiff } from '../../lib/line-diff.js';
 import {
   differsOnlyInWhitespace,
@@ -243,7 +243,10 @@ function DefinitionText({ file, changed }: { file: PreviewFile; changed: boolean
   );
 }
 
-/** A declaration's checks: each command and the files that define it, exactly. */
+/**
+ * A declaration's checks: each command, its own time limit where it sets one, and the files that
+ * define it, exactly.
+ */
 export function ChecksTable({
   label,
   checks,
@@ -266,7 +269,12 @@ export function ChecksTable({
           {checks.map((check) => (
             <tr key={check.id}>
               <td className="mono">{check.id}</td>
-              <td className="mono exact-text">{visible(JSON.stringify(check.argv))}</td>
+              <td className="mono exact-text">
+                {visible(JSON.stringify(check.argv))}
+                {check.timeoutMinutes === undefined ? null : (
+                  <div className="hint">Time limit: {checkTimeLimit(check.timeoutMinutes)}</div>
+                )}
+              </td>
               <td className="mono">
                 {check.definitionPaths.length
                   ? visible(JSON.stringify(check.definitionPaths))

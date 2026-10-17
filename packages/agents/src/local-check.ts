@@ -31,6 +31,7 @@ import {
   CARGO_FILE_PATTERN,
   PYTHON_ENVIRONMENT_FILE_PATTERN,
 } from '@craftingtable/domain';
+import { checkTimeLimit, OutputWatch, timedOutDiagnostic } from './check-timeout.js';
 import type {
   CheckManifest,
   CheckOnlyManifest,
@@ -633,6 +634,10 @@ export function cleanupLocalCi(ci: LocalCiConfig, runId: string): void {
 interface SupervisedCheck {
   readonly code: number | null;
   readonly log: string;
+  /** Whether its time limit stopped it, rather than a cancel or an interrupt. */
+  readonly timedOut: boolean;
+  /** What it was still running, and the end of its output (R-C17 part 1). */
+  readonly watch: OutputWatch;
 }
 /**
  * Runs one check in its own process group, so a timeout or cancellation reaches everything it
@@ -676,6 +681,8 @@ function superviseCheck(
       }
     };
     let expired = false;
+    let timedOut = false;
+    const watch = new OutputWatch();
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     const stop = (graceMs = 5000) => {
       killTimer ??= setTimeout(() => signalGroup('SIGKILL'), graceMs);
@@ -683,7 +690,10 @@ function superviseCheck(
       signalGroup('SIGTERM');
       options.onStop?.();
     };
-    const timer = setTimeout(() => stop(), options.timeoutMs);
+    const timer = setTimeout(() => {
+      timedOut = !expired;
+      stop();
+    }, options.timeoutMs);
     // The agent supervisor escalates to SIGKILL after its own grace period;
     // escalate sooner so the detached group never outlives this launcher.
     const interrupted = () => stop(1000);
@@ -699,6 +709,7 @@ function superviseCheck(
     const collect = (data: Buffer) => {
       const text = data.toString();
       if (Buffer.byteLength(log) < 2 * 1024 * 1024) log += text;
+      watch.push(text);
       options.onOutput(text);
     };
     child.stdout.on('data', collect);
@@ -721,7 +732,7 @@ function superviseCheck(
     });
     child.once('close', (value) => {
       finish();
-      resolveResult({ code: expired ? null : value, log });
+      resolveResult({ code: expired ? null : value, log, timedOut, watch });
     });
   });
 }
@@ -1024,6 +1035,11 @@ export interface CheckExecution {
   readonly hiddenRoots?: readonly string[];
   /** The caps of every unit this check starts; `DEFAULT_CHECK_UNIT_LIMITS` without them. */
   readonly unitLimits?: CheckUnitLimits;
+  /**
+   * When the step of the cycle that owns the run ends (its `runDeadlineAt`), for a run a cycle's
+   * step owns: a declared check's own time limit ends there at the latest (R-C17 part 1).
+   */
+  readonly stepDeadline?: number;
   /**
    * uv's cache for Python checks' installs (R-G19): the daemon's own, `<data>/uv/checks`, shared
    * by checks and written by no agent. Without it, each check's install gets a cache of its own.
@@ -2388,6 +2404,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
   let pythonEnvironment: PythonEnvironment | undefined;
   let pythonDirectory: string | undefined;
   let ownsNativeUnit = false;
+  let timeoutMs = 0;
+  let stepLimited = false;
   const started = Date.now();
   try {
     if (hash(e.manifest) !== e.manifestDigest) throw new Error('Verification manifest changed.');
@@ -2408,7 +2426,19 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       if (!pinned) throw new Error(`This run's verification is check-only: it runs only ct-check.`);
       return pinned;
     };
-    const timeoutMs = m.checkTimeoutMs ?? 30 * 60000;
+    // A declared check's own limit, within what its step has left; any other, the run's.
+    const ownLimit =
+      e.tool === 'ct-check' && e.args[0] === '--declared' && e.args.length === 2
+        ? m.declaredChecks?.checks.find((c) => c.id === e.args[1])?.timeoutMinutes
+        : undefined;
+    const limit = checkTimeLimit({
+      ...(m.checkTimeoutMs === undefined ? {} : { manifestTimeoutMs: m.checkTimeoutMs }),
+      ...(ownLimit === undefined ? {} : { timeoutMinutes: ownLimit }),
+      ...(e.stepDeadline === undefined ? {} : { stepDeadline: e.stepDeadline }),
+      now: started,
+    });
+    timeoutMs = limit.timeoutMs;
+    stepLimited = limit.stepLimited;
     const limits = e.unitLimits ?? DEFAULT_CHECK_UNIT_LIMITS;
     const deadline = started + timeoutMs;
     let cwd = m.workspacePath;
@@ -2918,7 +2948,12 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     if (pinned) verifySources(pinned);
     success = code === 0;
     if (!success)
-      diagnostic = code === null ? 'Check interrupted or timed out.' : `Check exited ${code}.`;
+      diagnostic =
+        code !== null
+          ? `Check exited ${code}.`
+          : supervised.timedOut
+            ? timedOutDiagnostic(supervised.watch, timeoutMs, stepLimited)
+            : 'Check interrupted or timed out.';
   } catch (error) {
     diagnostic = error instanceof Error ? error.message : 'Check failed.';
   } finally {

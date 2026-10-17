@@ -77,6 +77,7 @@ import {
   resolveGitDirectories,
   worktreeGitDirectories,
   observeRustToolchain,
+  spoolLimitMs,
   type CheckOnlyManifest,
   type PinnedCargoManifest,
   type PythonToolchain,
@@ -2718,7 +2719,8 @@ export class RuntimeEvidenceService {
     const spool = {
       directory: join(directory, 'requests'),
       replies: replyDirectory ?? join(directory, 'replies'),
-      limitMs: (manifest.checkTimeoutMs ?? 30 * 60000) + 5 * 60000,
+      // Past the longest limit a check of the run may have, its own declared ones included.
+      limitMs: spoolLimitMs(manifest),
     };
     mkdirSync(spool.replies, { recursive: true, mode: 0o700 });
     const spoolDirectory = spool.directory;
@@ -2810,7 +2812,8 @@ export class RuntimeEvidenceService {
     const spool = {
       directory: join(directory, 'requests'),
       replies: replyDirectory ?? join(directory, 'replies'),
-      limitMs: (manifest.checkTimeoutMs ?? 30 * 60000) + 5 * 60000,
+      // Past the longest limit a check of the run may have, its own declared ones included.
+      limitMs: spoolLimitMs(manifest),
     };
     mkdirSync(spool.replies, { recursive: true, mode: 0o700 });
     const launch = prepareCheckManifest(directory, manifest, spool);

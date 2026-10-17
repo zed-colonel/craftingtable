@@ -522,3 +522,73 @@ it("refuses any check that does not name the commit's Python environment files a
   ]);
   expect((await preview()).issues).toEqual([]);
 });
+
+it('adopts a check’s own time limit, and a change to it alone is a definition change its merge adopts (R-C17 part 1)', async () => {
+  const f = await checksFixture();
+  const main = git(['rev-parse', 'main'], f.root).trim();
+  const first = await f.post('adopt', { ref: 'main', expectedCommit: main, rationale: 'Suite.' });
+  expect(first.statusCode, first.body).toBe(200);
+  expect(adopted(f.state, first).declarations[0]!.checks[0]).not.toHaveProperty('timeoutMinutes');
+
+  // A slice gives the suite a limit of its own, and changes nothing else.
+  git(['checkout', '-b', 'slice'], f.root);
+  writeFileSync(
+    join(f.root, CHECK_DECLARATION_PATH),
+    JSON.stringify({
+      version: 1,
+      checks: [
+        { id: 'tests', argv: ['scripts/check.sh'], timeoutMinutes: 15 },
+        { id: 'format', argv: ['cargo', 'fmt', '--check'] },
+      ],
+    }),
+  );
+  git(['commit', '-am', 'limit the suite'], f.root);
+  const slice = git(['rev-parse', 'slice'], f.root).trim();
+  git(['checkout', '-f', 'main'], f.root);
+  const previewed = await f.post('preview', { ref: 'slice' });
+  expect(previewed.statusCode, previewed.body).toBe(200);
+  expect(checkDeclarationPreviewSchema.parse(previewed.json())).toMatchObject({
+    checks: [
+      {
+        id: 'tests',
+        argv: ['scripts/check.sh'],
+        definitionPaths: ['scripts/check.sh'],
+        timeoutMinutes: 15,
+      },
+      { id: 'format', argv: ['cargo', 'fmt', '--check'], definitionPaths: [] },
+    ],
+    issues: [],
+  });
+
+  // Its merge would adopt the changed check, as for any change to the checks file.
+  const tree = { workspaceId: f.state.workspaceId, repositoryId: f.repository.id };
+  const review = { headSha: slice, targetBranch: 'main', targetSha: main };
+  const diagnosis = await f.state.context.services.repositoryChecksService.diagnose(tree, review);
+  expect(diagnosis?.sliceChanged).toEqual([CHECK_DECLARATION_PATH]);
+  expect(diagnosis?.merge).toMatchObject({
+    unchanged: false,
+    checks: [{ id: 'tests', change: 'changed' }],
+    issues: [],
+  });
+  expect(diagnosis?.merge?.proposal?.checks[0]?.timeoutMinutes).toBe(15);
+
+  // Adopted, the record carries it, and the slice has nothing left to adopt.
+  const second = await f.post('adopt', {
+    ref: 'slice',
+    expectedCommit: slice,
+    rationale: 'Limit.',
+  });
+  expect(second.statusCode, second.body).toBe(200);
+  expect(adopted(f.state, second).declarations[0]!.checks).toEqual([
+    {
+      id: 'tests',
+      argv: ['scripts/check.sh'],
+      definitionPaths: ['scripts/check.sh'],
+      timeoutMinutes: 15,
+    },
+    { id: 'format', argv: ['cargo', 'fmt', '--check'], definitionPaths: [] },
+  ]);
+  expect(
+    (await f.state.context.services.repositoryChecksService.diagnose(tree, review))?.merge,
+  ).toBeUndefined();
+});

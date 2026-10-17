@@ -25,6 +25,11 @@ export interface DeclaredCheck {
   readonly argv: readonly string[];
   /** Repository files whose contents define the check, such as its script. */
   readonly definitionPaths: readonly string[];
+  /**
+   * How long the daemon lets the check run, in minutes, ending at its step's deadline at the
+   * latest (R-C17 part 1); without it, the run's limit applies, as before.
+   */
+  readonly timeoutMinutes?: number;
 }
 
 export interface RepositoryCheckDeclaration {

@@ -110,6 +110,11 @@ export function formatCost(costUsd: number | undefined, billing?: AgentBillingSo
   return billing === 'subscription' ? `≈${amount} (est.)` : amount;
 }
 
+/** A declared check's own time limit, in words (R-C17 part 1). */
+export function checkTimeLimit(minutes: number): string {
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
 export function shortSha(sha: string): string {
   return sha.slice(0, 10);
 }

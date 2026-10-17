@@ -173,6 +173,14 @@ describe('what a timed-out check was still running', () => {
     );
   });
 
+  it('tracks at most 64 tests still running, dropping the oldest', () => {
+    const watch = new OutputWatch();
+    for (let i = 1; i <= 70; i++) watch.push(`test t${i} has been running for over 60 seconds\n`);
+    expect(watch.stillRunning).toBe('test t70 has been running for over 60 seconds');
+    expect(watch.othersRunning).toHaveLength(63);
+    expect(watch.othersRunning.at(-1)).toBe('t7');
+  });
+
   it('keeps each stream’s unfinished line apart (review NIT-1)', () => {
     const watch = new OutputWatch();
     watch.push('test hung has been runn', 'out');

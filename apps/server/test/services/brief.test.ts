@@ -790,10 +790,10 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
         messages: 1,
         headSha: 'b'.repeat(40),
         uncommitted: { paths: [], total: 0 },
-        merging: true,
+        conflicted: true,
       }),
     ).toContain(
-      `its last assistant message; the worktree as this run starts: head commit \`${'b'.repeat(12)}\`, with nothing uncommitted, with a merge in progress.`,
+      `its last assistant message; the worktree as this run starts: head commit \`${'b'.repeat(12)}\`, with nothing uncommitted; Git reports conflicts or an operation in progress.`,
     );
     const unreadable = files({ path, messages: 0, unreadable: 'fatal: not a git\nrepository `x`' });
     expect(unreadable).toContain(

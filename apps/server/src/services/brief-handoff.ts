@@ -241,7 +241,7 @@ function cutOffParagraph(record: CutOffRecord, at: (path: string) => string): st
         )}${uncommitted.total > uncommitted.paths.length ? `, and ${uncommitted.total - uncommitted.paths.length} more` : ''}`;
   const worktree =
     record.unreadable === undefined
-      ? `the worktree as this run starts: ${head}, ${files}${record.merging ? ', with a merge in progress' : ''}`
+      ? `the worktree as this run starts: ${head}, ${files}${record.conflicted ? '; Git reports conflicts or an operation in progress' : ''}`
       : head
         ? `the worktree as this run starts: ${head}; its uncommitted files could not be read (${oneLine(record.unreadable)})`
         : `the worktree could not be read (${oneLine(record.unreadable)})`;

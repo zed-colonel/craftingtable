@@ -644,7 +644,7 @@ export class BranchService {
       headSha: state.value.headSha,
       changed: state.value.paths,
       untracked: state.value.untracked,
-      ...(state.value.conflicted ? { merging: true } : {}),
+      ...(state.value.conflicted ? { conflicted: true } : {}),
     };
   }
 

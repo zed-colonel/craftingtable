@@ -8,7 +8,12 @@ import type {
   RunHandoffSource,
   WorkCycle,
 } from '@craftingtable/domain';
-import { fitsUtf8Bytes, stagedFollowUpIds, truncateUtf8Bytes } from '@craftingtable/domain';
+import {
+  fitsUtf8Bytes,
+  stagedFollowUpIds,
+  truncateUtf8Bytes,
+  truncateUtf16,
+} from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { ExecutionRequestError } from './errors.js';
 import { assessReviewReport } from './review-report.js';
@@ -206,15 +211,15 @@ export const HANDOFF_READING =
 
 /**
  * Where a run's worktree stood when its handoff was written: its head commit and uncommitted
- * files (and whether a merge was in progress), or why they could not be read, with the head when
- * that alone could be.
+ * files (and whether Git reports conflicts or an operation in progress), or why they could not be
+ * read, with the head when that alone could be.
  */
 export type StoppedWorktree =
   | {
       readonly headSha: string;
       readonly changed: readonly string[];
       readonly untracked: readonly string[];
-      readonly merging?: boolean;
+      readonly conflicted?: boolean;
     }
   | { readonly headSha?: string; readonly unreadable: string };
 
@@ -243,8 +248,8 @@ export interface CutOffRecord {
     readonly total: number;
   };
   readonly unreadable?: string;
-  /** A merge was in progress in the worktree. */
-  readonly merging?: boolean;
+  /** Git reported conflicts or an operation in progress (a merge, cherry-pick, revert or rebase). */
+  readonly conflicted?: boolean;
 }
 
 export interface HandoffFiles {
@@ -267,10 +272,8 @@ export function oneLine(text: string): string {
 
 /** A repository path as one line, cut to a length (R-C17 part 2). */
 export function shownPath(path: string): string {
-  const line = oneLine(path);
-  return line.length > CUT_OFF_BOUNDS.pathChars
-    ? `${line.slice(0, CUT_OFF_BOUNDS.pathChars)}…`
-    : line;
+  // Cut on a character, never inside a surrogate pair.
+  return truncateUtf16(oneLine(path), CUT_OFF_BOUNDS.pathChars + 1);
 }
 
 /** A message inside a fence longer than any backtick run it holds, so it opens no section. */
@@ -325,7 +328,11 @@ export function cutOffRecord(
     const shown = ({ path, untracked }: (typeof paths)[number]) =>
       `${shownPath(path)}${untracked ? ' (untracked)' : ''}`;
     lines.push(`Head commit: ${state.headSha}`, '');
-    if (state.merging) lines.push('A merge is in progress.', '');
+    if (state.conflicted)
+      lines.push(
+        'Git reports conflicts or an operation in progress (a merge, cherry-pick, revert or rebase).',
+        '',
+      );
     if (!paths.length) lines.push('Nothing uncommitted: the worktree matched its head commit.');
     else {
       lines.push(
@@ -341,7 +348,7 @@ export function cutOffRecord(
       ...summary,
       headSha: state.headSha,
       uncommitted: { paths: paths.slice(0, CUT_OFF_BOUNDS.briefPaths), total: paths.length },
-      ...(state.merging ? { merging: true } : {}),
+      ...(state.conflicted ? { conflicted: true } : {}),
     };
   }
   lines.push(

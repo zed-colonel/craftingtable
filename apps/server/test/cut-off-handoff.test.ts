@@ -198,7 +198,8 @@ describe('the cut-off record (R-C17 part 2)', () => {
   });
 
   it('cuts a long message on a character, says so, and keeps the rest of the record whole', () => {
-    const long = `${'é'.repeat(CUT_OFF_BOUNDS.messageBytes)}TAIL`;
+    // One ASCII byte first, so the 4 KiB cut falls inside a two-byte character.
+    const long = `x${'é'.repeat(CUT_OFF_BOUNDS.messageBytes)}TAIL`;
     const { text, summary } = cutOffRecord(run, [message(9, long)], 1, {
       headSha: 'c'.repeat(40),
       changed: [],
@@ -230,6 +231,23 @@ describe('the cut-off record (R-C17 part 2)', () => {
     expect(text).not.toContain('tmp/new-50.txt');
     expect(text).toContain('- and 50 more (git status in the worktree lists them)');
     expect(text).toContain('It recorded no assistant message.');
+    const long = `deep/${'d'.repeat(400)}\u{1F600}.rs`;
+    const cut = cutOffRecord(run, [], 0, {
+      headSha: 'd'.repeat(40),
+      changed: [long],
+      untracked: [],
+    });
+    expect(cut.text).toContain(`- ${long.slice(0, 300)}…`);
+    expect(cut.text).not.toContain(long);
+    // A path cut inside a surrogate pair keeps the pair whole or drops it.
+    const emoji = `${'e'.repeat(299)}\u{1F600}tail`;
+    const kept = cutOffRecord(run, [], 0, {
+      headSha: 'd'.repeat(40),
+      changed: [emoji],
+      untracked: [],
+    });
+    expect(kept.text).not.toContain('\uFFFD');
+    expect(kept.text).toContain(`- ${'e'.repeat(299)}…`);
     expect(summary.uncommitted).toEqual({
       paths: changed.slice(0, 10).map((path) => ({ path, untracked: false })),
       total: 250,
@@ -241,13 +259,15 @@ describe('the cut-off record (R-C17 part 2)', () => {
       run,
       [message(5, 'Tried:\n```rust\nunfinished fence\n\n## Not a heading of the record')],
       1,
-      { headSha: 'f'.repeat(40), changed: ['src/conflict.rs'], untracked: [], merging: true },
+      { headSha: 'f'.repeat(40), changed: ['src/conflict.rs'], untracked: [], conflicted: true },
     );
     expect(text).toContain(
       '````text\nTried:\n```rust\nunfinished fence\n\n## Not a heading of the record\n````',
     );
-    expect(text).toContain('A merge is in progress.');
-    expect(summary.merging).toBe(true);
+    expect(text).toContain(
+      'Git reports conflicts or an operation in progress (a merge, cherry-pick, revert or rebase).',
+    );
+    expect(summary.conflicted).toBe(true);
     const partial = cutOffRecord(run, [], 0, {
       headSha: 'a'.repeat(40),
       unreadable: 'output exceeds 16 MiB',
@@ -316,7 +336,7 @@ describe("reading where a run's worktree stands (R-C17 part 2 review L-2)", () =
       headSha: head,
       changed: ['src/conflict.rs'],
       untracked: ['notes.txt'],
-      merging: true,
+      conflicted: true,
     });
   });
 });

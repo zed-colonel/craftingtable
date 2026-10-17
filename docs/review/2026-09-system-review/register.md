@@ -47,6 +47,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C15](#r-c15) | P2 | S | done (2026-09-28) | A checkpoint review is given the decisions its checkpoint requires (added 2026-09-28) |
 | [R-C16](#r-c16) | P2 | M | open (design approved 2026-10-01) | Investigate: dispatch a read-only investigation from any question stop (added 2026-10-01) |
 | [R-C17](#r-c17) | P4 | M (four S parts) | partial (parts 1 to 3 built on `remediation/p4` 2026-10-17: d079639, 2188b13, 72a8d0a and their settlements; part 4 after R-B4b; see entry) | Step time limits: hung checks, cut-off handoffs and the operator's controls |
+| [R-C18](#r-c18) | P4 | S-M (two parts) | open (found live 2026-10-17; placement for the operator) | A second project's roadmap in the same workspace: the stop it forces and the item it strands |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -2771,6 +2772,28 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
     - *Round 2, over 7034b11* (`round2.json`, `round2.log`): the twelve again (one adapted to the rewritten cut) and 23 over the settlements' code (the unfinished-test tracking, the result line's mode, the per-stream lines and their wiring, the step-cut messages, the report layout, the head kept, the merge note, fences, path cuts). 32 caught, none by the kill alone, 3 survived: messages collected for older sources and a repeated notice moving a test to the newest (both equivalent: older sources' messages are discarded, and libtest prints one notice per test), and the 64-test tracking bound, which a row added with this record now pins (the mutant fails it: `round2-settle.log`).
   - *Final gate, at d0bd4a6, alone under the gate lock* (`~/.cache/ct-p4-tmp/rc17/final-check.log`, `final-replays.log`): `pnpm check` passes (format, lint, typecheck, build, 3,951 unit tests with 5 skipped, 23 end-to-end tests, the walkthrough rehearsal, the scope check) in 619 s at a load of about 8 to 10; `pnpm replays`: 43 of 73 comparisons at 0 changed, 30 differ only as expected, 0 failed (as before: no replay record changes).
   - *Deploy note.* Migration 0045 (the stored-vocabulary row for `timeoutMinutes`) makes schema 45: once deployed, the preflight refuses a rollback to a schema-44 release. Nothing changes for a repository until it opts in: to give a check its own time limit, add `"timeoutMinutes": <1 to 1440>` to that check in `.craftingtable/checks.json` and have it adopted (Repositories page, or the operator's approval of the merge of the slice that adds it, which shows the check as changed). The cut-off handoff and the brief guidance need nothing. Reload open pages after the deploy: a page still running the old bundle parses check declarations with the old strict contract, so it would refuse one carrying the new field once a repository adopts it.
+
+### R-C18
+
+**A second project's roadmap in the same workspace: the stop it forces and the item it strands** · Phase P4 · Effort S-M (two parts) · Status: open (found live 2026-10-17; recorded at the operator's request; placement for the operator)
+
+- **Found 2026-10-17.** To start ActionQueue's AQ-PERF-1 roadmap (25d2abb1), the operator had to stop WorldInterface's (9b64a571) at 22:45:06:
+  - Both projects are in the Exo-Stack workspace, and only one roadmap per workspace may be running, paused or needing attention (`assertRunnable`, `roadmap-service.ts:2148-2153`; the unique index `roadmap_workspace_delegation`, `packages/storage/migrations/0012-roadmaps.sql:12-13`).
+  - Pausing is not enough, and a stopped roadmap has ended: "A stopped or completed roadmap is history; create a new one for what remains" (`docs/roadmaps.md`).
+  - No time was lost this once: WorldInterface was waiting on ActionQueue 0.3.0 anyway (WIP-07's F-024 and F-025).
+- **What the stop left.** WIP-01 to WIP-06 are complete with their merge commits (`work_item_completions`; the items' own `status` column still reads `admitted`). WIP-07's cycle 7678bb96 stopped at its review step, and its worktree `ct/wip-07-b9921f71` is active and clean at 727d906.
+- **Where the documented path dead-ends.**
+  - A new roadmap that lists WIP-07 blocks it: "This item already has an unmerged worktree. Finish or remove it before delegating another attempt." (`roadmap-service.ts:4516`, `capacity-blocked`). Only a roadmap's own attempt is exempt (`tree.id !== attempt?.worktreeId`).
+  - So the item that was in flight is finished by hand, or its work is thrown away. By hand means a manual cycle on that worktree, which a stopped cycle does not refuse (`work-cycle-service.ts:1284-1297`). Throwing it away means removing the worktree.
+  - Neither the stop's preview nor the new roadmap says so.
+- **Related.**
+  - R-B11's decision 7 left lifting the one-roadmap rule to P4's kernel work. ADR-048 keeps "one delegated roadmap per workspace" as the authority boundary.
+  - A workspace of its own, as Slopinator has, avoids the rule. But repositories are registered per workspace, and ActionQueue is WorldInterface's upstream in Exo-Stack.
+- **Change, in two parts, for the operator to decide:**
+  1. *A new roadmap continues a stopped roadmap's unmerged work.* Take an entry whose item has an active worktree left by an ended roadmap's attempt. The new roadmap takes that worktree as the entry's attempt, and the next step runs there under the new roadmap's settings and the item's handoff lineage. Until that is built, the stop's preview names the items it leaves to finish by hand, and so does the new roadmap's blocker.
+  2. *More than one delegated roadmap per workspace,* when they share no repository. Roadmaps sharing a checkout are already held to the tightest per-repository limit among them. This relaxes the unique index and ADR-048's boundary, so it belongs with R-B5's per-aggregate mutex. The alternative keeps the rule: a stop stays the price, and part 1 makes it cheap.
+- **Done when:** after a roadmap is stopped with an item in flight, a new roadmap continues that item on its worktree with no manual step. If part 2 is chosen, a second project's roadmap starts without stopping the first.
+- **Priority.** Part 1 is S and removes the dead end. Part 2 is M and goes with R-B5. Neither blocks today: WorldInterface's next roadmap waits for ActionQueue 0.3.0, and WIP-07 can be finished by hand on its worktree.
 
 ### R-D1
 

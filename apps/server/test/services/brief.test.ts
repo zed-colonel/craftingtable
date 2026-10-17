@@ -51,24 +51,27 @@ describe('composeBrief on slow and hanging tests (R-C17 part 3)', () => {
   const alone =
     'When a test is slow or seems to hang, run it alone under a hard timeout to find out why before rerunning whole suites.';
   const bounded =
-    'Put a timeout on every test command you run directly, so a hanging test cannot spend the step’s time.';
+    'Put a timeout well above its usual run time on every test command you run directly, so a hanging test cannot use up the step’s time.';
   const count = (brief: string, text: string) => brief.split(text).length - 1;
 
-  it('tells implement and remediate runs, once each', () => {
+  it('tells implement, remediate, accepted-design and plan-finalization runs, once each', () => {
     for (const brief of [
       composeBrief(briefInput()),
       composeBrief(briefInput({ parentRun: { role: 'review', finalMessage: 'Fix the queue.' } })),
       composeBrief(briefInput({ parentRun: { role: 'design', finalMessage: 'A proposal.' } })),
+      composeBrief(briefInput({ planFinalization: true })),
     ]) {
       expect(count(brief, alone)).toBe(1);
       expect(count(brief, bounded)).toBe(1);
     }
   });
 
-  it('leaves design, review and integration resolution briefs as they were', () => {
+  it('gives design, review, investigation and integration resolution briefs neither', () => {
     for (const brief of [
       composeBrief(briefInput({ role: 'design' })),
       composeBrief(briefInput({ role: 'review' })),
+      composeBrief(briefInput({ role: 'design', investigation: true })),
+      composeBrief(briefInput({ role: 'implement', investigation: true })),
       composeBrief(briefInput({ resolvingIntegration: true })),
     ]) {
       expect(brief).not.toContain(alone);

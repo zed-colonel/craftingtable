@@ -13,7 +13,7 @@ import {
  */
 export const HANGING_TEST_RULES = [
   'When a test is slow or seems to hang, run it alone under a hard timeout to find out why before rerunning whole suites.',
-  'Put a timeout on every test command you run directly, so a hanging test cannot spend the step’s time.',
+  'Put a timeout well above its usual run time on every test command you run directly, so a hanging test cannot use up the step’s time.',
 ] as const;
 
 /**

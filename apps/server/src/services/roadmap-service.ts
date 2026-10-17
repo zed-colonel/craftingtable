@@ -2435,11 +2435,12 @@ export class RoadmapService {
     const cycle = tx.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
     if (!cycle && !hold)
       return refused('preparing', 'This entry is still being prepared; wait for its review cycle.');
-    // A held entry whose approved review waits at its record-scope-evidence gate (its receipt
-    // was refused) reviews again in place, as a pause and resume of the cycle would (R-C10
-    // follow-up 2, operator decision 2026-10-17); without a hold the gate is the scheduler's.
+    // An entry held because its receipt was refused (the scheduler's refusal hold) while its
+    // approved review waits at its record-scope-evidence gate reviews again in place, as a pause
+    // and resume of the cycle would (R-C10 follow-up 2, operator decision 2026-10-17). Any other
+    // gate is left to whoever records it: the scheduler, or the operator under manual acceptance.
     const gated =
-      !!hold &&
+      hold?.attention?.code === 'entry-preparation-failed' &&
       cycle?.status === 'awaiting-merge' &&
       cycle.attention?.code === 'record-scope-evidence';
     if (cycle && !['completed', 'stopped'].includes(cycle.status) && !gated)

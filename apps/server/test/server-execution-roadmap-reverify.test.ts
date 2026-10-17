@@ -272,12 +272,12 @@ itNeedsCargo(
 );
 
 /**
- * R-C10, follow-up 2 (operator decision 2026-10-17): an entry held at its cycle's
- * record-scope-evidence gate (here, a repository policy adopted after the review's approval and
- * before its receipt) is re-verified in place, through the fresh review a pause and resume of the
- * cycle would start, instead of being refused as an open review.
+ * R-C10, follow-up 2 (operator decision 2026-10-17): an entry held because its receipt was refused
+ * at its cycle's record-scope-evidence gate (here, a repository policy adopted after the review's
+ * approval and before its receipt) is re-verified in place, through the fresh review a pause and
+ * resume of the cycle would start, instead of being refused as an open review.
  */
-itNeedsCargo('re-verifies in place an entry held at its record-scope-evidence gate', async () => {
+async function heldAtGate() {
   const f = await supervisedMapFixture(false, 'automatic');
   const { state } = f,
     ws = state.workspaceId,
@@ -355,17 +355,23 @@ itNeedsCargo('re-verifies in place an entry held at its record-scope-evidence ga
   });
   expect(gated.status).toBe('awaiting-merge');
   expect(gated.attention?.code).toBe('record-scope-evidence');
-  const listed = await state.context.app.inject({
-    method: 'GET',
-    url: `/api/workspaces/${ws}/roadmaps`,
-    headers: { cookie: state.cookie },
-  });
-  expect(
-    roadmapsResponseSchema
+  const reverifiable = async () => {
+    const listed = await state.context.app.inject({
+      method: 'GET',
+      url: `/api/workspaces/${ws}/roadmaps`,
+      headers: { cookie: state.cookie },
+    });
+    return roadmapsResponseSchema
       .parse(listed.json())
       .roadmaps.find((r) => r.roadmap.id === roadmapId)!
-      .progress.find((p) => p.entryId === entry.id)?.reverifiable,
-  ).toBe(true);
+      .progress.find((p) => p.entryId === entry.id)?.reverifiable;
+  };
+  return { state, ws, tx, entry, attempt, cycle, gated, reverify, reverifiable };
+}
+
+itNeedsCargo('re-verifies in place an entry held at its record-scope-evidence gate', async () => {
+  const { state, entry, attempt, cycle, gated, reverify, reverifiable } = await heldAtGate();
+  expect(await reverifiable()).toBe(true);
 
   // Re-verify takes the in-place route: the hold goes, the attempt queues a fresh review of the
   // same cycle, and the scheduler starts it through `repeatScopeReview`.
@@ -385,3 +391,68 @@ itNeedsCargo('re-verifies in place an entry held at its record-scope-evidence ga
   expect(cycle(entry.id)?.id).toBe(gated.id);
   expect(attempt(entry.id)?.reverification).toBeUndefined();
 });
+
+itNeedsCargo(
+  'refuses Re-verify at the gate for another hold, another gate, or a worktree gone, retiring nothing',
+  async () => {
+    const { state, ws, tx, entry, attempt, gated, reverify, reverifiable } = await heldAtGate();
+    const original = storedRoadmap(state).entryHolds![entry.id]!;
+    const hold = (next: typeof original) => {
+      const roadmap = storedRoadmap(state);
+      expect(
+        tx.roadmaps.save(
+          {
+            ...roadmap,
+            version: roadmap.version + 1,
+            entryHolds: { ...roadmap.entryHolds, [entry.id]: next },
+          },
+          roadmap.version,
+        ),
+      ).toBe(true);
+    };
+    // A hold other than the refusal's (here, stale evidence held before the cycle's own review
+    // reached the gate) leaves the approved review to be recorded once the hold is lifted.
+    hold({
+      status: 'needs-attention',
+      reason: 'This review evidence is no longer current; prior attempts remain in history.',
+      attention: { code: 'evidence-not-current', owner: 'operator' },
+    });
+    expect(await reverifiable()).toBeUndefined();
+    expect((await reverify()).body).toContain('still open');
+    hold(original);
+    expect(await reverifiable()).toBe(true);
+
+    // Awaiting the operator at another gate is not the record-scope-evidence gate.
+    const awaiting = tx.execution.cycles.find(ws, gated.id)!;
+    tx.execution.cycles.replace(
+      {
+        ...awaiting,
+        version: awaiting.version + 1,
+        attention: { code: 'merge-approval', owner: 'operator' },
+      },
+      awaiting.version,
+    );
+    expect((await reverify()).body).toContain('still open');
+    const back = tx.execution.cycles.find(ws, gated.id)!;
+    tx.execution.cycles.replace(
+      { ...back, version: back.version + 1, attention: gated.attention },
+      back.version,
+    );
+    expect(await reverifiable()).toBe(true);
+
+    // With its worktree gone, the gated cycle has not ended, so its attempt is never retired.
+    const before = attempt(entry.id)!;
+    expect(
+      tx.execution.worktrees.markRemoved({
+        workspaceId: ws,
+        worktreeId: before.worktreeId,
+        occurredAt: new Date().toISOString(),
+      }),
+    ).toBeDefined();
+    const refused = await reverify();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain('still open');
+    expect(attempt(entry.id)?.id).toBe(before.id);
+    expect(storedRoadmap(state).retiredAttempts ?? []).toEqual([]);
+  },
+);

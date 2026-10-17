@@ -1174,6 +1174,10 @@ Recommended order for the controller-kernel items, replacing the listing above a
 2. **R-C10's follow-up**, once R-B4's core is in (its increment 5 gives the holds a typed cause):
    small, and it cuts operator waits directly.
 3. **R-B7's cycle half**, which moves the effects R-B4 has separated into their modules.
+   It begins with R-C10's follow-ups (the goldens of 2026-09-23's scheduler case, a decision
+   approved during an automatic review, the wake with a second workspace), each decided by the
+   operator and handled first ([R-C10](register.md#r-c10), "Follow-ups to decide and handle at the
+   start of the next increment").
 4. **R-B4b**, the cycle's state shape (the stop, waits and attempt records, the end codes, the
    migration), edited once in the modules R-B7 leaves, and before the kernel is written against it.
 5. **R-B5**, the kernel, on those modules: timers from the `dueAt` of R-B4's `idle` and `wait`

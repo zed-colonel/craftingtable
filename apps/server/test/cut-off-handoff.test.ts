@@ -1,7 +1,9 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
-import { afterEach, expect, it } from 'vitest';
+import { asAgentRunId } from '@craftingtable/domain';
+import { afterEach, describe, expect, it } from 'vitest';
+import { CUT_OFF_BOUNDS, cutOffRecord } from '../src/services/run-handoff.js';
 import {
   cleanupExecutionFixtures,
   commitFile,
@@ -44,6 +46,16 @@ it("hands a resumed step the cut-off run's last messages, head commit and uncomm
         claudeStream: progress.map((text) => ({
           type: 'assistant',
           message: { content: [{ type: 'text', text }] },
+        })),
+      },
+      // The resumed run is cut off too.
+      {
+        resultText: '',
+        claudeStream: [1, 2].map((n) => ({
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: `Second attempt ${n}: bisecting the slow test.` }],
+          },
         })),
       },
       { resultText: 'Implemented and checks passed.' },
@@ -121,4 +133,103 @@ it("hands a resumed step the cut-off run's last messages, head commit and uncomm
   expect(brief).toContain(head.slice(0, 12));
   expect(brief).toContain('README.md');
   expect(brief).toContain('`wip.txt` (untracked)');
+
+  // Cut off again: only the immediate parent gets a record; the older cut-off run, earlier in the
+  // lineage, keeps only today's warning.
+  const second = backend.launches[2]!;
+  const secondRun = currentCycle(state, cycle).currentRunId;
+  await waitFor(() => {
+    const last = storage.execution.runEvents.latestOfKind(
+      state.workspaceId,
+      secondRun,
+      'assistant-message',
+    );
+    return last?.kind === 'assistant-message' && last.payload.text.startsWith('Second attempt 2');
+  }, 'the resumed implementation reports progress');
+  expect(second.cwd).toBe(backend.launches[1]!.cwd);
+  now = new Date(Date.parse(currentCycle(state, cycle).runDeadlineAt) + 1);
+  await waitFor(
+    () => storage.execution.runs.find(state.workspaceId, secondRun)?.status === 'cancelled',
+    'the resumed run cancelled',
+  );
+  await controlCycle(state, currentCycle(state, cycle), 'resume');
+  await waitFor(() => backend.launches.length === 4, 'the second resume');
+  const third = join(runDirectory(backend.launches[3]!), 'handoff');
+  const lineage = JSON.parse(readFileSync(join(third, 'manifest.json'), 'utf8'));
+  expect(lineage.sources.map((source: { runId: string }) => source.runId).slice(0, 2)).toEqual([
+    secondRun,
+    cutOff,
+  ]);
+  expect(lineage.sources[0].cutOff).toBe('0000-cut-off.md');
+  expect(lineage.sources[1]).not.toHaveProperty('cutOff');
+  expect(existsSync(join(third, '0001-cut-off.md'))).toBe(false);
+  expect(lineage.warnings).toContain(
+    `${cutOff}: no completed turn; the final-message file contains only the available summary.`,
+  );
+  const latest = readFileSync(join(third, '0000-cut-off.md'), 'utf8');
+  expect(latest).toContain('Second attempt 2: bisecting the slow test.');
+  expect(latest).not.toContain('Progress 7');
+  const thirdBrief = readFileSync(join(runDirectory(backend.launches[3]!), 'brief.md'), 'utf8');
+  expect(thirdBrief).toContain('`handoff/0000-cut-off.md`: its last 2 assistant messages');
+});
+
+describe('the cut-off record (R-C17 part 2)', () => {
+  const run = {
+    id: asAgentRunId('run-1'),
+    role: 'implement' as const,
+    status: 'cancelled' as const,
+  };
+  const message = (sequence: number, text: string) => ({
+    sequence,
+    occurredAt: '2026-10-16T10:00:00.000Z',
+    text,
+  });
+
+  it('cuts a long message on a character, says so, and keeps the rest of the record whole', () => {
+    const long = `${'é'.repeat(CUT_OFF_BOUNDS.messageBytes)}TAIL`;
+    const { text, summary } = cutOffRecord(run, [message(9, long)], 1, {
+      headSha: 'c'.repeat(40),
+      changed: [],
+      untracked: [],
+    });
+    expect(text).not.toContain('TAIL');
+    expect(text).not.toContain('\uFFFD');
+    expect(text).toContain('[cut here; the conversation file has the rest]');
+    expect(text).toContain('Nothing uncommitted: the worktree matched its head commit.');
+    expect(text).toContain('The last 1 of its 1 assistant message, oldest first');
+    expect(summary).toEqual({
+      messages: 1,
+      headSha: 'c'.repeat(40),
+      uncommitted: { paths: [], total: 0 },
+    });
+  });
+
+  it('lists at most 200 uncommitted files, and gives the brief the first ten', () => {
+    const changed = Array.from({ length: 150 }, (_, i) => `src/changed-${i}.rs`);
+    const untracked = Array.from({ length: 100 }, (_, i) => `tmp/new-${i}.txt`);
+    const { text, summary } = cutOffRecord(run, [], 0, {
+      headSha: 'd'.repeat(40),
+      changed,
+      untracked,
+    });
+    expect(text).toContain('250 uncommitted files, tracked then untracked:');
+    expect(text).toContain('- src/changed-149.rs');
+    expect(text).toContain('- tmp/new-49.txt (untracked)');
+    expect(text).not.toContain('tmp/new-50.txt');
+    expect(text).toContain('- and 50 more (git status in the worktree lists them)');
+    expect(text).toContain('It recorded no assistant message.');
+    expect(summary.uncommitted).toEqual({
+      paths: changed.slice(0, 10).map((path) => ({ path, untracked: false })),
+      total: 250,
+    });
+  });
+
+  it('records why the worktree could not be read, on one line', () => {
+    const { text, summary } = cutOffRecord(run, [message(3, 'Working.')], 4, {
+      unreadable: 'fatal:\nnot a `git` repository',
+    });
+    expect(text).toContain('The worktree could not be read: fatal:?not a ?git? repository');
+    expect(text).toContain('The last 1 of its 4 assistant messages');
+    expect(summary).toEqual({ messages: 1, unreadable: 'fatal:\nnot a `git` repository' });
+  });
 });

@@ -272,8 +272,8 @@ function utf8Prefix(text: string, bytes: number): { text: string; cut: boolean }
  * The record of where a run that ended with no completed turn stopped: its head commit and the
  * worktree's uncommitted files, as the handoff found them, and its last assistant messages.
  */
-function cutOffRecord(
-  run: AgentRun,
+export function cutOffRecord(
+  run: Pick<AgentRun, 'id' | 'role' | 'status'>,
   messages: readonly {
     readonly sequence: number;
     readonly occurredAt: string;

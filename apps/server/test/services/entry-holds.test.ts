@@ -1,5 +1,6 @@
 import { ROADMAP_ATTENTION_CODES, roadmapAttention } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
+import { lastChange } from '../../src/services/cross-project-service.js';
 import { REFUSAL_STOPS } from '../../src/services/errors.js';
 import {
   cycleCarriesOn,
@@ -120,6 +121,29 @@ describe('the cycle a stored cycle-needs-attention stop waits on (increment 4 re
     for (const status of ['needs-attention', 'paused', 'stopped', 'completed'] as const)
       expect(cycleCarriesOn(status, false)).toBe(false);
     expect(cycleCarriesOn(undefined, false)).toBe(false);
+  });
+});
+
+describe('lastChange, the settle window’s time (increment 5)', () => {
+  const decision = (submissionId: string, outcome: 'accepted' | 'rejected', decidedAt: string) => ({
+    submissionId: submissionId as never,
+    outcome,
+    decidedAt,
+  });
+  it('is the latest acceptance of the scope’s own decisions, or the policy’s adoption if later', () => {
+    const decisions = [
+      decision('mine', 'accepted', '2026-10-16T10:00:00.000Z'),
+      decision('mine', 'rejected', '2026-10-16T12:00:00.000Z'),
+      decision('other', 'accepted', '2026-10-16T13:00:00.000Z'),
+    ];
+    expect(lastChange(['mine'], decisions, undefined)).toBe('2026-10-16T10:00:00.000Z');
+    expect(lastChange(['mine'], decisions, '2026-10-16T11:00:00.000Z')).toBe(
+      '2026-10-16T11:00:00.000Z',
+    );
+    expect(lastChange(['mine'], decisions, '2026-10-16T09:00:00.000Z')).toBe(
+      '2026-10-16T10:00:00.000Z',
+    );
+    expect(lastChange([], decisions, undefined)).toBeUndefined();
   });
 });
 

@@ -714,6 +714,23 @@ it('native resource approval is scoped, revocable and never admits Kata or devel
         nativeApprovalId: asNativeVerificationApprovalId(randomUUID()),
       });
       expect(receiptStaleness(tx, ws, parentReceipt)).toEqual(['native-approval']);
+      // A run under another dependency generation, and a binding no longer the latest, are the
+      // receipt's own reasons too, neither one a fresh review answers by itself.
+      runSpy.mockReturnValueOnce({
+        runId,
+        workspaceId: ws,
+        runtimeId: asRuntimeGenerationId(randomUUID()),
+        manifestPath: '/unused',
+        manifestDigest,
+        nativeApprovalId: native.id,
+      });
+      expect(receiptStaleness(tx, ws, parentReceipt)).toEqual(['dependency-environment']);
+      expect(
+        receiptStaleness(tx, ws, {
+          ...parentReceipt,
+          scope: { ...parentReceipt.scope, bindingRevision: 2 },
+        }),
+      ).toEqual(['binding']);
       runSpy.mockReturnValueOnce({
         runId,
         workspaceId: ws,

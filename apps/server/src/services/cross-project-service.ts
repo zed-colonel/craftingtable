@@ -17,6 +17,7 @@ import {
   type CrossProjectConfiguration,
   type ConcurrencyRequirement,
   type WorkspaceId,
+  type EvidenceDecision,
   type ExecutionScope,
   type WorkItemId,
   type ConcurrencyDefinition,
@@ -196,14 +197,24 @@ export function evidenceChangedAt(
   scope: ExecutionScope,
   workItemId: WorkItemId,
 ): string | undefined {
-  const decided = new Set(scopeArchitectureDecisions(tx, ws, scope).map((s) => s.id));
-  const times = tx.runtimeEvidence
-    .decisions(ws)
+  const item = tx.planning.workItems.find(ws, workItemId);
+  return lastChange(
+    scopeArchitectureDecisions(tx, ws, scope).map((s) => s.id),
+    tx.runtimeEvidence.decisions(ws),
+    item && tx.execution.branchSettings.policy(ws, item.planVersionId)?.adoptedAt,
+  );
+}
+/** The latest acceptance of one of `submissionIds`, or the policy's adoption, if later. */
+export function lastChange(
+  submissionIds: readonly string[],
+  decisions: readonly Pick<EvidenceDecision, 'submissionId' | 'outcome' | 'decidedAt'>[],
+  policyAdoptedAt: string | undefined,
+): string | undefined {
+  const decided = new Set(submissionIds);
+  const times = decisions
     .filter((a) => a.outcome === 'accepted' && decided.has(a.submissionId))
     .map((a) => a.decidedAt);
-  const item = tx.planning.workItems.find(ws, workItemId);
-  const policy = item && tx.execution.branchSettings.policy(ws, item.planVersionId);
-  if (policy) times.push(policy.adoptedAt);
+  if (policyAdoptedAt) times.push(policyAdoptedAt);
   return times.toSorted().at(-1);
 }
 

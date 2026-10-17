@@ -6,7 +6,7 @@ import {
   type UserId,
 } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
-import { evidenceStaleness } from '../src/services/cross-project-service.js';
+import { evidenceChangedAt, evidenceStaleness } from '../src/services/cross-project-service.js';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
@@ -115,6 +115,10 @@ itNeedsCargo(
         },
       });
     expect((await adopt(0, 'Controller gates now.')).statusCode).toBe(200);
+    // The settle window reads the policy's adoption (the fixture approves no decisions).
+    expect(evidenceChangedAt(tx, ws, A.executionScope!, A.workItemId)).toBe(
+      tx.execution.branchSettings.policy(ws, 'version-1' as never)?.adoptedAt,
+    );
     for (const entry of [A, B])
       expect(evidenceStaleness(tx, ws, entry.executionScope!, entry.workItemId).reasons).toEqual([
         'repository-policy',
@@ -150,8 +154,11 @@ itNeedsCargo(
         )?.metadata,
     ).toMatchObject({ reverificationEnabled: true });
 
-    // While approvals settle (the policy was adopted just now), the holds stay.
+    // While approvals settle (the policy was adopted just now), the holds stay. Resume drops the
+    // stored holds, so the first pass holds again and the second asks for a release.
     await roadmapControl(state, 'resume');
+    await tick();
+    for (const entry of [A, B]) expect(storedRoadmap(state).entryHolds?.[entry.id]).toBeDefined();
     await tick();
     for (const entry of [A, B]) expect(storedRoadmap(state).entryHolds?.[entry.id]).toBeDefined();
     expect(reverifyRows()).toEqual([]);

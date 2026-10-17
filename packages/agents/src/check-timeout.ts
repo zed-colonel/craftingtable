@@ -54,30 +54,53 @@ const TAIL_KEPT_CHARS = 64 * 1024;
 const LINE_KEPT_CHARS = 8 * 1024;
 
 /**
- * libtest's notice for a test still running after 60 seconds, which `cargo test` prints. It
- * only chooses what a diagnostic quotes; nothing is decided on it.
+ * libtest's lines, which `cargo test` prints: its notice for a test still running after 60
+ * seconds, a test's result, and the header of each test binary's run (doc-tests included). They
+ * only choose what a diagnostic quotes; nothing is decided on them.
  */
-const STILL_RUNNING = /test \S+ has been running for over 60 seconds/;
+const STILL_RUNNING = /\btest (.+?) has been running for over 60 seconds/;
+// A doc-test's name has spaces: `src/lib.rs - queue::Queue::push (line 12)`.
+const TEST_RESULT = /\btest (.+?) \.\.\. (?:ok|FAILED|ignored)\b/;
+const RUN_START = /^running \d+ tests?$/;
+/** The most tests a watch tracks as still running at once. */
+const RUNNING_KEPT = 64;
+/** The other still-running tests a diagnostic names beside the last. */
+const OTHERS_NAMED = 5;
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal colour codes are removed
 const TERMINAL_CODES = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 
+/** Which of a check's output streams a chunk came from. */
+export type OutputStream = 'out' | 'err';
+
 /**
- * Watches a check's output as it arrives: the last libtest still-running line anywhere in it,
- * and its end, both bounded however much it prints.
+ * Watches a check's output as it arrives: the tests libtest reported running over 60 seconds that
+ * have reported no result since (a binary's next run starts them afresh), and the end of the
+ * output, both bounded however much it prints. Each stream keeps its own unfinished line, so one
+ * stream's chunk cannot split the other's line.
  */
 export class OutputWatch {
-  /** The last libtest still-running line, without colour codes. */
-  stillRunning: string | undefined;
+  /** Still-running tests, oldest first: each test's name and its notice, without colour codes. */
+  private readonly running = new Map<string, string>();
   private tail = '';
-  private line = '';
+  private readonly line: Record<OutputStream, string> = { out: '', err: '' };
 
-  push(text: string): void {
+  /** The last notice of a test that has reported no result since. */
+  get stillRunning(): string | undefined {
+    return [...this.running.values()].at(-1);
+  }
+
+  /** The other still-running tests, newest first. */
+  get othersRunning(): string[] {
+    return [...this.running.keys()].reverse().slice(1);
+  }
+
+  push(text: string, stream: OutputStream = 'out'): void {
     this.tail = `${this.tail}${text}`.slice(-TAIL_KEPT_CHARS);
-    const lines = `${this.line}${text}`.split(/\r\n|\r|\n/);
-    this.line = (lines.pop() ?? '').slice(-LINE_KEPT_CHARS);
+    const lines = `${this.line[stream]}${text}`.split(/\r\n|\r|\n/);
+    this.line[stream] = (lines.pop() ?? '').slice(-LINE_KEPT_CHARS);
     for (const line of lines) this.read(line);
-    this.read(this.line);
+    this.read(this.line[stream]);
   }
 
   /** The last non-blank lines of the output, each and all bounded, without colour codes. */
@@ -103,9 +126,23 @@ export class OutputWatch {
     return kept;
   }
 
+  /** One line, finished or not yet: reading it again when it grows changes nothing it read. */
   private read(line: string): void {
-    const found = STILL_RUNNING.exec(line.replace(TERMINAL_CODES, ''));
-    if (found) this.stillRunning = found[0];
+    const clean = line.replace(TERMINAL_CODES, '').trim();
+    if (RUN_START.test(clean)) {
+      this.running.clear();
+      return;
+    }
+    const result = TEST_RESULT.exec(clean);
+    if (result) {
+      this.running.delete(result[1]!);
+      return;
+    }
+    const found = STILL_RUNNING.exec(clean);
+    if (!found) return;
+    this.running.delete(found[1]!);
+    this.running.set(found[1]!, found[0]);
+    if (this.running.size > RUNNING_KEPT) this.running.delete(this.running.keys().next().value!);
   }
 }
 
@@ -128,7 +165,15 @@ export function timedOutDiagnostic(
   stepLimited: boolean,
 ): string {
   const limit = `Check timed out after ${duration(timeoutMs)}${stepLimited ? ', the time its step had left' : ''}.`;
-  if (watch.stillRunning) return `${limit} Still running: ${watch.stillRunning}`;
+  if (watch.stillRunning) {
+    const others = watch.othersRunning;
+    const named = others.slice(0, OTHERS_NAMED).map((name) => name.slice(0, 200));
+    return `${limit} Still running: ${watch.stillRunning}${
+      others.length
+        ? `; also still running: ${named.join(', ')}${others.length > named.length ? `, and ${others.length - named.length} more` : ''}`
+        : ''
+    }`;
+  }
   const lines = watch.lastLines();
   return lines.length
     ? `${limit} The end of its log:\n${lines.map((line) => `  ${line}`).join('\n')}`

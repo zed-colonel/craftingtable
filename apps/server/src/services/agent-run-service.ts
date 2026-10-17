@@ -422,7 +422,9 @@ export function declaredCheckReport(
     } catch {
       /* no log: the check did not start */
     }
-    return `- ${result.checkId}: failed (exit ${result.exitCode}).${result.diagnostic ? ` ${result.diagnostic.trim()}` : ''}${output}`;
+    const said = result.diagnostic.trim();
+    // A diagnostic that quotes its log's last lines keeps them to themselves (R-C17 part 1).
+    return `- ${result.checkId}: failed (exit ${result.exitCode}).${said ? ` ${said}` : ''}${said.includes('\n') && output ? `\n ${output}` : output}`;
   });
   return `
 

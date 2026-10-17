@@ -51,3 +51,22 @@ it("copies a failed check's output into the run directory and never writes throu
   expect(refused).not.toContain('Output:');
   expect(existsSync(join(elsewhere, 'queue.log'))).toBe(false);
 });
+
+it("keeps a timed-out check's quoted log lines apart from where its output is (R-C17 part 1 review NIT-4)", () => {
+  const { log, run } = setup();
+  const report = declaredCheckReport(
+    [
+      {
+        checkId: 'suite',
+        exitCode: 1,
+        diagnostic: 'Check timed out after 15 minutes. The end of its log:\n  step 39\n  step 40',
+        logPath: log,
+      },
+      { checkId: 'format', exitCode: 1, diagnostic: 'Check exited 1.', logPath: log },
+    ],
+    run,
+  );
+  expect(report).toContain(
+    `  step 40\n  Output: ${join(run, 'declared-checks', 'suite.log')}\n- format: failed (exit 1). Check exited 1. Output: ${join(run, 'declared-checks', 'format.log')}`,
+  );
+});

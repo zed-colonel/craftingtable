@@ -31,7 +31,12 @@ import {
   CARGO_FILE_PATTERN,
   PYTHON_ENVIRONMENT_FILE_PATTERN,
 } from '@craftingtable/domain';
-import { checkTimeLimit, OutputWatch, timedOutDiagnostic } from './check-timeout.js';
+import {
+  checkTimeLimit,
+  type OutputStream,
+  OutputWatch,
+  timedOutDiagnostic,
+} from './check-timeout.js';
 import type {
   CheckManifest,
   CheckOnlyManifest,
@@ -706,14 +711,14 @@ function superviseCheck(
     }
     if (options.signal?.aborted) interrupted();
     else options.signal?.addEventListener('abort', interrupted, { once: true });
-    const collect = (data: Buffer) => {
+    const collect = (stream: OutputStream) => (data: Buffer) => {
       const text = data.toString();
       if (Buffer.byteLength(log) < 2 * 1024 * 1024) log += text;
-      watch.push(text);
+      watch.push(text, stream);
       options.onOutput(text);
     };
-    child.stdout.on('data', collect);
-    child.stderr.on('data', collect);
+    child.stdout.on('data', collect('out'));
+    child.stderr.on('data', collect('err'));
     const finish = () => {
       clearTimeout(timer);
       clearTimeout(killTimer);
@@ -2439,6 +2444,8 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
     });
     timeoutMs = limit.timeoutMs;
     stepLimited = limit.stepLimited;
+    // What ran out, as the preparation's messages name it.
+    const limitName = stepLimited ? 'The time its step had left' : 'The check time limit';
     const limits = e.unitLimits ?? DEFAULT_CHECK_UNIT_LIMITS;
     const deadline = started + timeoutMs;
     let cwd = m.workspacePath;
@@ -2468,9 +2475,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
           if (e.signal.aborted) throw new Error('Interrupted.');
           const left = deadline - Date.now();
           if (left <= 0)
-            throw new CheckTimeLimitError(
-              'The check time limit passed while its Cargo home was prepared.',
-            );
+            throw new CheckTimeLimitError(`${limitName} passed while its Cargo home was prepared.`);
           return left;
         },
       );
@@ -2495,9 +2500,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       if (e.signal.aborted) throw new Error('Interrupted.');
       const left = deadline - Date.now();
       if (left <= 0)
-        throw new CheckTimeLimitError(
-          'The check time limit passed while its sources were prepared.',
-        );
+        throw new CheckTimeLimitError(`${limitName} passed while its sources were prepared.`);
       return left;
     };
     // A check on a daemon-private clone (R-G13): its unit sees none of the roots agents write,
@@ -2874,8 +2877,7 @@ export async function executeCheck(e: CheckExecution): Promise<CheckOutcome> {
       if (pythonEnvironment) environment = pythonEnvironment.environment(environment);
     }
     const remaining = deadline - Date.now();
-    if (remaining <= 0)
-      throw new CheckTimeLimitError('The check time limit passed before it could start.');
+    if (remaining <= 0) throw new CheckTimeLimitError(`${limitName} passed before it could start.`);
     const confined = e.confinement === 'systemd';
     const ci = pinned?.localCi;
     const runId = m.runId;

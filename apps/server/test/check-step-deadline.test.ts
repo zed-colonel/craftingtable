@@ -8,15 +8,20 @@ import {
   CycleBackend,
   cleanupExecutionFixtures,
   commitFile,
+  configureLocalRuntime,
   currentCycle,
   declareFixtureChecks,
   designDone,
   fixtureRepository,
+  itNeedsCargo,
+  openQuestions,
   ready,
   registerAndWorktree,
   reviewText,
   runLauncher,
   runToFinish,
+  scopeTree,
+  slicedFixture,
   startCycle,
   waitFor,
 } from './execution-test-support.js';
@@ -98,3 +103,49 @@ it('a run no cycle owns gives its checks no step deadline (R-C17 part 1)', async
   expect(executions.length).toBeGreaterThan(0);
   for (const execution of executions) expect(execution.stepDeadline).toBeUndefined();
 });
+
+it("a manual run beside a stopped cycle in its worktree is not that cycle's step: no step deadline (R-C17 part 1)", async () => {
+  const backend = new CycleBackend([openQuestions]);
+  const state = await ready({ backend });
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  declareFixtureChecks(state, LIMITED);
+  commitFile(worktree.path, 'feature.txt', 'feature\n');
+  await admit(state);
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(
+    () => currentCycle(state, cycle).status === 'needs-attention',
+    'the design stops on its open questions',
+  );
+  backend.replyForRequest = async (request) => {
+    await runLauncher(request, 'ct-check', ['--declared', 'fixture']);
+    return { resultText: reviewText([]) };
+  };
+  const manual = await runToFinish(state, worktree.id, { role: 'review' });
+  expect(currentCycle(state, cycle).currentRunId).not.toBe(manual);
+  expect(executions.length).toBeGreaterThan(0);
+  for (const execution of executions) expect(execution.stepDeadline).toBeUndefined();
+});
+
+itNeedsCargo(
+  "a pinned run's launchers wait past its longest declared limit too (R-C17 part 1)",
+  async () => {
+    const f = await slicedFixture();
+    declareFixtureChecks(f.state, LIMITED);
+    await configureLocalRuntime(f.auth, f.state, f.parentScope.definitionId);
+    const tree = await scopeTree(f, f.scopes[0]!);
+    commitFile(tree.path, 'a.txt', 'A');
+    let launched: AgentLaunchRequest | undefined;
+    f.backend.replyForRequest = async (request) => {
+      launched = request;
+      return { resultText: reviewText([]) };
+    };
+    await runToFinish(f.state, tree.id, { role: 'review' });
+    const manifest = JSON.parse(
+      readFileSync(join(launched!.buildEnvironment!.binDirectory, '..', 'manifest.json'), 'utf8'),
+    );
+    // A pinned manifest (it names a runtime), not a check-only one.
+    expect(manifest.kind).toBeUndefined();
+    expect(manifest.runtimeId).toBeDefined();
+    expect(launcherLimit(launched!)).toBe(50 * 60_000);
+  },
+);

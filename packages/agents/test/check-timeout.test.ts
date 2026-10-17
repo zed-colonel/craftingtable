@@ -69,6 +69,12 @@ describe('a check’s time limit', () => {
     ],
     ['its own, the step’s deadline passed', { timeoutMinutes: 15, stepDeadline: now - 1 }, 0, true],
     [
+      'its own, exactly what the step has left: not cut',
+      { timeoutMinutes: 15, stepDeadline: now + 15 * MINUTE },
+      15 * MINUTE,
+      false,
+    ],
+    [
       'its own, a run with no step',
       { manifestTimeoutMs: 30 * MINUTE, timeoutMinutes: 45 },
       45 * MINUTE,
@@ -121,6 +127,46 @@ describe('what a timed-out check was still running', () => {
     expect(unfinished.stillRunning).toBe('test last has been running for over 60 seconds');
   });
 
+  it('forgets a test once it reports a result, or when the next test binary starts (review MEDIUM-1)', () => {
+    // Parallel tests: a later slow test passes; the hung one is still running.
+    const parallel = new OutputWatch();
+    parallel.push('running 9 tests\ntest hung has been running for over 60 seconds\n');
+    parallel.push('test other has been running for over 60 seconds\ntest other ... ok\n');
+    expect(parallel.stillRunning).toBe('test hung has been running for over 60 seconds');
+    expect(parallel.othersRunning).toEqual([]);
+    // A slow test in one binary passes; the doc-tests then hang, naming nothing.
+    const binaries = new OutputWatch();
+    binaries.push('running 3 tests\ntest slow_but_fine has been running for over 60 seconds\n');
+    binaries.push('     Running tests/flow.rs (target/debug/deps/flow-1)\n', 'err');
+    binaries.push('running 1 test\n');
+    expect(binaries.stillRunning).toBeUndefined();
+    binaries.push('test flows ... ok\n   Doc-tests queue\n\nrunning 2 tests\n');
+    binaries.push('test src/lib.rs - Queue::push (line 12) has been running for over 60 seconds\n');
+    expect(binaries.stillRunning).toBe(
+      'test src/lib.rs - Queue::push (line 12) has been running for over 60 seconds',
+    );
+    binaries.push('test src/lib.rs - Queue::push (line 12) ... FAILED\n');
+    expect(binaries.stillRunning).toBeUndefined();
+    expect(timedOutDiagnostic(binaries, 2_000, false)).toContain('The end of its log:\n');
+  });
+
+  it('names the other tests still running, newest first, bounded', () => {
+    const watch = new OutputWatch();
+    for (let i = 1; i <= 8; i++) watch.push(`test t${i} has been running for over 60 seconds\n`);
+    watch.push('test t4 ... ok\n');
+    expect(timedOutDiagnostic(watch, 30 * MINUTE, false)).toBe(
+      'Check timed out after 30 minutes. Still running: test t8 has been running for over 60 seconds; also still running: t7, t6, t5, t3, t2, and 1 more',
+    );
+  });
+
+  it('keeps each stream’s unfinished line apart (review NIT-1)', () => {
+    const watch = new OutputWatch();
+    watch.push('test hung has been runn', 'out');
+    watch.push('   Compiling queue v0.1.0\n', 'err');
+    watch.push('ing for over 60 seconds\n', 'out');
+    expect(watch.stillRunning).toBe('test hung has been running for over 60 seconds');
+  });
+
   it('names the still-running test, and how long the check had', () => {
     const watch = new OutputWatch();
     watch.push(
@@ -151,6 +197,24 @@ describe('what a timed-out check was still running', () => {
     expect(timedOutDiagnostic(new OutputWatch(), 2_000, false)).toBe(
       'Check timed out after 2 seconds. It printed nothing.',
     );
+  });
+
+  it('bounds the quoted lines in all, drops colour codes, and quotes the end of a long log', () => {
+    const long = new OutputWatch();
+    for (let i = 1; i <= 12; i++) long.push(`${String(i).padStart(2, '0')}${'y'.repeat(400)}\n`);
+    const lines = long.lastLines();
+    // Each line is cut to 300 characters; the total stops before 2,000.
+    expect(lines.every((line) => line.length <= TIMED_OUT_TAIL.lineChars + 1)).toBe(true);
+    expect(lines.join('\n').length).toBeLessThanOrEqual(TIMED_OUT_TAIL.chars);
+    expect(lines.length).toBeLessThan(TIMED_OUT_TAIL.lines);
+    expect(lines.at(-1)?.startsWith('12')).toBe(true);
+    const coloured = new OutputWatch();
+    coloured.push('\u001b[1m\u001b[31merror\u001b[0m: build failed\n');
+    expect(coloured.lastLines()).toEqual(['error: build failed']);
+    // Past the 64 KiB the watch keeps, the quoted lines are still the log's last.
+    const flood = new OutputWatch();
+    for (let i = 0; i < 5000; i++) flood.push(`compiling crate ${i}\n`);
+    expect(flood.lastLines().at(-1)).toBe('compiling crate 4999');
   });
 });
 
@@ -213,8 +277,9 @@ function fixture(script: string, timeoutMinutes?: number) {
     for (const directory of ['/usr/bin', '/bin'])
       if (existsSync(join(directory, tool)) && !existsSync(join(bin, tool)))
         symlinkSync(join(directory, tool), join(bin, tool));
+  let output = '';
   const execute = async (overrides: Partial<CheckExecution> = {}) => {
-    let output = '';
+    output = '';
     const logPath = join(root, 'daemon', 'logs', `${randomUUID()}.log`);
     const started = Date.now();
     const outcome = await executeCheck({
@@ -242,7 +307,7 @@ function fixture(script: string, timeoutMinutes?: number) {
       log: readFileSync(logPath, 'utf8'),
     };
   };
-  return { execute };
+  return { execute, output: () => output };
 }
 
 describe('a declared check with its own time limit', () => {
@@ -275,6 +340,31 @@ describe('a declared check with its own time limit', () => {
     expect(outcome.diagnostic).toContain('The end of its log:\n');
     expect(outcome.diagnostic).toContain('  step 40');
     expect(outcome.diagnostic).not.toContain('  step 1\n');
+  });
+
+  it('says when its step’s deadline passed before it could run', async () => {
+    const f = fixture('#!/bin/sh\necho never\n', 1);
+    const outcome = await f.execute({ stepDeadline: Date.now() - 1 });
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.diagnostic).toBe(
+      'The time its step had left passed while its sources were prepared.',
+    );
+    expect(outcome.output).not.toContain('never');
+  });
+
+  it('a cancel keeps today’s message, never a time-out’s (review LOW-2)', async () => {
+    const f = fixture('#!/bin/sh\necho started\nexec sleep 600\n', 15);
+    const controller = new AbortController();
+    const outcome = f.execute({ signal: controller.signal });
+    const started = Date.now();
+    while (!f.output().includes('started')) {
+      if (Date.now() - started > 20_000 * testTimeScale()) throw new Error('never started');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    controller.abort();
+    const ended = await outcome;
+    expect(ended.exitCode).toBe(1);
+    expect(ended.diagnostic).toBe('Check interrupted or timed out.');
   });
 
   it('without a limit of its own keeps the run’s limit, past the step’s deadline', async () => {

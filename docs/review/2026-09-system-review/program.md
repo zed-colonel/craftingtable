@@ -1196,6 +1196,24 @@ is settled in the entry. The operator decided all seven as recommended the same 
 on condition that the scheduler's one-second wake does not materially degrade UI performance
 (increment 3 measures it). It changes no order above.
 
+**R-B7 cycle half design pass (2026-10-17, at c6b9b4a; nothing built).** R-C10's three follow-ups were
+handled first, each as the operator decided: 2026-09-23's scheduler golden recorded again from a copy of
+the snapshot (b4483b5; the case now expects nothing), a decision approved during an automatic review left
+held for the operator (c6b9b4a), and the one-second wake measured with both workspaces and accepted as
+built (69afb28); its review found the costly rider, a running cross-project roadmap advanced every
+second beside a waiting sequential one (measured at 130 ms a pass on 2026-09-23), which the deployment
+does not run today, and left scoping the wake per roadmap to the operator ([R-C10](register.md#r-c10)).
+[R-B7](register.md#r-b7)'s entry then holds the cycle half's design: today's sizes and responsibilities, `launchAuthorized`'s parts against its durable record (AGT-12), the duplicated
+validators (CTRL-14), the import cycles and the non-null assertions; the layout (the cycle's core, shared
+state, writer, effects and commands; the run's state, journal, processes, supervision, sandbox, launch and
+context); twelve increments, the moves first, under the replays and a launch characterization; and six
+decisions for the operator (the launch's durable record, the order of its refusals, the worktree guard's
+message, the validators' answers, `RuntimeEvidenceService`'s split, the scope of the non-null rule). Its
+independent review is settled in the entry. Two notes on the order above: R-C17's parts 1 to 3 (hung
+checks, the cut-off run's handoff, the briefs) are best built before the half, since they cut operator
+waits now and edit code it moves, and part 4 after R-B4b, as its entry says; decision 5 A adds a third
+R-B7 part, `RuntimeEvidenceService`, after the scheduler half.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

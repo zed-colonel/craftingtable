@@ -1173,17 +1173,20 @@ Recommended order for the controller-kernel items, replacing the listing above a
 1. **R-B4**, the decision core (its increments 1 to 6), so nothing below waits on a migration.
 2. **R-C10's follow-up**, once R-B4's core is in (its increment 5 gives the holds a typed cause):
    small, and it cuts operator waits directly.
-3. **R-B7's cycle half**, which moves the effects R-B4 has separated into their modules.
+3. **R-C17's parts 1 to 3** (hung checks, the cut-off run's handoff, the briefs; placed by the operator
+   2026-10-17), then **R-B7's cycle half**, which moves the effects R-B4 has separated into their modules.
    It begins with R-C10's follow-ups (the goldens of 2026-09-23's scheduler case, a decision
    approved during an automatic review, the wake with a second workspace), each decided by the
    operator and handled first ([R-C10](register.md#r-c10), "Follow-ups to decide and handle at the
    start of the next increment").
 4. **R-B4b**, the cycle's state shape (the stop, waits and attempt records, the end codes, the
-   migration), edited once in the modules R-B7 leaves, and before the kernel is written against it.
+   migration), edited once in the modules R-B7 leaves, and before the kernel is written against it;
+   then R-C17's part 4 (the operator's controls).
 5. **R-B5**, the kernel, on those modules: timers from the `dueAt` of R-B4's `idle` and `wait`
    decisions, its per-aggregate mutex in place of the in-memory sets R-B4 confines to `KernelFacts`.
 6. **R-B6**, which scopes pauses with R-B5's mutex and R-B11's drain.
-7. **R-B7's scheduler half**, then R-F1 full and R-F5. The cycle core reads map facts through
+7. **R-B7's scheduler half**, then its third part (`RuntimeEvidenceService`, decision 5 of its cycle
+   half), R-F1 full and R-F5. The cycle core reads map facts through
    functions R-F1 can replace, and R-B4's predecessor gate is the whole-item half of FMT-09, which
    R-F1 completes for the map. R-D6 is measured after R-B5.
 
@@ -1213,6 +1216,15 @@ independent review is settled in the entry. Two notes on the order above: R-C17'
 checks, the cut-off run's handoff, the briefs) are best built before the half, since they cut operator
 waits now and edit code it moves, and part 4 after R-B4b, as its entry says; decision 5 A adds a third
 R-B7 part, `RuntimeEvidenceService`, after the scheduler half.
+
+**Operator decisions, 2026-10-17.** All six of R-B7's cycle-half decisions as recommended (option A
+each; recorded in [R-B7](register.md#r-b7)): the launch reservation with the one-time removal of today's
+orphan run directories (migration 0045), today's refusal order, the worktree guard naming its holder, one
+rule per validator with each site's refusal kept, `RuntimeEvidenceService` as R-B7's third part, and the
+non-null rule converted half by half. The order above now has R-C17's parts 1 to 3 before the cycle half
+and its part 4 after R-B4b, and R-B7's third part after its scheduler half. R-C10's wake is to be scoped
+per roadmap, test-first, before any cross-project roadmap is started beside a sequential one. Still open:
+whether Re-verify should take the in-place route at the record-scope-evidence gate (R-C10, follow-up 2).
 
 Exit criteria:
 - `reconcile` is a thin shell.

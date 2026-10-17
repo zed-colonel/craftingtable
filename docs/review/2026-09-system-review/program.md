@@ -1223,8 +1223,9 @@ orphan run directories (migration 0045), today's refusal order, the worktree gua
 rule per validator with each site's refusal kept, `RuntimeEvidenceService` as R-B7's third part, and the
 non-null rule converted half by half. The order above now has R-C17's parts 1 to 3 before the cycle half
 and its part 4 after R-B4b, and R-B7's third part after its scheduler half. R-C10's wake is to be scoped
-per roadmap, test-first, before any cross-project roadmap is started beside a sequential one. Still open:
-whether Re-verify should take the in-place route at the record-scope-evidence gate (R-C10, follow-up 2).
+per roadmap, test-first, before any cross-project roadmap is started beside a sequential one. The one
+question then open, whether Re-verify should take the in-place route at the record-scope-evidence gate
+(R-C10, follow-up 2), was decided later the same day: it does, and it is built with R-C17's parts 1 to 3.
 
 Exit criteria:
 - `reconcile` is a thin shell.

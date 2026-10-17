@@ -270,3 +270,118 @@ itNeedsCargo(
     expect(attempt(A.id)?.reverification).toBeUndefined();
   },
 );
+
+/**
+ * R-C10, follow-up 2 (operator decision 2026-10-17): an entry held at its cycle's
+ * record-scope-evidence gate (here, a repository policy adopted after the review's approval and
+ * before its receipt) is re-verified in place, through the fresh review a pause and resume of the
+ * cycle would start, instead of being refused as an open review.
+ */
+itNeedsCargo('re-verifies in place an entry held at its record-scope-evidence gate', async () => {
+  const f = await supervisedMapFixture(false, 'automatic');
+  const { state } = f,
+    ws = state.workspaceId,
+    tx = state.context.storage;
+  f.service.save(f.auth, ws, f.input);
+  await adoptSupervisedMap(f);
+  await roadmapControl(state, 'start');
+  const verifications = storedRoadmap(state).definition.entries.filter(
+    (e) => e.executionScope?.kind === 'slice-verification',
+  );
+  const attempt = (entryId: string) =>
+    storedRoadmap(state).attempts.find((a) => a.entryId === entryId && !a.recovery);
+  const cycle = (entryId: string) => {
+    const found = attempt(entryId);
+    return found && tx.execution.cycles.find(ws, found.cycleId);
+  };
+  const reviewing = () =>
+    verifications.find((e) => cycle(e.id)?.status === 'running' && cycle(e.id)?.step === 'review');
+  await waitFor(() => reviewing() !== undefined, 'a verification review running');
+  const entry = reviewing()!;
+  // Only the cycles step now, so the review is approved and its cycle waits at the gate before
+  // the scheduler's next pass records the receipt.
+  const services = state.context.services;
+  await waitFor(() => cycle(entry.id)?.status === 'awaiting-merge', 'verification approved', {
+    step: async () => {
+      await services.agentRunService.quiesce();
+      await services.workCycleService.tick();
+      await services.agentRunService.quiesce();
+    },
+  });
+  expect(cycle(entry.id)?.attention?.code).toBe('record-scope-evidence');
+  const plan = `/api/workspaces/${ws}/plan-versions/version-1/repository-policy`;
+  const preview = await state.context.app.inject({
+    method: 'GET',
+    url: plan,
+    headers: { cookie: state.cookie },
+  });
+  const adopted = await state.context.app.inject({
+    method: 'POST',
+    url: plan,
+    headers: mutationHeaders(state),
+    payload: {
+      expectedVersion: 0,
+      expectedBranchSettingsVersion: preview.json().settingsVersion,
+      controlMode: 'controller-local',
+      interpretation: 'Controller gates now.',
+      publicationRequirement: 'Verify remote protections before publication.',
+    },
+  });
+  expect(adopted.statusCode, adopted.body).toBe(200);
+  const reverify = () =>
+    state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/control`,
+      headers: mutationHeaders(state),
+      payload: {
+        action: 'reverify',
+        entryId: entry.id,
+        expectedVersion: storedRoadmap(state).version,
+      },
+    });
+  // Not held, the gate is the scheduler's: Re-verify stays refused as an open review.
+  expect((await reverify()).body).toContain('still open');
+
+  // The scheduler's receipt is refused (the policy changed after the approval), so the entry is
+  // held while its cycle stays at the gate.
+  await waitFor(
+    () => storedRoadmap(state).entryHolds?.[entry.id]?.status === 'needs-attention',
+    'receipt refused at the gate holds the entry',
+  );
+  const gated = cycle(entry.id)!;
+  expect(storedRoadmap(state).entryHolds?.[entry.id]?.attention).toMatchObject({
+    code: 'entry-preparation-failed',
+    refs: { cause: 'worktree-state' },
+  });
+  expect(gated.status).toBe('awaiting-merge');
+  expect(gated.attention?.code).toBe('record-scope-evidence');
+  const listed = await state.context.app.inject({
+    method: 'GET',
+    url: `/api/workspaces/${ws}/roadmaps`,
+    headers: { cookie: state.cookie },
+  });
+  expect(
+    roadmapsResponseSchema
+      .parse(listed.json())
+      .roadmaps.find((r) => r.roadmap.id === roadmapId)!
+      .progress.find((p) => p.entryId === entry.id)?.reverifiable,
+  ).toBe(true);
+
+  // Re-verify takes the in-place route: the hold goes, the attempt queues a fresh review of the
+  // same cycle, and the scheduler starts it through `repeatScopeReview`.
+  const inPlace = await reverify();
+  expect(inPlace.statusCode, inPlace.body).toBe(200);
+  expect(storedRoadmap(state).entryHolds?.[entry.id]).toBeUndefined();
+  expect(attempt(entry.id)?.reverification?.sourceRunId).toBe(gated.currentRunId);
+  // The fresh review runs under the new policy, so its receipt is recorded: the evidence is
+  // current again, from the same cycle, with no hold.
+  await waitFor(
+    () =>
+      cycle(entry.id)?.status === 'completed' &&
+      cycle(entry.id)?.currentRunId !== gated.currentRunId &&
+      storedRoadmap(state).entryHolds?.[entry.id] === undefined,
+    'verification recorded after the fresh review',
+  );
+  expect(cycle(entry.id)?.id).toBe(gated.id);
+  expect(attempt(entry.id)?.reverification).toBeUndefined();
+});

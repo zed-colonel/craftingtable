@@ -2435,7 +2435,14 @@ export class RoadmapService {
     const cycle = tx.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
     if (!cycle && !hold)
       return refused('preparing', 'This entry is still being prepared; wait for its review cycle.');
-    if (cycle && !['completed', 'stopped'].includes(cycle.status))
+    // A held entry whose approved review waits at its record-scope-evidence gate (its receipt
+    // was refused) reviews again in place, as a pause and resume of the cycle would (R-C10
+    // follow-up 2, operator decision 2026-10-17); without a hold the gate is the scheduler's.
+    const gated =
+      !!hold &&
+      cycle?.status === 'awaiting-merge' &&
+      cycle.attention?.code === 'record-scope-evidence';
+    if (cycle && !['completed', 'stopped'].includes(cycle.status) && !gated)
       return refused('review-open', 'Its review cycle is still open; finish or stop it first.');
     if (this.complete(roadmap, entry, tx))
       return refused(
@@ -2444,12 +2451,15 @@ export class RoadmapService {
       );
     const tree = tx.execution.worktrees.find(roadmap.workspaceId, attempt.worktreeId);
     if (
-      cycle?.status === 'completed' &&
+      (cycle?.status === 'completed' || gated) &&
       tree?.status === 'active' &&
       !tx.amendments.retired(roadmap.workspaceId, tree.id) &&
       sameExecutionScope(tree.executionScope, entry.executionScope)
     )
       return { attempt, inPlace: true, sourceRunId: cycle.currentRunId };
+    // The fresh route retires an ended attempt; a gated cycle has not ended.
+    if (gated)
+      return refused('review-open', 'Its review cycle is still open; finish or stop it first.');
     // A scope has one active worktree; a fresh attempt needs the unused one removed first.
     const other = tx.execution.worktrees
       .listForWorkItem(roadmap.workspaceId, entry.workItemId)

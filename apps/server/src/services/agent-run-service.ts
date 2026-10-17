@@ -133,7 +133,12 @@ import { reservePhase } from './phase-resources.js';
 import { REPOSITORY_POLICY_RULES, worktreePlan } from './repository-policy.js';
 import { outputRepairPrompt, restartResumePrompt, sessionResumeSource } from './restart-resume.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
-import { latestReviewReport, requiredFindingIds, writeRunHandoff } from './run-handoff.js';
+import {
+  latestReviewReport,
+  requiredFindingIds,
+  type StoppedWorktree,
+  writeRunHandoff,
+} from './run-handoff.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { scopeRepairPacket } from './scope-repair.js';
 import { STEP_RULES } from './step-rules.js';
@@ -552,6 +557,19 @@ export class AgentRunService {
     git: import('@craftingtable/git').GitOperations,
   ): void {
     this.refWatch = { watch, git };
+  }
+
+  /**
+   * Where a worktree stands, for the handoff of a run that ended with no completed turn: its head
+   * commit and uncommitted files, or why they could not be read (R-C17 part 2).
+   */
+  private async whereStopped(worktree: Worktree): Promise<StoppedWorktree> {
+    if (!this.branches) return { unreadable: 'Git is unavailable to the daemon.' };
+    try {
+      return await this.branches.uncommitted(worktree);
+    } catch (error) {
+      return { unreadable: error instanceof Error ? error.message : 'Git could not read it.' };
+    }
   }
 
   /** Flags protected branches that moved during a run by something other than the daemon. */
@@ -1680,16 +1698,6 @@ export class AgentRunService {
         );
         records.push({ path, about: RUN_RECORDS['craftingtable-finalization-state.json'] });
       }
-      const handoff =
-        prepared.parentRun === undefined
-          ? undefined
-          : writeRunHandoff(
-              this.storage.execution,
-              prepared.parentRun,
-              join(runDirectory, 'handoff'),
-            );
-      const parentAssessment =
-        prepared.parentRun && latestReviewReport(this.storage.execution, prepared.parentRun);
       const parentTurn =
         prepared.parentRun &&
         this.storage.execution.runEvents.latestOfKind(
@@ -1697,6 +1705,19 @@ export class AgentRunService {
           prepared.parentRun.id,
           'turn-completed',
         );
+      const handoff =
+        prepared.parentRun === undefined
+          ? undefined
+          : writeRunHandoff(
+              this.storage.execution,
+              prepared.parentRun,
+              join(runDirectory, 'handoff'),
+              // A parent cut off with no completed turn left its work in the worktree: where it
+              // stopped goes into the handoff (R-C17 part 2).
+              parentTurn ? undefined : await this.whereStopped(prepared.worktree),
+            );
+      const parentAssessment =
+        prepared.parentRun && latestReviewReport(this.storage.execution, prepared.parentRun);
       const parentContext = prepared.parentRun?.reviewBranchContext;
       const scope =
         prepared.worktree.executionScope && prepared.worktree.workItemId

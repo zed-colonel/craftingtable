@@ -629,6 +629,19 @@ export class BranchService {
       );
   }
 
+  /**
+   * A worktree's head commit and what differs from it, tracked and untracked: where a run that
+   * ended with no completed turn left it, for the next run's handoff (R-C17 part 2).
+   */
+  async uncommitted(worktree: Worktree): Promise<{
+    readonly headSha: string;
+    readonly changed: readonly string[];
+    readonly untracked: readonly string[];
+  }> {
+    const state = value(await this.requireGit().inspectWorktreeChanges(worktree.path));
+    return { headSha: state.headSha, changed: state.paths, untracked: state.untracked };
+  }
+
   async captureReview(worktree: Worktree): Promise<ReviewBranchContext> {
     return (await this.reviewSnapshot(worktree)).context;
   }

@@ -727,6 +727,41 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
     expect(files).toContain('Handoff warnings (4 different, all in the manifest)');
     expect(files).not.toContain('r4: no completed turn either.');
   });
+
+  it('says where a parent with no completed turn stopped, bounded and on one line (R-C17 part 2)', () => {
+    const files = (cutOff?: NonNullable<BriefParentRun['handoff']>['cutOff']) =>
+      composeBrief(
+        briefInput({
+          parentRun: {
+            role: 'implement',
+            finalMessage: 'Step time limit reached.',
+            handoff: { ...handoff, ...(cutOff ? { cutOff } : {}) },
+          },
+        }),
+      )
+        .split('## Files to read\n\n')[1]!
+        .split('\n## ')[0]!;
+    const path = '/runs/r2/handoff/0000-cut-off.md';
+    const paths = Array.from({ length: 10 }, (_, i) => ({
+      path: `src/f${i}.rs`,
+      untracked: i === 9,
+    }));
+    expect(
+      files({ path, messages: 5, headSha: 'a'.repeat(40), uncommitted: { paths, total: 12 } }),
+    ).toContain(
+      `Where it stopped is in \`${path}\`: its last 5 assistant messages; its head commit was \`${'a'.repeat(12)}\`, and it left 12 uncommitted files: \`src/f0.rs\`, \`src/f1.rs\`, \`src/f2.rs\`, \`src/f3.rs\`, \`src/f4.rs\`, \`src/f5.rs\`, \`src/f6.rs\`, \`src/f7.rs\`, \`src/f8.rs\`, \`src/f9.rs\` (untracked), and 2 more. Read it and check the worktree before redoing its work.`,
+    );
+    expect(
+      files({ path, messages: 1, headSha: 'b'.repeat(40), uncommitted: { paths: [], total: 0 } }),
+    ).toContain(
+      `its last assistant message; its head commit was \`${'b'.repeat(12)}\`, with nothing uncommitted.`,
+    );
+    const unreadable = files({ path, messages: 0, unreadable: 'fatal: not a git\nrepository `x`' });
+    expect(unreadable).toContain(
+      'it recorded no assistant message; the worktree could not be read (fatal: not a git?repository ?x?).',
+    );
+    expect(files()).not.toContain('ended without completing a turn');
+  });
 });
 
 /**

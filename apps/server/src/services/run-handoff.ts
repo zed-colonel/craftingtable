@@ -204,6 +204,41 @@ export function latestReviewReport(
 export const HANDOFF_READING =
   'Paths here are relative to this manifest. Reports with status complete are structurally validated reviewer assertions; reconcile unstructured or invalid reports against the conversation, and ask the operator about unresolved ambiguity. Earlier findings may be corrected or withdrawn later: do not treat every historical statement as a current finding, and preserve finding IDs across review rounds. The findings file, when there is one, is derived from valid reports at the delivered event cursors; an omitted closed finding keeps its last reviewer disposition.';
 
+/** Where a run's worktree stood when its handoff was written, or why it could not be read. */
+export type StoppedWorktree =
+  | {
+      readonly headSha: string;
+      readonly changed: readonly string[];
+      readonly untracked: readonly string[];
+    }
+  | { readonly unreadable: string };
+
+/** How much of a cut-off run its handoff carries (R-C17 part 2). */
+export const CUT_OFF_BOUNDS = {
+  /** Its last assistant messages, each cut to a size. */
+  messages: 5,
+  messageBytes: 4 * 1024,
+  /** The uncommitted files the record lists, and the few the brief names. */
+  paths: 200,
+  briefPaths: 10,
+} as const;
+
+/**
+ * Where a parent that ended with no completed turn stopped (R-C17 part 2): the record's path and
+ * what the brief repeats of it.
+ */
+export interface CutOffRecord {
+  readonly path: string;
+  readonly messages: number;
+  readonly headSha?: string;
+  /** The first uncommitted files, tracked then untracked, and how many there are. */
+  readonly uncommitted?: {
+    readonly paths: readonly { readonly path: string; readonly untracked: boolean }[];
+    readonly total: number;
+  };
+  readonly unreadable?: string;
+}
+
 export interface HandoffFiles {
   readonly manifestPath: string;
   readonly finalMessagePath: string;
@@ -212,6 +247,98 @@ export interface HandoffFiles {
   readonly findingsPath?: string;
   /** The immediate parent's review report, when it has one. */
   readonly reportPath?: string;
+  /** Where the immediate parent stopped, when it ended with no completed turn. */
+  readonly cutOff?: CutOffRecord;
+}
+
+/** A repository path or message as one line: control characters and backticks shown as `?`. */
+export function oneLine(text: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are replaced
+  return text.replace(/[\u0000-\u001f\u007f`]/g, '?');
+}
+
+function utf8Prefix(text: string, bytes: number): { text: string; cut: boolean } {
+  if (Buffer.byteLength(text) <= bytes) return { text, cut: false };
+  return {
+    text: Buffer.from(text)
+      .subarray(0, bytes)
+      .toString('utf8')
+      .replace(/\uFFFD$/, ''),
+    cut: true,
+  };
+}
+
+/**
+ * The record of where a run that ended with no completed turn stopped: its head commit and the
+ * worktree's uncommitted files, as the handoff found them, and its last assistant messages.
+ */
+function cutOffRecord(
+  run: AgentRun,
+  messages: readonly {
+    readonly sequence: number;
+    readonly occurredAt: string;
+    readonly text: string;
+  }[],
+  total: number,
+  worktree: StoppedWorktree | undefined,
+): { readonly text: string; readonly summary: Omit<CutOffRecord, 'path'> } {
+  const lines = [
+    `# Where run ${run.id} stopped`,
+    '',
+    `The ${run.role} run ended (${run.status}) without completing a turn, so it left no final message. This is what it left, as this handoff was written.`,
+    '',
+    '## Head commit and uncommitted files',
+    '',
+  ];
+  let summary: Omit<CutOffRecord, 'path'> = { messages: messages.length };
+  if (worktree === undefined || 'unreadable' in worktree) {
+    const why = worktree?.unreadable ?? 'it was not read';
+    lines.push(`The worktree could not be read: ${oneLine(why)}`);
+    summary = { ...summary, unreadable: why };
+  } else {
+    const paths = [
+      ...worktree.changed.map((path) => ({ path, untracked: false })),
+      ...worktree.untracked.map((path) => ({ path, untracked: true })),
+    ];
+    const shown = ({ path, untracked }: (typeof paths)[number]) =>
+      `${oneLine(path)}${untracked ? ' (untracked)' : ''}`;
+    lines.push(`Head commit: ${worktree.headSha}`, '');
+    if (!paths.length) lines.push('Nothing uncommitted: the worktree matched its head commit.');
+    else {
+      lines.push(
+        `${paths.length} uncommitted ${paths.length === 1 ? 'file' : 'files'}, tracked then untracked:`,
+      );
+      for (const path of paths.slice(0, CUT_OFF_BOUNDS.paths)) lines.push(`- ${shown(path)}`);
+      if (paths.length > CUT_OFF_BOUNDS.paths)
+        lines.push(
+          `- and ${paths.length - CUT_OFF_BOUNDS.paths} more (git status in the worktree lists them)`,
+        );
+    }
+    summary = {
+      ...summary,
+      headSha: worktree.headSha,
+      uncommitted: { paths: paths.slice(0, CUT_OFF_BOUNDS.briefPaths), total: paths.length },
+    };
+  }
+  lines.push(
+    '',
+    '## Its last assistant messages',
+    '',
+    messages.length
+      ? `The last ${messages.length} of its ${total} assistant ${total === 1 ? 'message' : 'messages'}, oldest first; its conversation file has every message whole.`
+      : 'It recorded no assistant message.',
+  );
+  for (const message of messages) {
+    const shown = utf8Prefix(message.text, CUT_OFF_BOUNDS.messageBytes);
+    lines.push(
+      '',
+      `### Event ${message.sequence} (${message.occurredAt})`,
+      '',
+      shown.text,
+      ...(shown.cut ? ['', '[cut here; the conversation file has the rest]'] : []),
+    );
+  }
+  return { text: `${lines.join('\n')}\n`, summary };
 }
 
 /**
@@ -223,6 +350,8 @@ export function writeRunHandoff(
   execution: Execution,
   parent: AgentRun,
   directory: string,
+  /** Where the parent's worktree stands now, read when the parent has no completed turn. */
+  stopped?: StoppedWorktree,
 ): HandoffFiles {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   let byteLength = 0;
@@ -238,6 +367,7 @@ export function writeRunHandoff(
     else writeFileSync(path, text, { mode: 0o600 });
   };
   const warnings: string[] = [];
+  let cutOff: CutOffRecord | undefined;
   const inherited = sourceRuns(execution, parent);
   if (inherited.length > 1000)
     throw new ExecutionRequestError('conflict', 'The handoff exceeds 1000 source runs');
@@ -254,8 +384,20 @@ export function writeRunHandoff(
     let lastFinal = limit === undefined ? (run.outcomeSummary ?? '') : '';
     let hasFinal = false;
     let truncatedMessages = 0;
+    // The immediate parent's last assistant messages, in case it never completed a turn.
+    const lastMessages: { sequence: number; occurredAt: string; text: string }[] = [];
+    let assistantMessages = 0;
     for (const event of runEvents(execution, run, limit)) {
       throughSequence = event.sequence;
+      if (index === 0 && event.kind === 'assistant-message') {
+        assistantMessages += 1;
+        lastMessages.push({
+          sequence: event.sequence,
+          occurredAt: event.occurredAt,
+          text: event.payload.text,
+        });
+        if (lastMessages.length > CUT_OFF_BOUNDS.messages) lastMessages.shift();
+      }
       if (
         event.kind !== 'assistant-message' &&
         event.kind !== 'user-message' &&
@@ -284,6 +426,14 @@ export function writeRunHandoff(
       warnings.push(
         `${run.id}: no completed turn; the final-message file contains only the available summary.`,
       );
+    // A parent cut off with no completed turn (at the step limit, or interrupted) left no final
+    // message: its record gives where it stopped (R-C17 part 2).
+    const record = index === 0 && !hasFinal ? `${prefix}-cut-off.md` : undefined;
+    if (record !== undefined) {
+      const made = cutOffRecord(run, lastMessages, assistantMessages, stopped);
+      write(join(directory, record), made.text);
+      cutOff = { path: join(directory, record), ...made.summary };
+    }
     if (truncatedMessages > 0)
       warnings.push(
         `${run.id}: ${truncatedMessages} recorded message(s) were already truncated upstream. Their missing text cannot be recovered from this journal.`,
@@ -306,6 +456,7 @@ export function writeRunHandoff(
       conversation,
       finalMessage,
       ...(report === undefined ? {} : { report }),
+      ...(record === undefined ? {} : { cutOff: record }),
     };
   });
   let findingsPath: string | undefined;
@@ -360,5 +511,6 @@ export function writeRunHandoff(
     sources: sources.map(({ runId, throughSequence }) => ({ runId, throughSequence })),
     ...(findingsPath ? { findingsPath } : {}),
     ...(sources[0]?.report ? { reportPath: join(directory, sources[0].report) } : {}),
+    ...(cutOff ? { cutOff } : {}),
   };
 }

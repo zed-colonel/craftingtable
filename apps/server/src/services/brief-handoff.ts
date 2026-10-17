@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import type { AgentRunRole } from '@craftingtable/domain';
-import type { HandoffFiles } from './run-handoff.js';
+import { type CutOffRecord, type HandoffFiles, oneLine } from './run-handoff.js';
 
 /**
  * The run a brief continues from, as the brief carries it (ADR-024, amended by R-G6): the
@@ -225,6 +225,29 @@ export function parentSections(
   return [`## Previous ${parent.role} run\n\n${body}`];
 }
 
+/**
+ * Where a parent that ended with no completed turn stopped (R-C17 part 2): its record, head
+ * commit and the first of its uncommitted files, so the next run starts from them.
+ */
+function cutOffParagraph(record: CutOffRecord, at: (path: string) => string): string {
+  const uncommitted = record.uncommitted;
+  const worktree =
+    record.unreadable !== undefined
+      ? `the worktree could not be read (${oneLine(record.unreadable)})`
+      : !uncommitted?.total
+        ? `its head commit was \`${record.headSha?.slice(0, 12)}\`, with nothing uncommitted`
+        : `its head commit was \`${record.headSha?.slice(0, 12)}\`, and it left ${uncommitted.total} uncommitted ${uncommitted.total === 1 ? 'file' : 'files'}: ${uncommitted.paths
+            .map(({ path, untracked }) => `\`${oneLine(path)}\`${untracked ? ' (untracked)' : ''}`)
+            .join(
+              ', ',
+            )}${uncommitted.total > uncommitted.paths.length ? `, and ${uncommitted.total - uncommitted.paths.length} more` : ''}`;
+  const messages =
+    record.messages === 0
+      ? 'it recorded no assistant message'
+      : `its last ${record.messages === 1 ? 'assistant message' : `${record.messages} assistant messages`}`;
+  return `The previous run ended without completing a turn, so it left no final message. Where it stopped is in \`${at(record.path)}\`: ${messages}; ${worktree}. Read it and check the worktree before redoing its work.`;
+}
+
 /** The handoff in the files to read: where the lineage is; how to read it is in its manifest. */
 export function handoffParagraphs(
   parent: BriefParentRun | undefined,
@@ -241,6 +264,7 @@ export function handoffParagraphs(
         : `Handoff: \`${at(handoff.manifestPath)}\` lists this lineage's conversations and reports, with earlier messages and operator corrections, and how to read them; read them before starting.`,
       `The previous run's full final message is \`${at(handoff.finalMessagePath)}\`${handoff.reportPath ? `, its review report \`${at(handoff.reportPath)}\`` : ''}${handoff.findingsPath ? `; active findings and closed history: \`${at(handoff.findingsPath)}\`` : ''}.`,
     ].join(' '),
+    ...(handoff.cutOff ? [cutOffParagraph(handoff.cutOff, at)] : []),
     ...(warnings.length
       ? [
           `Handoff warnings${warnings.length > LISTED_WARNINGS ? ` (${warnings.length} different, all in the manifest)` : ''}:\n${warnings

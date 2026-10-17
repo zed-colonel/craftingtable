@@ -19,20 +19,8 @@
         },
         {
           "mode": "scheduler",
-          "golden": "scheduler-golden-3c9d430.json",
-          "goldenSha256": "93ad70a2ac18360094d41923cf29ea829174257f591510b1b98a73003db62d78",
-          "expected": [
-            {
-              "key": "attention:roadmap:b81d5f92-c636-4a16-af1f-bb1388d58d2e:entry:851cee39-bbf4-41b7-95c4-0308c48da660:cycle-ended/cycle-needs-attention",
-              "nowSha256": "677634b54fe58f6a6c807c793cca0d7f5a5216b32fb226c96f7944a9197416f6",
-              "reason": "R-C10 follow-up increment 2 (decision 7): wi/WI-02/domain's verification cycle ccefcf1c was stopped by the operator (\"Automation stopped by operator.\"), so the entry waits as cycle-ended, which had no item. The pass now projects one (code cycle-needs-attention, opening the board); Re-verify is not offered on it, as reverification() refuses that entry in the snapshot."
-            },
-            {
-              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/851cee39-bbf4-41b7-95c4-0308c48da660",
-              "nowSha256": "f3e9ed14651491c91dcfa3d6123cc62d0feb054032ecf23b15b3c15559fb0ce9",
-              "reason": "R-C10 follow-up increment 2 (decision 7): the same entry's status-list row now reads its wait from that item (source attention-item, its id and the item's message) instead of the cycle-ended entry wait; state, actor, cycle and since are unchanged."
-            }
-          ]
+          "golden": "scheduler-golden-318e82d.json",
+          "goldenSha256": "41c6cd161d838ac544ca3f9a605418f2cab1df1e1890ca62a31dc5b937795ea3"
         },
         {
           "mode": "cycles",

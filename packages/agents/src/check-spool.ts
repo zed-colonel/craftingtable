@@ -41,6 +41,12 @@ export interface CheckRequest {
   readonly args: readonly string[];
 }
 
+/**
+ * The longest a launcher waits for the daemon to start a claimed check (R-C17 LOW-4 review): a
+ * day, the longest a step may run, so a launcher whose daemon left its request unanswered still
+ * ends without cutting a check that waits its turn.
+ */
+const QUEUED_LIMIT_MS = 24 * 60 * 60_000;
 /** What a request may weigh, and how many arguments it may carry. */
 const REQUEST_LIMIT_BYTES = 64 * 1024;
 const ARGUMENT_LIMIT = 512;
@@ -55,8 +61,10 @@ const path = (spool: string, id: string, suffix: string) => join(spool, `${id}.$
  * this run. `limitMs` bounds the wait from the daemon's start of the check (R-C17 LOW-4): a
  * claimed check can wait in its run's queue behind another (a run's declared checks and Cargo
  * builds run one at a time), and the daemon answers a queued request when it is cancelled or
- * its run ends, so the launcher never cancels a check for its time in the queue. The daemon
- * enforces the check's own time limit.
+ * its run ends, so the launcher never cancels a check for its time in the queue. While it is
+ * queued, the launcher still gives up when the spool no longer holds its request (the run's
+ * directory went), or after `queuedMs` (a day, the longest a step may run). The daemon enforces
+ * the check's own time limit.
  */
 export async function submitCheck(
   spool: string,
@@ -66,6 +74,7 @@ export async function submitCheck(
   limitMs: number,
   claimMs = 30_000,
   pollMs = 200,
+  queuedMs = QUEUED_LIMIT_MS,
 ): Promise<void> {
   const id = randomUUID();
   const request: CheckRequest = { version: 1, tool, args };
@@ -118,8 +127,22 @@ export async function submitCheck(
         return;
       }
       if (started === undefined && existsSync(path(replies, id, 'started'))) started = Date.now();
-      if (existsSync(path(spool, id, 'request')) && Date.now() - requested > claimMs) {
+      const waiting = existsSync(path(spool, id, 'request'));
+      if (waiting && Date.now() - requested > claimMs) {
         console.error('CraftingTable did not pick up this check; the daemon may be stopped.');
+        process.exitCode = 1;
+        return;
+      }
+      // Queued and never started: the daemon renames a request to `.claimed` and never removes
+      // it, so neither name means the spool is gone with its run (R-C17 LOW-4 review).
+      if (started === undefined && !waiting && !existsSync(path(spool, id, 'claimed'))) {
+        console.error('CraftingTable no longer holds this check request; its run may have ended.');
+        process.exitCode = 1;
+        return;
+      }
+      if (started === undefined && Date.now() - requested > queuedMs) {
+        cancel();
+        console.error('CraftingTable did not start this check within a day; it was cancelled.');
         process.exitCode = 1;
         return;
       }

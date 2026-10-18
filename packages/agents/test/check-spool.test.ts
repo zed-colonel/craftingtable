@@ -106,8 +106,18 @@ it('refuses malformed requests and names outside the protocol (R-G4)', () => {
   expect(existsSync(join(s.directory, `${ID}.claimed`))).toBe(true);
 });
 
-/** A launcher with a short limit, which the test answers as the daemon would. */
-async function launch(limitMs: number) {
+/** Launchers the tests start: each is killed when its test ends, whatever it asserted. */
+const launchers: ReturnType<typeof spawn>[] = [];
+afterEach(() => {
+  for (const launcher of launchers.splice(0))
+    if (launcher.exitCode === null && launcher.signalCode === null) launcher.kill('SIGKILL');
+});
+
+/** A launcher with short limits, which the test answers as the daemon would. */
+async function launch(
+  limitMs: number,
+  { claimMs = 30_000, queuedMs = 86_400_000, claim = true } = {},
+) {
   const s = spool();
   const module = new URL('../src/check-spool.ts', import.meta.url).href;
   const launcher = spawn(
@@ -115,10 +125,11 @@ async function launch(limitMs: number) {
     [
       '--input-type=module',
       '-e',
-      `import(${JSON.stringify(module)}).then(m=>m.submitCheck(${JSON.stringify(s.directory)},${JSON.stringify(s.replies)},'ct-check',['--declared','b'],${limitMs},30000,20))`,
+      `import(${JSON.stringify(module)}).then(m=>m.submitCheck(${JSON.stringify(s.directory)},${JSON.stringify(s.replies)},'ct-check',['--declared','b'],${limitMs},${claimMs},20,${queuedMs}))`,
     ],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );
+  launchers.push(launcher);
   let stderr = '';
   launcher.stderr.on('data', (d) => (stderr += d));
   const closed = new Promise<number | null>((resolve) => launcher.once('close', resolve));
@@ -128,14 +139,14 @@ async function launch(limitMs: number) {
     if (!id) await new Promise((r) => setTimeout(r, 20));
   }
   expect(id, stderr).toBeDefined();
-  expect(claimCheckRequest(s.directory, id!)).toHaveProperty('request');
+  if (claim) expect(claimCheckRequest(s.directory, id!)).toHaveProperty('request');
   return { s, id: id!, closed, stderr: () => stderr, exited: () => launcher.exitCode !== null };
 }
 
 it("counts a launcher's limit from the daemon's start of its check, not from its request: a check queued past the limit is not cancelled while it waits (R-C17 LOW-4)", async () => {
-  const { s, id, closed, stderr, exited } = await launch(300);
+  const { s, id, closed, stderr, exited } = await launch(1000);
   // Claimed and queued behind another check of the run for well past the launcher's limit.
-  await new Promise((r) => setTimeout(r, 900));
+  await new Promise((r) => setTimeout(r, 2500));
   expect(exited(), stderr()).toBe(false);
   expect(existsSync(join(s.directory, `${id}.cancel`))).toBe(false);
   const reply = new CheckReply(s.directory, s.replies, id);
@@ -158,6 +169,30 @@ it('once the daemon has started its check, a launcher still gives up at its limi
   expect(await closed).toBe(1);
   expect(stderr()).toContain('CraftingTable did not report this check within its time limit.');
   expect(existsSync(join(s.directory, `${id}.cancel`))).toBe(true);
+});
+
+it('a launcher whose request nobody claims gives up at its pickup limit, whatever its time limit (R-C17 LOW-4 review)', async () => {
+  const { closed, stderr } = await launch(600_000, { claimMs: 300, claim: false });
+  expect(await closed).toBe(1);
+  expect(stderr()).toContain(
+    'CraftingTable did not pick up this check; the daemon may be stopped.',
+  );
+});
+
+it('a queued launcher gives up once its spool is gone, and after a day unstarted it asks for cancellation (R-C17 LOW-4 review)', async () => {
+  const gone = await launch(600_000);
+  rmSync(gone.s.root, { recursive: true, force: true });
+  expect(await gone.closed).toBe(1);
+  expect(gone.stderr()).toContain(
+    'CraftingTable no longer holds this check request; its run may have ended.',
+  );
+  // The day's bound, shortened.
+  const late = await launch(600_000, { queuedMs: 500 });
+  expect(await late.closed).toBe(1);
+  expect(late.stderr()).toContain(
+    'CraftingTable did not start this check within a day; it was cancelled.',
+  );
+  expect(existsSync(join(late.s.directory, `${late.id}.cancel`))).toBe(true);
 });
 
 it("never follows a link the agent plants for the daemon's start marker (R-C17 LOW-4)", () => {

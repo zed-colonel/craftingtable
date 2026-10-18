@@ -9,7 +9,10 @@ import type { ManifestDeclaredChecks } from '@craftingtable/domain';
 const MINUTE = 60_000;
 /** The limit of a check whose manifest names none, as before. */
 const DEFAULT_CHECK_TIMEOUT_MS = 30 * MINUTE;
-/** How long a launcher waits past the longest limit for the daemon's answer, as before. */
+/**
+ * How long a launcher waits past the longest limit for the daemon's answer, from the daemon's start
+ * of the check (R-C17 LOW-4), as before.
+ */
 const LAUNCHER_GRACE_MS = 5 * MINUTE;
 
 /**
@@ -33,9 +36,10 @@ export function checkTimeLimit(input: {
 }
 
 /**
- * How long a run's launcher waits for the daemon's answer: past the longest limit any of its
- * checks may have, its own declared ones included, so a launcher never gives up (and cancels) a
- * check the daemon is still allowed to run.
+ * How long a run's launcher waits for the daemon's answer once the daemon has started its check:
+ * past the longest limit any of its checks may have, its own declared ones included, so a
+ * launcher never gives up (and cancels) a check the daemon is still allowed to run. Its wait in
+ * the run's queue before that is bounded apart (`submitCheck`).
  */
 export function spoolLimitMs(manifest: {
   readonly checkTimeoutMs?: number;

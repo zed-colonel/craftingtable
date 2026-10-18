@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
@@ -339,7 +339,7 @@ describe('the cut-off record (R-C17 part 2)', () => {
     });
   });
 
-  it('says when the last turn ended in error rather than never completing (R-C17 part 2 L-4)', () => {
+  it('says when the last completed turn ended in error rather than never completing (R-C17 part 2 L-4)', () => {
     const { text, summary } = cutOffRecord(
       { ...run, status: 'failed' },
       [message(3, 'Working.')],
@@ -459,7 +459,15 @@ describe("which runs' handoffs carry the record after an error turn (R-C17 part 
   const said = (text: string): Event => ({ kind: 'assistant-message', payload: { text } });
   const asked = (text: string): Event => ({ kind: 'user-message', payload: { text } });
   const worktree = { headSha: 'a'.repeat(40), changed: [], untracked: ['wip.txt'] };
-  const directory = () => mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'ct-cut-off-'));
+  const made: string[] = [];
+  afterEach(() => {
+    for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  const directory = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ct-cut-off-'));
+    made.push(dir);
+    return dir;
+  };
 
   it('gives none after an error turn the run later completed a turn past', () => {
     const parent = run('p');

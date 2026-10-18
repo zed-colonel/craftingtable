@@ -124,7 +124,8 @@ function launcherImport(url: string): string {
 }
 /**
  * Writes the run's check launchers. With a spool, each only asks the daemon to run the check
- * (R-G4); `limitMs` bounds its wait for the daemon's answer.
+ * (R-G4); `limitMs` bounds its wait for the daemon's answer once the daemon has started the check
+ * (R-C17 LOW-4).
  */
 export function prepareLocalCheckLaunchers(
   bin: string,

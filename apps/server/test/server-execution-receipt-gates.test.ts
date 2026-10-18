@@ -1190,6 +1190,76 @@ itNeedsCargo(
 );
 
 itNeedsCargo(
+  "answers a run's queued checks when they are cancelled or the run ends, never starting them (R-C17 LOW-4 review)",
+  async () => {
+    // The launchers wait unbounded while their check is queued: these answers are their way out.
+    const declared = checkGate();
+    const f = await scopedRuntimeFixture(
+      ['a', 'b', 'c'].map((id) => ({
+        id: asDeclaredCheckId(id),
+        argv: [...declared.command],
+        definitionPaths: [],
+      })),
+    );
+    withoutDaemonChecks(f.state);
+    let spool = '';
+    f.backend.replyForRequest = (request) => {
+      spool = join(request.buildEnvironment!.binDirectory, '../requests');
+      for (const [i, check] of ['a', 'b', 'c'].entries())
+        writeFileSync(
+          join(spool, `00000000-0000-4000-8000-${String(i).padStart(12, '0')}.request`),
+          JSON.stringify({ version: 1, tool: 'ct-check', args: ['--declared', check] }),
+        );
+      return { resultText: 'Checks requested.' };
+    };
+    const started = await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/work-items/${f.state.workItemId}/runs`,
+      headers: mutationHeaders(f.state),
+      payload: { worktreeId: f.tree.id, role: 'review' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const run = started.json().run.id as string;
+    const status = () =>
+      f.state.context.storage.execution.runs.find(f.state.workspaceId, run as never)?.status;
+    await waitFor(() => status() === 'waiting', 'the reviewer');
+    await waitUntil(() => declared.pids().length === 1, 'the first rerun running');
+    const replies = join(f.state.context.config.execution.checkLogRoot, run, 'replies');
+    const id = (i: number) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
+    const answer = (i: number) => {
+      try {
+        return JSON.parse(readFileSync(join(replies, `${id(i)}.exit`), 'utf8'));
+      } catch {
+        return undefined;
+      }
+    };
+    // The second is cancelled while it waits: answered, never started.
+    writeFileSync(join(spool, `${id(1)}.cancel`), '');
+    await waitUntil(() => answer(1) !== undefined, 'the cancelled check answered');
+    expect(answer(1)).toEqual({
+      exitCode: 1,
+      diagnostic: 'The check was cancelled before it started.',
+    });
+    expect(existsSync(join(replies, `${id(1)}.started`))).toBe(false);
+    // The run ends while the third waits: answered, never started.
+    await f.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.state.workspaceId}/runs/${run}/control`,
+      headers: mutationHeaders(f.state),
+      payload: { action: 'end' },
+    });
+    await waitUntil(() => answer(2) !== undefined, 'the queued check answered at the run end');
+    expect(answer(2)).toEqual({
+      exitCode: 1,
+      diagnostic: 'This run has ended; the check did not run.',
+    });
+    expect(existsSync(join(replies, `${id(2)}.started`))).toBe(false);
+    expect(existsSync(join(replies, `${id(0)}.started`))).toBe(true);
+    await waitFor(() => status() === 'finished', 'finish');
+  },
+);
+
+itNeedsCargo(
   'the daemon runs at most four checks of a run at once and refuses more than 32 waiting (R-G4 review)',
   async () => {
     const f = await scopedRuntimeFixture();

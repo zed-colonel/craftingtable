@@ -1,10 +1,11 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
-import { asAgentRunId } from '@craftingtable/domain';
+import { type AgentRun, asAgentRunId } from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BranchService } from '../src/services/branch-service.js';
-import { CUT_OFF_BOUNDS, cutOffRecord } from '../src/services/run-handoff.js';
+import { CUT_OFF_BOUNDS, cutOffRecord, writeRunHandoff } from '../src/services/run-handoff.js';
 import {
   cleanupExecutionFixtures,
   commitFile,
@@ -228,7 +229,7 @@ it("hands a service retry after a turn that ended in error the run's last messag
     'Turn ended: error_during_execution',
   );
   const record = readFileSync(join(handoff, '0000-cut-off.md'), 'utf8');
-  expect(record).toContain('its last turn ended in error');
+  expect(record).toContain('its last completed turn in error');
   expect(record).not.toContain('without completing a turn');
   expect(record).toContain('Found the slow test: flow_capacity is quadratic.');
   expect(record).toContain('Rewriting the loop now.');
@@ -236,7 +237,7 @@ it("hands a service retry after a turn that ended in error the run's last messag
   expect(record).toContain('wip.txt (untracked)');
   const brief = readFileSync(join(root, 'brief.md'), 'utf8');
   expect(brief).toContain(
-    "The previous run's last turn ended in error, so its final-message file holds only that turn's result. Where it stopped is in `handoff/0000-cut-off.md`: its last 2 assistant messages;",
+    "The previous run's last completed turn ended in error, so its final-message file holds only that turn's result. Where it stopped is in `handoff/0000-cut-off.md`: its last 2 assistant messages;",
   );
   expect(brief).toContain('`wip.txt` (untracked)');
 });
@@ -347,7 +348,7 @@ describe('the cut-off record (R-C17 part 2)', () => {
       true,
     );
     expect(text).toContain(
-      "The implement run ended (failed) after its last turn ended in error, so its final message holds only that turn's result.",
+      "The implement run (failed) ended its last completed turn in error, so its final message holds only that turn's result.",
     );
     expect(text).not.toContain('without completing a turn');
     expect(summary).toMatchObject({ messages: 1, endedInError: true });
@@ -410,5 +411,98 @@ describe("reading where a run's worktree stands (R-C17 part 2 review L-2)", () =
       untracked: ['notes.txt'],
       conflicted: true,
     });
+  });
+});
+
+describe("which runs' handoffs carry the record after an error turn (R-C17 part 2 L-4 review L-2)", () => {
+  type Event = { readonly kind: string; readonly payload: Record<string, unknown> };
+  const run = (id: string, parentRunId?: string) =>
+    ({
+      id,
+      workspaceId: 'ws',
+      worktreeId: 'tree',
+      workItemId: 'item',
+      role: 'implement',
+      status: 'failed',
+      outcomeSummary: 'summary',
+      ...(parentRunId ? { parentRunId } : {}),
+    }) as unknown as AgentRun;
+  /** The journal reads `writeRunHandoff` makes, over events held in memory. */
+  const journal = (runs: readonly AgentRun[], events: Record<string, readonly Event[]>) => {
+    const stored = (id: string) =>
+      (events[id] ?? []).map((event, i) => ({
+        ...event,
+        sequence: i + 1,
+        occurredAt: '2026-10-17T00:00:00Z',
+        runId: id,
+        workspaceId: 'ws',
+      }));
+    return {
+      runs: { find: (_ws: string, id: string) => runs.find((r) => r.id === id) },
+      runEvents: {
+        listAfter: ({ runId, after, limit }: { runId: string; after: number; limit: number }) =>
+          stored(runId)
+            .filter((event) => event.sequence > after)
+            .slice(0, limit),
+        latestOfKind: (_ws: string, runId: string, kind: string) =>
+          stored(runId)
+            .filter((event) => event.kind === kind)
+            .at(-1),
+      },
+      cycles: { activeForWorktree: () => undefined },
+    } as never;
+  };
+  const turn = (outcome: 'success' | 'error', resultText: string): Event => ({
+    kind: 'turn-completed',
+    payload: { outcome, resultText, turns: 1, durationMs: 1 },
+  });
+  const said = (text: string): Event => ({ kind: 'assistant-message', payload: { text } });
+  const asked = (text: string): Event => ({ kind: 'user-message', payload: { text } });
+  const worktree = { headSha: 'a'.repeat(40), changed: [], untracked: ['wip.txt'] };
+  const directory = () => mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'ct-cut-off-'));
+
+  it('gives none after an error turn the run later completed a turn past', () => {
+    const parent = run('p');
+    const dir = directory();
+    const files = writeRunHandoff(
+      journal([parent], {
+        p: [
+          asked('go'),
+          said('a'),
+          turn('error', 'Turn ended: error_during_execution'),
+          asked('again'),
+          said('b'),
+          turn('success', 'Done.'),
+        ],
+      }),
+      parent,
+      dir,
+      worktree,
+    );
+    expect(files.cutOff).toBeUndefined();
+    expect(existsSync(join(dir, '0000-cut-off.md'))).toBe(false);
+  });
+
+  it("gives one to the immediate parent only, never an older run's error turn", () => {
+    const older = run('old');
+    const parent = run('p', 'old');
+    const runs = [older, parent];
+    const events = {
+      old: [asked('go'), said('x'), turn('error', 'The selected model is at capacity.')],
+      p: [asked('go'), said('y'), turn('success', 'Done.')],
+    };
+    const dir = directory();
+    expect(writeRunHandoff(journal(runs, events), parent, dir, worktree).cutOff).toBeUndefined();
+    expect(existsSync(join(dir, '0001-cut-off.md'))).toBe(false);
+    // Both errored: the record is the immediate parent's, at its own path.
+    const both = directory();
+    const files = writeRunHandoff(
+      journal(runs, { ...events, p: [asked('go'), said('y'), turn('error', 'Again.')] }),
+      parent,
+      both,
+      worktree,
+    );
+    expect(files.cutOff?.path).toBe(join(both, '0000-cut-off.md'));
+    expect(existsSync(join(both, '0001-cut-off.md'))).toBe(false);
   });
 });

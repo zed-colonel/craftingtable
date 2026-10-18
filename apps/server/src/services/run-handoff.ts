@@ -235,8 +235,8 @@ export const CUT_OFF_BOUNDS = {
 } as const;
 
 /**
- * Where a parent that ended with no completed turn stopped (R-C17 part 2): the record's path and
- * what the brief repeats of it.
+ * Where a parent stopped that never completed a turn, or whose latest completed turn ended in
+ * error (R-C17 part 2 and its L-4): the record's path and what the brief repeats of it.
  */
 export interface CutOffRecord {
   readonly path: string;
@@ -250,7 +250,10 @@ export interface CutOffRecord {
   readonly unreadable?: string;
   /** Git reported conflicts or an operation in progress (a merge, cherry-pick, revert or rebase). */
   readonly conflicted?: boolean;
-  /** The run completed its last turn in error (R-C17 part 2 L-4); absent when it never did. */
+  /**
+   * Its latest completed turn ended in error (R-C17 part 2 L-4); absent when it never completed a
+   * turn.
+   */
   readonly endedInError?: true;
 }
 
@@ -262,7 +265,10 @@ export interface HandoffFiles {
   readonly findingsPath?: string;
   /** The immediate parent's review report, when it has one. */
   readonly reportPath?: string;
-  /** Where the immediate parent stopped, when its last turn never completed or ended in error. */
+  /**
+   * Where the immediate parent stopped, when it never completed a turn or its latest completed
+   * turn ended in error.
+   */
   readonly cutOff?: CutOffRecord;
 }
 
@@ -286,9 +292,9 @@ function fencedMessage(text: string): string {
 }
 
 /**
- * The record of where a run stopped that ended with no completed turn, or whose last turn ended
- * in error (a provider failure or quota; R-C17 part 2 L-4): its head commit and the worktree's
- * uncommitted files, as the handoff found them, and its last assistant messages.
+ * The record of where a run stopped that never completed a turn, or whose latest completed turn
+ * ended in error (a provider failure or quota; R-C17 part 2 L-4): its head commit and the
+ * worktree's uncommitted files, as the handoff found them, and its last assistant messages.
  */
 export function cutOffRecord(
   run: Pick<AgentRun, 'id' | 'role' | 'status'>,
@@ -302,7 +308,7 @@ export function cutOffRecord(
   endedInError = false,
 ): { readonly text: string; readonly summary: Omit<CutOffRecord, 'path'> } {
   const ended = endedInError
-    ? `ended (${run.status}) after its last turn ended in error, so its final message holds only that turn's result`
+    ? `(${run.status}) ended its last completed turn in error, so its final message holds only that turn's result`
     : `ended (${run.status}) without completing a turn, so it left no final message`;
   const lines = [
     `# Where run ${run.id} stopped`,
@@ -393,7 +399,10 @@ export function writeRunHandoff(
   execution: Execution,
   parent: AgentRun,
   directory: string,
-  /** Where the parent's worktree stands now, read when the parent has no completed turn. */
+  /**
+   * Where the parent's worktree stands now, read when the parent never completed a turn or its
+   * latest completed turn ended in error.
+   */
   stopped?: StoppedWorktree,
 ): HandoffFiles {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -428,7 +437,7 @@ export function writeRunHandoff(
     let hasFinal = false;
     let endedInError = false;
     let truncatedMessages = 0;
-    // The immediate parent's last assistant messages, in case it never completed a turn.
+    // The immediate parent's last assistant messages, in case it gets a cut-off record.
     const lastMessages: { sequence: number; occurredAt: string; text: string }[] = [];
     let assistantMessages = 0;
     for (const event of runEvents(execution, run, limit)) {
@@ -472,9 +481,9 @@ export function writeRunHandoff(
         `${run.id}: no completed turn; the final-message file contains only the available summary.`,
       );
     // A parent cut off with no completed turn (at the step limit, or interrupted) left no final
-    // message, and one whose last turn ended in error (a provider failure or quota) left only that
-    // turn's result: its record gives where it stopped (R-C17 part 2 and its L-4). The warnings
-    // stay as they were: only a run with no completed turn has one.
+    // message, and one whose latest completed turn ended in error (a provider failure or quota)
+    // left only that turn's result: its record gives where it stopped (R-C17 part 2 and its L-4).
+    // The warnings stay as they were: only a run with no completed turn has one.
     const record = index === 0 && (!hasFinal || endedInError) ? `${prefix}-cut-off.md` : undefined;
     if (record !== undefined) {
       const made = cutOffRecord(run, lastMessages, assistantMessages, stopped, endedInError);

@@ -824,7 +824,7 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
         endedInError: true,
       }),
     ).toContain(
-      `The previous run's last turn ended in error, so its final-message file holds only that turn's result. Where it stopped is in \`${path}\`: its last 2 assistant messages; the worktree as this run starts: head commit \`${'f'.repeat(12)}\`, with nothing uncommitted. Read it and check the worktree before redoing its work.`,
+      `The previous run's last completed turn ended in error, so its final-message file holds only that turn's result. Where it stopped is in \`${path}\`: its last 2 assistant messages; the worktree as this run starts: head commit \`${'f'.repeat(12)}\`, with nothing uncommitted. Read it and check the worktree before redoing its work.`,
     );
   });
 });

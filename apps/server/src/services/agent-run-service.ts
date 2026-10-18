@@ -562,8 +562,9 @@ export class AgentRunService {
   }
 
   /**
-   * Where a worktree stands, for the handoff of a run that ended with no completed turn: its head
-   * commit and uncommitted files, or why they could not be read (R-C17 part 2).
+   * Where a worktree stands, for the handoff of a run that never completed a turn or whose latest
+   * completed turn ended in error: its head commit and uncommitted files, or why they could not
+   * be read (R-C17 part 2 and its L-4).
    */
   private async whereStopped(worktree: Worktree): Promise<StoppedWorktree> {
     if (!this.branches) return { unreadable: 'Git is unavailable to the daemon.' };
@@ -1714,9 +1715,9 @@ export class AgentRunService {
               this.storage.execution,
               prepared.parentRun,
               join(runDirectory, 'handoff'),
-              // A parent cut off with no completed turn, or whose last turn ended in error, left
-              // its work in the worktree: where it stopped goes into the handoff (R-C17 part 2
-              // and its L-4).
+              // A parent cut off with no completed turn, or whose latest completed turn ended in
+              // error, left its work in the worktree: where it stopped goes into the handoff
+              // (R-C17 part 2 and its L-4).
               parentTurn?.kind === 'turn-completed' && parentTurn.payload.outcome !== 'error'
                 ? undefined
                 : await this.whereStopped(prepared.worktree),

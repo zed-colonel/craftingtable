@@ -226,9 +226,9 @@ export function parentSections(
 }
 
 /**
- * Where a parent stopped that ended with no completed turn, or whose last turn ended in error
- * (R-C17 part 2 and its L-4): its record, and the worktree as this run starts from it, so the next
- * run begins from them.
+ * Where a parent stopped that never completed a turn, or whose latest completed turn ended in
+ * error (R-C17 part 2 and its L-4): its record, and the worktree as this run starts from it, so
+ * the next run begins from them.
  */
 function cutOffParagraph(record: CutOffRecord, at: (path: string) => string): string {
   const uncommitted = record.uncommitted;
@@ -251,7 +251,7 @@ function cutOffParagraph(record: CutOffRecord, at: (path: string) => string): st
       ? 'it recorded no assistant message'
       : `its last ${record.messages === 1 ? 'assistant message' : `${record.messages} assistant messages`}`;
   const ended = record.endedInError
-    ? "The previous run's last turn ended in error, so its final-message file holds only that turn's result."
+    ? "The previous run's last completed turn ended in error, so its final-message file holds only that turn's result."
     : 'The previous run ended without completing a turn, so its final-message file holds only its summary.';
   return `${ended} Where it stopped is in \`${at(record.path)}\`: ${messages}; ${worktree}. Read it and check the worktree before redoing its work.`;
 }

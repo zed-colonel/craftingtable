@@ -632,7 +632,8 @@ export class BranchService {
 
   /**
    * A worktree's head commit and what differs from it, tracked and untracked, for the handoff of
-   * a run that ended with no completed turn (R-C17 part 2). The head is read on its own, so a
+   * a run that never completed a turn or whose latest completed turn ended in error (R-C17 part 2
+   * and its L-4). The head is read on its own, so a
    * listing Git cannot give (a vast untracked directory) still leaves the head.
    */
   async uncommitted(worktree: Worktree): Promise<StoppedWorktree> {

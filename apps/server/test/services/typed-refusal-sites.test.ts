@@ -1,7 +1,7 @@
 import type { WorkCycle } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { describe, expect, it } from 'vitest';
-import { refreshOwner, requireReady } from '../../src/services/cycle-facts.js';
+import { creatorAuthorized, refreshOwner, requireReady } from '../../src/services/cycle-facts.js';
 import {
   ConcurrentModificationError,
   ExecutionRequestError,
@@ -84,6 +84,32 @@ describe('the item gate (requireReady)', () => {
     ).toBe('item-not-admitted'));
 });
 
+// R-B7 increment 3 (CTRL-14): the guard's fact, the shared rule's answer for the cycle's creator.
+describe("the cycle creator's authority (creatorAuthorized)", () => {
+  const cycle = { workspaceId: 'ws', createdByUserId: 'user-1' } as unknown as WorkCycle;
+  const tx = (user: unknown, access: unknown) =>
+    ({
+      users: { findById: () => user },
+      workspaces: { findAuthorized: () => access },
+    }) as unknown as StorageRepositories;
+  const active = { id: 'user-1', status: 'active' };
+  it.each([
+    ['an active owner', active, { membership: { role: 'owner' } }, true],
+    ['an active editor', active, { membership: { role: 'editor' } }, true],
+    ['an active viewer', active, { membership: { role: 'viewer' } }, false],
+    ['an active user who left the workspace', active, undefined, false],
+    [
+      'an inactive owner',
+      { id: 'user-1', status: 'disabled' },
+      { membership: { role: 'owner' } },
+      false,
+    ],
+    ['no user', undefined, { membership: { role: 'owner' } }, false],
+  ])('%s: %s', (_name, user, access, authorized) =>
+    expect(creatorAuthorized(tx(user, access), cycle)).toBe(authorized),
+  );
+});
+
 describe('the finalization and its authority', () => {
   const cycle = {
     id: 'cycle-1',
@@ -92,11 +118,15 @@ describe('the finalization and its authority', () => {
     finalizationId: 'fin-1',
     createdByUserId: 'user-1',
   } as unknown as WorkCycle;
-  const storage = (finalization: unknown, user: unknown = { id: 'user-1', status: 'active' }) =>
+  const storage = (
+    finalization: unknown,
+    user: unknown = { id: 'user-1', status: 'active' },
+    access: unknown = { membership: { role: 'owner' } },
+  ) =>
     ({
       execution: { finalizations: { find: () => finalization } },
       users: { findById: () => user },
-      workspaces: { findAuthorized: () => ({ membership: { role: 'owner' } }) },
+      workspaces: { findAuthorized: () => access },
     }) as unknown as CraftingTableStorage;
   const active = { status: 'active', cycleId: 'cycle-1', worktreeId: 'tree-1', workspaceId: 'ws' };
   it('stops a cycle whose finalization is no longer active', async () => {
@@ -106,6 +136,26 @@ describe('the finalization and its authority', () => {
     expect(
       await stopOf(() => finalizationForCycle(storage({ ...active, status: 'stopped' }), cycle)),
     ).toBe('finalization-inactive');
+  });
+  // R-B7 increment 3 (CTRL-14): the site keeps its refusal for every way the rule fails.
+  it.each([
+    ['an inactive user', { id: 'user-1', status: 'disabled' }, { membership: { role: 'owner' } }],
+    ['a viewer', { id: 'user-1', status: 'active' }, { membership: { role: 'viewer' } }],
+    // `null` where the repository answers nothing: `undefined` would take the stub's default.
+    ['a user who left the workspace', { id: 'user-1', status: 'active' }, null],
+    ['no user', null, { membership: { role: 'owner' } }],
+  ])('refuses the finalization of %s with its own text', (_name, user, access) => {
+    let refused: unknown;
+    try {
+      refreshOwner(storage(active, user, access), cycle);
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused).toBeInstanceOf(TypedRefusalError);
+    expect({
+      stop: (refused as TypedRefusalError).stop,
+      message: (refused as Error).message,
+    }).toEqual({ stop: 'authority-lost', message: 'Finalization authority was revoked' });
   });
   it('stops a finalization whose authority was revoked', async () =>
     expect(

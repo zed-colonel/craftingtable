@@ -207,7 +207,20 @@ const rows: readonly {
     action: 'retry-provider',
     cycle: { providerRecovery: recovery },
     guidance: 'x'.repeat(16001),
-    expected: { kind: 'refuse', code: 'guidance-too-long', status: 'invalid-request' },
+    expected: {
+      kind: 'refuse',
+      code: 'guidance-too-long',
+      status: 'invalid-request',
+      message: 'Combined guidance for this step exceeds 16000 characters.',
+    },
+  },
+  {
+    name: 'guidance for a retry of 16000 characters is not refused for its length',
+    stage: 'command',
+    action: 'retry-provider',
+    cycle: { providerRecovery: recovery },
+    guidance: 'x'.repeat(16000),
+    expected: { kind: 'write' },
   },
   {
     name: 'a provider retry runs now, and a pending one keeps its time',
@@ -285,6 +298,27 @@ const rows: readonly {
     stage: 'step',
     guidance: 'Use the queue.',
     expected: { kind: 'launch', step: 'implement', action: 'resume-with-guidance' },
+  },
+  // The instruction bound, at this site and the retry's (R-B7 increment 3, CTRL-14): 16,000
+  // characters of combined guidance continue, one more refuses with this site's text.
+  {
+    name: 'combined guidance of 16000 characters continues',
+    stage: 'step',
+    guidance: 'g'.repeat(16000),
+    expected: { kind: 'launch', action: 'resume-with-guidance' },
+  },
+  {
+    name: 'combined guidance past 16000 characters is refused',
+    stage: 'step',
+    guidance: 'g'.repeat(7999),
+    cycle: { stepGuidance: 'e'.repeat(8000) },
+    facts: { newestRun: () => runOf({ status: 'failed' }) },
+    expected: {
+      kind: 'refuse',
+      code: 'guidance-too-long',
+      status: 'invalid-request',
+      message: 'Combined guidance for this step exceeds 16000 characters.',
+    },
   },
   {
     name: 'guidance replaces a finished step’s, and opens a new progress window',

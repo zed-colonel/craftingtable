@@ -45,11 +45,15 @@ async function stopOf(call: () => unknown): Promise<string | undefined> {
 describe('the roadmap that owns a cycle (refreshOwner)', () => {
   const cycle = { id: 'cycle-1', workspaceId: 'ws', worktreeId: 'tree-1' } as unknown as WorkCycle;
   const entry = { id: 'entry-1', integrationBranch: 'revision', repositoryId: 'repo-1' };
-  const storage = (tree: unknown, delegating: unknown = { id: 'user-2', status: 'active' }) =>
+  const storage = (
+    tree: unknown,
+    delegating: unknown = { id: 'user-2', status: 'active' },
+    access: unknown = { membership: { role: 'owner' } },
+  ) =>
     ({
       execution: { worktrees: { find: () => tree } },
       users: { findById: () => delegating },
-      workspaces: { findAuthorized: () => ({ membership: { role: 'owner' } }) },
+      workspaces: { findAuthorized: () => access },
     }) as unknown as CraftingTableStorage;
   const bound = { integrationBranch: 'revision', repositoryId: 'repo-1' };
   beforeEach(() => {
@@ -75,6 +79,32 @@ describe('the roadmap that owns a cycle (refreshOwner)', () => {
     expect(
       await stopOf(() => refreshOwner(storage(bound, { id: 'user-2', status: 'disabled' }), cycle)),
     ).toBe('delegation-authority-lost'));
+  // R-B7 increment 3 (CTRL-14): the site keeps its refusal for every way the rule fails.
+  it.each([
+    ['an inactive user', { id: 'user-2', status: 'disabled' }, { membership: { role: 'owner' } }],
+    ['a viewer', { id: 'user-2', status: 'active' }, { membership: { role: 'viewer' } }],
+    // `null` where the repository answers nothing: `undefined` would take the stub's default.
+    ['a user who left the workspace', { id: 'user-2', status: 'active' }, null],
+  ])('refuses a delegation by %s with its own text', (_name, user, access) => {
+    let refused: unknown;
+    try {
+      refreshOwner(storage(bound, user, access), cycle);
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused).toBeInstanceOf(TypedRefusalError);
+    expect({
+      stop: (refused as TypedRefusalError).stop,
+      message: (refused as Error).message,
+    }).toEqual({
+      stop: 'delegation-authority-lost',
+      message: 'The roadmap initiating user no longer has permission.',
+    });
+  });
+  it('refreshes a bound cycle for an editor', async () =>
+    expect(
+      refreshOwner(storage(bound, undefined, { membership: { role: 'editor' } }), cycle),
+    ).toMatchObject({ context: { user: { id: 'user-2' } } }));
   it('refreshes a bound cycle for a user who still holds it', async () =>
     expect(refreshOwner(storage(bound), cycle)).toMatchObject({
       context: { user: { id: 'user-2' } },

@@ -1,3 +1,5 @@
+import { activeEditor, activeUser } from './authority-policy.js';
+import { validExtraRounds, withinInstructionLimit } from './command-bounds.js';
 import {
   type CheckDefinitionDiagnosis,
   definitionChangeReason,
@@ -1556,18 +1558,13 @@ export class WorkCycleService {
         'The reviewed branches changed; obtain a fresh review before deciding findings.',
       );
     const instructions = `Operator decision for ${input.findingIds.join(', ')}: ${input.rationale}\n${input.instructions ?? ''}\nBefore editing, reassess every open question using this guidance. If any question remains unanswered, stop and ask; do not infer authorization for unrelated changes.`;
-    if (instructions.length > 16000)
+    if (!withinInstructionLimit(instructions))
       throw new ExecutionRequestError(
         'invalid-request',
         'Disposition rationale and guidance together exceed 16,000 characters. Shorten them before retrying.',
       );
     const extra = input.additionalRounds ?? 0;
-    if (
-      !Number.isInteger(extra) ||
-      extra < 1 ||
-      extra > 20 ||
-      (cycle.additionalRemediationRounds ?? 0) + extra > Number.MAX_SAFE_INTEGER - 20
-    )
+    if (!validExtraRounds(extra, { min: 1, base: cycle.additionalRemediationRounds ?? 0 }))
       throw new ExecutionRequestError(
         'invalid-request',
         'Authorize 1–20 additional remediation attempts.',
@@ -1711,12 +1708,7 @@ export class WorkCycleService {
       );
     this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     this.mutations.requireAvailable(cycle.worktreeId);
-    if (
-      !Number.isInteger(input.additionalRounds) ||
-      input.additionalRounds < 1 ||
-      input.additionalRounds > 20 ||
-      remediationAllowance(cycle) + input.additionalRounds > Number.MAX_SAFE_INTEGER - 20
-    )
+    if (!validExtraRounds(input.additionalRounds, { min: 1, base: remediationAllowance(cycle) }))
       throw new ExecutionRequestError(
         'conflict',
         'Authorize between 1 and 20 additional remediation attempts.',
@@ -1742,10 +1734,10 @@ export class WorkCycleService {
     this.requireNoInvestigation(cycle);
     finalizationForCycle(this.storage, cycle);
     if (
-      !Number.isInteger(additionalRounds) ||
-      additionalRounds < 1 ||
-      additionalRounds > 20 ||
-      (cycle.additionalRemediationRounds ?? 0) + additionalRounds > Number.MAX_SAFE_INTEGER - 20
+      !validExtraRounds(additionalRounds, {
+        min: 1,
+        base: cycle.additionalRemediationRounds ?? 0,
+      })
     )
       throw new ExecutionRequestError(
         'conflict',
@@ -2652,8 +2644,9 @@ export class WorkCycleService {
       this.attention(cycle, unassigned.code, unassigned.message);
       return;
     }
-    const user = this.storage.users.findById(cycle.createdByUserId);
-    if (user?.status !== 'active')
+    // The rule's status half here; its role half is the request context's, with its audit row.
+    const user = activeUser(this.storage, cycle.createdByUserId);
+    if (!user)
       throw new TypedRefusalError(
         'delegation-authority-lost',
         'Delegating user is no longer active.',
@@ -3149,7 +3142,7 @@ export class WorkCycleService {
     if (!stage || !input.rationale?.trim())
       throw new ExecutionRequestError('invalid-request', 'A disposition rationale is required.');
     const instructions = `Operator decision: ${input.rationale}. ${input.instructions ?? ''}\nReassess every unanswered question before editing. Do not infer authorization for unrelated changes.`;
-    if (instructions.length > 16000)
+    if (!withinInstructionLimit(instructions))
       throw new ExecutionRequestError(
         'invalid-request',
         'Disposition rationale and guidance together exceed 16,000 characters. Shorten them before retrying.',
@@ -3273,12 +3266,7 @@ export class WorkCycleService {
       ],
     };
     const extra = input.additionalRounds ?? 0;
-    if (
-      extra < 0 ||
-      extra > 20 ||
-      !Number.isInteger(extra) ||
-      (cycle.additionalRemediationRounds ?? 0) + extra > Number.MAX_SAFE_INTEGER - 20
-    )
+    if (!validExtraRounds(extra, { min: 0, base: cycle.additionalRemediationRounds ?? 0 }))
       throw new ExecutionRequestError(
         'invalid-request',
         'Authorize at most 20 additional stage attempts.',
@@ -3552,18 +3540,11 @@ export class WorkCycleService {
     let current = cycle;
     const check = () => {
       const saved = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-      const user = this.storage.users.findById(cycle.createdByUserId);
-      const access = this.storage.workspaces.findAuthorized(
-        cycle.createdByUserId,
-        cycle.workspaceId,
-      );
       if (
         this.abort.signal.aborted ||
         saved?.version !== current.version ||
         saved.status !== 'running' ||
-        user?.status !== 'active' ||
-        !access ||
-        !['owner', 'editor'].includes(access.membership.role)
+        !activeEditor(this.storage, cycle.createdByUserId, cycle.workspaceId)
       )
         throw new ExecutionRequestError(
           'conflict',
@@ -3727,16 +3708,7 @@ export class WorkCycleService {
           'conflict',
           'Integration refresh was superseded by an operator command.',
         );
-      const user = this.storage.users.findById(cycle.createdByUserId);
-      const access = this.storage.workspaces.findAuthorized(
-        cycle.createdByUserId,
-        cycle.workspaceId,
-      );
-      if (
-        user?.status !== 'active' ||
-        !access ||
-        !['owner', 'editor'].includes(access.membership.role)
-      )
+      if (!activeEditor(this.storage, cycle.createdByUserId, cycle.workspaceId))
         throw new ExecutionRequestError(
           'conflict',
           'The initiating user no longer has permission to run this cycle.',
@@ -3872,14 +3844,10 @@ export class WorkCycleService {
     if (!tree || !repository || !this.git) throw new NotFoundError();
     const check = () => {
       const saved = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-      const user = this.storage.users.findById(actingFor);
-      const access = this.storage.workspaces.findAuthorized(actingFor, cycle.workspaceId);
       if (
         this.abort.signal.aborted ||
         saved?.version !== cycle.version ||
-        user?.status !== 'active' ||
-        !access ||
-        !['owner', 'editor'].includes(access.membership.role)
+        !activeEditor(this.storage, actingFor, cycle.workspaceId)
       )
         throw new ExecutionRequestError(
           'conflict',

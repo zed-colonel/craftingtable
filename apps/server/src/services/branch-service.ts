@@ -1,4 +1,4 @@
-import { repositoryPolicyEvidence, worktreePlan } from './repository-policy.js';
+import { policyMismatch, repositoryPolicyEvidence, worktreePlan } from './repository-policy.js';
 import type { SaveRepositoryPolicyRequest } from '@craftingtable/contracts';
 import { amendmentHoldingScope } from './scope-lineage.js';
 import { predecessorGate } from './transition-gate.js';
@@ -702,12 +702,7 @@ export class BranchService {
     const policyEvidence = planVersionId
       ? await this.policyEvidence(worktree.workspaceId, planVersionId)
       : undefined;
-    if (
-      policyEvidence?.policy &&
-      (policyEvidence.policy.repositoryId !== worktree.repositoryId ||
-        (!worktree.planVersionId &&
-          policyEvidence.policy.integrationBranch !== worktree.integrationBranch))
-    )
+    if (policyMismatch(policyEvidence?.policy, worktree))
       refuse(
         'launch-refused',
         'Worktree destination differs from the adopted repository policy. Retarget or review the policy.',

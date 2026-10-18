@@ -1,7 +1,23 @@
 import type { RepositoryPolicyEvidence } from '@craftingtable/contracts';
-import type { PlanVersionId, Worktree, WorkspaceId } from '@craftingtable/domain';
+import type { PlanVersionId, RepositoryPolicy, Worktree, WorkspaceId } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { StorageRepositories } from '@craftingtable/storage';
+
+/**
+ * Whether a worktree is outside the adopted repository policy (CTRL-14, R-B7): another
+ * repository, or, for an item worktree, another integration branch. One rule, asked by the review
+ * capture and the launch; each keeps its own refusal (operator decision 4, 2026-10-17).
+ */
+export function policyMismatch(
+  policy: Pick<RepositoryPolicy, 'repositoryId' | 'integrationBranch'> | undefined,
+  worktree: Pick<Worktree, 'repositoryId' | 'planVersionId' | 'integrationBranch'>,
+): boolean {
+  return (
+    !!policy &&
+    (policy.repositoryId !== worktree.repositoryId ||
+      (!worktree.planVersionId && policy.integrationBranch !== worktree.integrationBranch))
+  );
+}
 
 export function worktreePlan(tx: StorageRepositories, tree: Worktree): PlanVersionId | undefined {
   return (

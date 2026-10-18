@@ -1,3 +1,4 @@
+import { withinInstructionLimit } from './command-bounds.js';
 import {
   type AgentRun,
   type CycleAction,
@@ -214,7 +215,7 @@ export function decideCommand(
     // Guidance for a pending retry joins the guidance the retried step already carries.
     const offered = 'guidance' in command ? command.guidance : undefined;
     const stepGuidance = [cycle.stepGuidance, offered?.trim()].filter(Boolean).join('\n\n');
-    if (stepGuidance.length > 16000)
+    if (!withinInstructionLimit(stepGuidance))
       return refuse(
         'guidance-too-long',
         'Combined guidance for this step exceeds 16000 characters.',
@@ -342,7 +343,7 @@ export function decideResumeStep(
       .map((text) => text?.trim())
       .filter(Boolean)
       .join('\n\n');
-    if (stepGuidance.length > 16000)
+    if (!withinInstructionLimit(stepGuidance))
       return refuse(
         'guidance-too-long',
         'Combined guidance for this step exceeds 16000 characters.',

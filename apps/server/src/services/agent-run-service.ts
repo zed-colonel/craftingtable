@@ -73,6 +73,7 @@ import {
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
 import { AGENTS_ROOT_LOCK_FILE } from '../instance-lock.js';
+import { activeEditor } from './authority-policy.js';
 import {
   cycleLaunchRecord,
   cycleLaunchAgent,
@@ -125,7 +126,7 @@ import { assessStageReport } from './finalization-stage-policy.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { operatorDecisions } from './operator-decisions.js';
 import { reservePhase } from './phase-resources.js';
-import { REPOSITORY_POLICY_RULES, worktreePlan } from './repository-policy.js';
+import { policyMismatch, REPOSITORY_POLICY_RULES, worktreePlan } from './repository-policy.js';
 import { outputRepairPrompt, restartResumePrompt, sessionResumeSource } from './restart-resume.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
 import {
@@ -874,17 +875,10 @@ export class AgentRunService {
 
   private requireCycleLaunchAuthority(cycle: WorkCycle): void {
     const stored = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-    const user = this.storage.users.findById(cycle.createdByUserId);
-    const authorization = this.storage.workspaces.findAuthorized(
-      cycle.createdByUserId,
-      cycle.workspaceId,
-    );
     if (
       stored?.status !== 'running' ||
       stored.version !== cycle.version ||
-      user?.status !== 'active' ||
-      !authorization ||
-      !['owner', 'editor'].includes(authorization.membership.role)
+      !activeEditor(this.storage, cycle.createdByUserId, cycle.workspaceId)
     ) {
       throw new ExecutionRequestError(
         'conflict',
@@ -1070,13 +1064,9 @@ export class AgentRunService {
       }
       return undefined;
     }
-    const user = this.storage.users.findById(userId);
-    const access = this.storage.workspaces.findAuthorized(userId, workspaceId);
-    return user?.status !== 'active' ||
-      !access ||
-      !['owner', 'editor'].includes(access.membership.role)
-      ? 'Run launch permission changed while the review’s checks ran.'
-      : undefined;
+    return activeEditor(this.storage, userId, workspaceId)
+      ? undefined
+      : 'Run launch permission changed while the review’s checks ran.';
   }
 
   /**
@@ -1398,13 +1388,7 @@ export class AgentRunService {
             'Cycle launch cancelled during Git preflight',
           );
         this.requireNoBackgroundWork(workspaceId, input.worktreeId);
-        const launchUser = this.storage.users.findById(actor.userId);
-        const launchAccess = this.storage.workspaces.findAuthorized(actor.userId, workspaceId);
-        if (
-          launchUser?.status !== 'active' ||
-          !launchAccess ||
-          !['owner', 'editor'].includes(launchAccess.membership.role)
-        )
+        if (!activeEditor(this.storage, actor.userId, workspaceId))
           throw new ExecutionRequestError(
             'conflict',
             'Run launch permission changed during preparation.',
@@ -1682,12 +1666,7 @@ export class AgentRunService {
       const policyPlan = worktreePlan(this.storage, prepared.worktree);
       if (policyPlan) {
         const evidence = await this.branches.policyEvidence(workspaceId, policyPlan);
-        if (
-          evidence.policy &&
-          (evidence.policy.repositoryId !== prepared.worktree.repositoryId ||
-            (!prepared.worktree.planVersionId &&
-              evidence.policy.integrationBranch !== prepared.worktree.integrationBranch))
-        )
+        if (policyMismatch(evidence.policy, prepared.worktree))
           throw new ExecutionRequestError(
             'conflict',
             'The worktree does not match the adopted repository policy.',

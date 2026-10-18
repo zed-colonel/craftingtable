@@ -1,3 +1,4 @@
+import { activeEditor } from './authority-policy.js';
 import {
   type AgentRun,
   type AgentRunEvent,
@@ -263,13 +264,7 @@ export function requireReady(
 
 /** The user who started the cycle is active and an owner or editor of its workspace. */
 export function creatorAuthorized(tx: StorageRepositories, cycle: WorkCycle): boolean {
-  const user = tx.users.findById(cycle.createdByUserId);
-  const authorization = tx.workspaces.findAuthorized(cycle.createdByUserId, cycle.workspaceId);
-  return (
-    user?.status === 'active' &&
-    !!authorization &&
-    ['owner', 'editor'].includes(authorization.membership.role)
-  );
+  return !!activeEditor(tx, cycle.createdByUserId, cycle.workspaceId);
 }
 
 /**
@@ -291,14 +286,8 @@ export function refreshOwner(
   | undefined {
   const finalization = finalizationForCycle(storage, cycle);
   if (finalization) {
-    const user = storage.users.findById(cycle.createdByUserId);
-    const access = user && storage.workspaces.findAuthorized(user.id, cycle.workspaceId);
-    if (
-      user?.status !== 'active' ||
-      !access ||
-      !['owner', 'editor'].includes(access.membership.role)
-    )
-      throw new TypedRefusalError('authority-lost', 'Finalization authority was revoked');
+    const user = activeEditor(storage, cycle.createdByUserId, cycle.workspaceId);
+    if (!user) throw new TypedRefusalError('authority-lost', 'Finalization authority was revoked');
     return {
       settings: { ...DEFAULT_ROADMAP_SCHEDULING, maxIntegrationRefreshes: 3 },
       context: { user },
@@ -342,13 +331,8 @@ export function refreshOwner(
     automation.integrationConflicts !== 'automatic'
   )
     return;
-  const user = roadmap.delegatedByUserId && storage.users.findById(roadmap.delegatedByUserId);
-  const membership = user && storage.workspaces.findAuthorized(user.id, cycle.workspaceId);
-  if (
-    user?.status !== 'active' ||
-    !membership ||
-    !['owner', 'editor'].includes(membership.membership.role)
-  )
+  const user = activeEditor(storage, roadmap.delegatedByUserId, cycle.workspaceId);
+  if (!user)
     throw new TypedRefusalError(
       'delegation-authority-lost',
       'The roadmap initiating user no longer has permission.',

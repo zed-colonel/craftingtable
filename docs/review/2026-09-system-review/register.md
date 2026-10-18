@@ -3670,6 +3670,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Resolves:** [FMT-19](findings/FMT-plan-and-roadmap-formats.md#fmt-19-operator-decision-points-are-implicit-in-the-formats), [FMT-04](findings/FMT-plan-and-roadmap-formats.md#fmt-04-automation-features-are-enabled-by-matching-prose-and-magic-identifiers-in-the-map), [FMT-05](findings/FMT-plan-and-roadmap-formats.md#fmt-05-the-concurrency-map-format-is-hard-wired-to-the-aqwiexo-stack-shape)
 - **Change:** Operator-approved on 2026-09-23 (no longer a last resort). After the compiled map model (R-F1) exists, add optional, typed fields so maps declare what code currently infers (FMT report Appendix A #2, #3, #6, #7, #9): explicit operator decision points {id, question, options, authority, blocks, evidence_contract, default}; typed evidence review contracts, reviewer-role purposes, resource adapters, slice verification mode and repository build system instead of prose signatures and magic ids; relaxed cardinalities (no mandatory previous definition, zero resource locks, single-repository stacks); map ids that accept every valid plan id; bounded plan-bundle strings with explicit errors and recognized repository/baseline/integration-branch fields. Record it as a format ADR (v0.3 superset or v0.4); every v0.3 map and plan bundle keeps importing and executing unchanged, and a missing field falls back to today's inference in one place.
 - **Done when:** Format ADR accepted; golden conformance tests (R-F4) unchanged for v0.3; a map using the new fields drives decision points, reviewer roles and resources without any prose matching; operator decision points feed the typed attention/inbox (R-A3/R-A5).
+- **Design input (operator, 2026-10-18):** design against [the Planning Studio vision](../../../init/craftingtable-planning-studio-vision.md). Its open questions 1 and 2 are settled in this item's format ADR: whether decision-point options are machine-readable with a recommended option, so the Studio and agent clients use the same record, and whether `authority` names a class of decision that an autonomy policy can attach to later.
 
 ### R-F6
 
@@ -3685,6 +3686,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Why they stay.** They test features the live roadmaps rely on, so they stay until pinning is generic (program rule 2).
   - **Added to the Change.** When runtime pinning becomes pluggable, Cargo becomes one adapter. Its Cargo-dependent tests move into that adapter's own suite, and the generic controller and scope tests use a toolchain-free fake adapter. R-G4 does the same for verification receipts, which are Cargo-only today (AGT-08).
   - **Added to the done-when:** outside the Cargo adapter's suite, no unit test needs Cargo or rustc.
+- **Design input (operator, 2026-10-18):** design against [the Planning Studio vision](../../../init/craftingtable-planning-studio-vision.md). Its open question 1 (where decision records, topic states and operator steps live) is settled in this item's format ADR; question 4 (the Studio's first increment) at P5 planning, after that ADR.
 
 ### R-F7
 

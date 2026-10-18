@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -36,8 +37,18 @@ import { testDataRoot } from './test-support.js';
  * keeps it, and what a start does with reservations and with the run directories no run owns.
  */
 
+/** The fixture trees, made writable again after each row: one a failing row left in place would
+ * otherwise keep the test data root's cleanup from removing it. */
+const trees: string[] = [];
+function writable(path: string) {
+  if (!existsSync(path) || !statSync(path).isDirectory()) return;
+  chmodSync(path, 0o700);
+  for (const entry of readdirSync(path)) writable(join(path, entry));
+}
+
 afterEach(async () => {
   vi.restoreAllMocks();
+  for (const tree of trees.splice(0)) writable(tree);
   await cleanupExecutionFixtures();
 });
 
@@ -61,6 +72,7 @@ async function fixture() {
 
 /** A directory tree as a refused launch leaves one: read-only manifests and launchers in it. */
 function launchTree(path: string) {
+  trees.push(path);
   mkdirSync(join(path, 'checks', 'bin'), { recursive: true, mode: 0o700 });
   writeFileSync(join(path, 'checks', 'manifest.json'), '{}', { mode: 0o400 });
   writeFileSync(join(path, 'checks', 'bin', 'ct-check'), '#!/bin/sh\n', { mode: 0o500 });

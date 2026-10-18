@@ -92,9 +92,11 @@
  *    left alone (the core reaches `@craftingtable/agents`' pure digest), and the rule claims
  *    capabilities only: the core reads storage, through the transaction it is given.
  * 12. Only the replay tool pins the host a replay runs as (R-B4b): no production module but
- *    `REPLAY_HOST_USERS` (the replay tool, which sets the pin, and the workstation, which reads
- *    it) imports `apps/server/src/services/replay-host.ts`, by value, by type or through a
- *    re-export, so the daemon compares a native approval with the live host digest.
+ *    `REPLAY_HOST_USERS` imports `apps/server/src/services/replay-host.ts`, by value, by type or
+ *    through a re-export, and each of those takes only its own binding by name (the replay tool
+ *    `pinReplayHost`, the workstation `replayHost`), with no namespace and no re-export of it, so
+ *    the daemon compares a native approval with the live host digest. Like rule 7 it guards
+ *    against a mistake, not evasion: a binding passed on as a value is not followed.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -192,11 +194,14 @@ export const LOADER_AUTHORITY = new Map([
 /** The one module that reads a request's path parameters: it parses them for every route (R-H7). */
 export const PARAMETER_PARSER = 'apps/server/src/routes/route-access.ts';
 
-/** The replays' host pin (rule 12, R-B4b), and the only production modules that import it. */
+/**
+ * The replays' host pin (rule 12, R-B4b), and the only production modules that import it, each
+ * with the one binding it may take: the replay tool sets the pin, the workstation reads it.
+ */
 export const REPLAY_HOST_PIN = 'apps/server/src/services/replay-host.ts';
 export const REPLAY_HOST_USERS = new Map([
-  ['apps/server/src/controller-replay.ts', 'The replay tool: pins the host its goldens name'],
-  ['apps/server/src/services/workstation.ts', 'Reads the pin before the live host digest'],
+  ['apps/server/src/controller-replay.ts', 'pinReplayHost'],
+  ['apps/server/src/services/workstation.ts', 'replayHost'],
 ]);
 
 /** The pure planning boundary (ADR-012). */
@@ -1963,6 +1968,62 @@ function requestParameterReads(module) {
   return { reads, typed };
 }
 
+/**
+ * Rule 12 (R-B4b): what a production module's reference to the replays' host pin may be. Only a
+ * listed user may import it, by name and only its own binding; a namespace or a re-export would
+ * hand the pin on to modules the rule cannot see.
+ */
+function replayHostFindings(path, reference) {
+  const allowed = REPLAY_HOST_USERS.get(path);
+  if (allowed === undefined)
+    return [
+      `${path}: imports the replay host pin (${REPLAY_HOST_PIN}); only the replay tool sets it and only the workstation reads it, so the daemon compares native approvals with the live host digest (R-B4b)`,
+    ];
+  const names = (reference.names ?? []).map(({ name }) => name);
+  if (
+    reference.reexports !== undefined ||
+    reference.namespace !== undefined ||
+    names.length === 0 ||
+    names.some((name) => name !== allowed)
+  )
+    return [
+      `${path}: takes more of the replay host pin (${REPLAY_HOST_PIN}) than its own \`${allowed}\`, or hands it on; import that binding by name alone (R-B4b)`,
+    ];
+  return [];
+}
+
+/**
+ * Rule 12's other half: a listed user re-exports none of the pin's bindings it imported
+ * (`export { replayHost }`, `export default replayHost`).
+ */
+function replayHostReexports(path, module, root) {
+  if (!REPLAY_HOST_USERS.has(path)) return [];
+  const local = new Set(
+    module.references
+      .filter(
+        (r) => r.resolved !== undefined && posix(relative(root, r.resolved)) === REPLAY_HOST_PIN,
+      )
+      .flatMap((r) => (r.names ?? []).map(({ local, name }) => local?.text ?? name)),
+  );
+  const findings = [];
+  for (const statement of module.sourceFile.statements) {
+    const names =
+      statement.kind === SyntaxKind.ExportDeclaration && !statement.moduleSpecifier
+        ? statement.exportClause?.kind === SyntaxKind.NamedExports
+          ? statement.exportClause.elements.map((e) => (e.propertyName ?? e.name).text)
+          : []
+        : statement.kind === SyntaxKind.ExportAssignment &&
+            statement.expression.kind === SyntaxKind.Identifier
+          ? [statement.expression.text]
+          : [];
+    if (names.some((name) => local.has(name)))
+      findings.push(
+        `${path}:${lineOf(module.sourceFile, statement)}: re-exports the replay host pin's binding; it must not leave this module (R-B4b)`,
+      );
+  }
+  return findings;
+}
+
 /** One module's findings under rules 1-5, 7, 9 and 12. */
 function moduleFindings(root, module, production, vocabulary) {
   const findings = [];
@@ -1971,7 +2032,8 @@ function moduleFindings(root, module, production, vocabulary) {
   if (sourceFile.text.includes('\0')) return [`${path}: contains a NUL byte`];
   const owningPackage = placeOf(root, module.file);
   const authority = PROCESS_AUTHORITY.has(path);
-  for (const { specifier, resolved } of module.references) {
+  for (const reference of module.references) {
+    const { specifier, resolved } = reference;
     if (isForbiddenName(specifier)) findings.push(`${path}: forbidden import "${specifier}"`);
     if (!production) continue;
     if (
@@ -1984,10 +2046,7 @@ function moduleFindings(root, module, production, vocabulary) {
       );
     const targetPackage = resolved === undefined ? undefined : placeOf(root, resolved);
     const targetPath = resolved === undefined ? undefined : posix(relative(root, resolved));
-    if (targetPath === REPLAY_HOST_PIN && !REPLAY_HOST_USERS.has(path))
-      findings.push(
-        `${path}: imports the replay host pin (${REPLAY_HOST_PIN}); only the replay tool sets it and only the workstation reads it, so the daemon compares native approvals with the live host digest (R-B4b)`,
-      );
+    if (targetPath === REPLAY_HOST_PIN) findings.push(...replayHostFindings(path, reference));
     if (owningPackage === 'packages/planning') {
       if (PLANNING_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier)))
         findings.push(`${path}: planning package imports impure module "${specifier}"`);
@@ -2005,6 +2064,7 @@ function moduleFindings(root, module, production, vocabulary) {
     }
   }
   if (!production) return findings;
+  findings.push(...replayHostReexports(path, module, root));
   if (!authority)
     for (const { node, what } of module.loads)
       findings.push(

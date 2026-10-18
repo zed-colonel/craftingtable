@@ -1384,6 +1384,61 @@ describe('only the replay tool pins the host a replay runs as (rule 12, R-B4b)',
       ].sort(),
     );
   });
+
+  it('lets each listed user take only its own binding, by name, and hand none of it on', () => {
+    const handsOn = (file) =>
+      `${file}: takes more of the replay host pin (${REPLAY_HOST_PIN}) than its own \`${REPLAY_HOST_USERS.get(file)}\`, or hands it on; import that binding by name alone (R-B4b)`;
+    const tool = 'apps/server/src/controller-replay.ts';
+    const workstation = 'apps/server/src/services/workstation.ts';
+    const findingsWith = (files) =>
+      inspectWorkspace(
+        workspace({
+          'apps/server/src/services/replay-host.ts': pin,
+          'apps/server/src/index.ts':
+            "import { workstationDigest } from './services/workstation.js';\nexport const main = workstationDigest;\n",
+          [tool]:
+            "import { pinReplayHost } from './services/replay-host.js';\npinReplayHost('x');\n",
+          ...files,
+        }),
+        EMITTED_EXPORTS,
+        [],
+      ).findings.filter((finding) => finding.includes('replay host pin'));
+    // The workstation reads the pin; the setter is the tool's alone.
+    expect(
+      findingsWith({
+        [workstation]:
+          "import { pinReplayHost, replayHost } from './replay-host.js';\nexport const workstationDigest = () => (pinReplayHost('y'), replayHost() ?? 'live');\n",
+      }),
+    ).toEqual([handsOn(workstation)]);
+    // A re-export from a listed user, in either form, or a namespace, hands the pin on.
+    expect(
+      findingsWith({
+        [workstation]:
+          "import { replayHost } from './replay-host.js';\nexport const workstationDigest = () => replayHost() ?? 'live';\nexport { replayHost };\n",
+      }),
+    ).toEqual([
+      `${workstation}:3: re-exports the replay host pin's binding; it must not leave this module (R-B4b)`,
+    ]);
+    expect(
+      findingsWith({
+        [workstation]:
+          "export { replayHost } from './replay-host.js';\nexport const workstationDigest = () => 'live';\n",
+      }),
+    ).toEqual([handsOn(workstation)]);
+    expect(
+      findingsWith({
+        [tool]: "import * as host from './services/replay-host.js';\nhost.pinReplayHost('x');\n",
+        [workstation]: "export const workstationDigest = () => 'live';\n",
+      }),
+    ).toEqual([handsOn(tool)]);
+    // The two bindings as built pass.
+    expect(
+      findingsWith({
+        [workstation]:
+          "import { replayHost } from './replay-host.js';\nexport const workstationDigest = () => replayHost() ?? 'live';\n",
+      }),
+    ).toEqual([]);
+  });
 });
 
 it('passes on the real repository, having read and classified its modules', () => {

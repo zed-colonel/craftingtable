@@ -358,23 +358,36 @@ function briefSizes(snapshot: string, since: string, json: string | undefined): 
   }
 }
 
-/** Takes `--host-digest <sha256>` out of the arguments, wherever it stands, and pins it. */
-async function main(argv: readonly string[]): Promise<number> {
+/**
+ * Takes `--host-digest <sha256>` out of the arguments, wherever it stands (R-B4b): the digest and
+ * the rest, or why the flag is unusable (no value, or given twice). The value itself is checked
+ * where it is pinned.
+ */
+export function hostDigestArguments(
+  argv: readonly string[],
+): { readonly digest?: string; readonly rest: readonly string[] } | { readonly error: string } {
   const at = argv.indexOf('--host-digest');
-  if (at < 0) return run(argv);
+  if (at < 0) return { rest: argv };
   const digest = argv[at + 1];
   const rest = [...argv.slice(0, at), ...argv.slice(at + 2)];
+  if (digest === undefined || digest === '--host-digest' || rest.includes('--host-digest'))
+    return { error: 'once, with a value' };
+  return { digest, rest };
+}
+
+/** Pins `--host-digest` for this process, then runs the replay the other arguments ask for. */
+export async function main(argv: readonly string[]): Promise<number> {
+  const parsed = hostDigestArguments(argv);
   try {
-    if (digest === undefined || rest.includes('--host-digest'))
-      throw new Error('once, with a value');
-    pinReplayHost(digest);
+    if ('error' in parsed) throw new Error(parsed.error);
+    if (parsed.digest !== undefined) pinReplayHost(parsed.digest);
   } catch {
     process.stderr.write(
       'Usage: pnpm controller:replay <snapshot.sqlite> --host-digest <sha256> ...: the host digest the goldens were recorded under, once (64 lower-case hex digits)\n',
     );
     return 2;
   }
-  return run(rest);
+  return run(parsed.rest);
 }
 
 async function run(args: readonly string[]): Promise<number> {

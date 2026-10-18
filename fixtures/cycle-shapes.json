@@ -5,6 +5,8 @@
       "code": "merge-approval",
       "owner": "operator"
     },
+    "held": null,
+    "code": "merge-approval",
     "actions": ["merge", "pause", "stop"],
     "entry": {
       "wait": {
@@ -49,6 +51,11 @@
       "code": "merge-approval",
       "owner": "operator"
     },
+    "held": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "code": "merge-approval",
     "actions": ["merge", "pause", "stop"],
     "entry": {
       "wait": {
@@ -81,6 +88,11 @@
       "code": "merge-approval",
       "owner": "operator"
     },
+    "held": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "code": "merge-approval",
     "actions": ["merge", "pause", "stop"],
     "entry": {
       "wait": {
@@ -114,6 +126,11 @@
       "code": "merge-approval",
       "owner": "operator"
     },
+    "held": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "code": "merge-approval",
     "actions": ["merge", "pause", "stop"],
     "entry": {
       "wait": {
@@ -146,6 +163,11 @@
       "code": "merge-approval",
       "owner": "operator"
     },
+    "held": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "code": "merge-approval",
     "actions": ["merge", "pause", "stop"],
     "entry": {
       "wait": {
@@ -179,6 +201,11 @@
       "code": "merge-approval",
       "owner": "operator"
     },
+    "held": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "code": "merge-approval",
     "actions": ["merge", "pause", "stop"],
     "entry": {
       "wait": {
@@ -220,6 +247,8 @@
   },
   "stored: completed - - - - - - - - - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -243,6 +272,8 @@
   },
   "stored: completed - - - - empty-str - - - - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -268,6 +299,8 @@
   },
   "stored: completed - - - - empty-str zero - - - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -294,6 +327,8 @@
   },
   "stored: completed - - - - empty-str zero - - num obj": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -337,6 +372,8 @@
   },
   "stored: completed - - null - empty-str zero - - - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -363,6 +400,8 @@
   },
   "stored: completed - - null - empty-str zero - null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -390,6 +429,8 @@
   },
   "stored: completed - - null - empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -418,6 +459,8 @@
   },
   "stored: completed - - null empty-str empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -447,6 +490,8 @@
   },
   "stored: completed - - null str empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -476,6 +521,8 @@
   },
   "stored: completed - null - - - - - - - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -499,6 +546,8 @@
   },
   "stored: completed - null - - empty-str zero - - - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -525,6 +574,8 @@
   },
   "stored: completed - null null - empty-str zero - - - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -551,6 +602,8 @@
   },
   "stored: completed - null null - empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -579,6 +632,8 @@
   },
   "stored: completed - null null empty-str empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -612,6 +667,8 @@
       "code": "step-incomplete",
       "owner": "operator"
     },
+    "held": null,
+    "code": "step-incomplete",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -641,6 +698,11 @@
       "code": "step-incomplete",
       "owner": "operator"
     },
+    "held": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "code": "step-incomplete",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -668,6 +730,11 @@
       "code": "step-incomplete",
       "owner": "operator"
     },
+    "held": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "code": "step-incomplete",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -701,6 +768,11 @@
       "code": "step-incomplete",
       "owner": "operator"
     },
+    "held": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "code": "step-incomplete",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -733,6 +805,11 @@
       "code": "step-incomplete",
       "owner": "operator"
     },
+    "held": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "code": "step-incomplete",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -765,6 +842,11 @@
       "code": "step-incomplete",
       "owner": "operator"
     },
+    "held": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "code": "step-incomplete",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -798,6 +880,11 @@
       "code": "step-incomplete",
       "owner": "operator"
     },
+    "held": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "code": "step-incomplete",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -827,6 +914,8 @@
   },
   "stored: paused - - null - empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -855,6 +944,8 @@
   },
   "stored: paused - - null str empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -884,6 +975,8 @@
   },
   "stored: paused - null null - empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -912,6 +1005,8 @@
   },
   "stored: paused - null null - str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -940,6 +1035,8 @@
   },
   "stored: paused - null null str empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -969,6 +1066,8 @@
   },
   "stored: running - - null - empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -991,6 +1090,8 @@
   },
   "stored: running - - null - str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1013,6 +1114,8 @@
   },
   "stored: running - - null empty-str empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1036,6 +1139,8 @@
   },
   "stored: running - - null str empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1059,6 +1164,8 @@
   },
   "stored: running - null null - empty-str zero - null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1080,6 +1187,8 @@
   },
   "stored: running - null null - empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1102,6 +1211,8 @@
   },
   "stored: running - null null - str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1124,6 +1235,8 @@
   },
   "stored: running - null null str empty-str zero null null - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1147,6 +1260,8 @@
   },
   "stored: stopped - - null - empty-str zero - - - -": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -1173,6 +1288,8 @@
   },
   "written: a scheduled service retry": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1207,6 +1324,8 @@
   },
   "written: a scheduled service retry beside a phase wait": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1253,6 +1372,8 @@
   },
   "written: an output repair": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1278,6 +1399,8 @@
   },
   "written: a completion continuation": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -1298,6 +1421,8 @@
   },
   "written: a paused service retry": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1341,6 +1466,11 @@
       "code": "design-dependency-unsupported",
       "owner": "operator"
     },
+    "held": {
+      "code": "design-dependency-unsupported",
+      "owner": "operator"
+    },
+    "code": "design-dependency-unsupported",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1381,6 +1511,15 @@
         "entryId": "wi/WI-01/domain"
       }
     },
+    "held": {
+      "code": "scope-review-recovery",
+      "owner": "controller",
+      "claim": "scope-recovery",
+      "refs": {
+        "entryId": "wi/WI-01/domain"
+      }
+    },
+    "code": "scope-review-recovery",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1409,6 +1548,12 @@
       "owner": "operator",
       "repairAttempts": 2
     },
+    "held": {
+      "code": "step-incomplete",
+      "owner": "operator",
+      "repairAttempts": 2
+    },
+    "code": "step-incomplete",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1437,6 +1582,12 @@
       "owner": "operator",
       "detail": "Slice wi/WI-02/domain must be verified."
     },
+    "held": {
+      "code": "merge-requirements",
+      "owner": "operator",
+      "detail": "Slice wi/WI-02/domain must be verified."
+    },
+    "code": "merge-requirements",
     "actions": ["pause", "stop"],
     "entry": {
       "wait": {
@@ -1477,6 +1628,11 @@
       "code": "controller-wait",
       "owner": "controller"
     },
+    "held": {
+      "code": "controller-wait",
+      "owner": "controller"
+    },
+    "code": "controller-wait",
     "actions": ["pause", "stop"],
     "entry": {
       "wait": {
@@ -1500,6 +1656,11 @@
   },
   "written: a pause kept at a stop": {
     "contract": "valid",
+    "held": {
+      "code": "design-open-questions",
+      "owner": "operator"
+    },
+    "code": "design-open-questions",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1536,6 +1697,8 @@
       "code": "restart-resume",
       "owner": "operator"
     },
+    "held": null,
+    "code": "restart-resume",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1563,6 +1726,8 @@
       "code": "review-open-questions-at-limit",
       "owner": "operator"
     },
+    "held": null,
+    "code": "review-open-questions-at-limit",
     "actions": ["authorize-remediation", "stop"],
     "entry": {
       "wait": {
@@ -1590,6 +1755,8 @@
       "code": "remediation-exhausted",
       "owner": "operator"
     },
+    "held": null,
+    "code": "remediation-exhausted",
     "actions": ["authorize-remediation", "stop"],
     "entry": {
       "wait": {
@@ -1617,6 +1784,8 @@
       "code": "remediation-stalled",
       "owner": "operator"
     },
+    "held": null,
+    "code": "remediation-stalled",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1644,6 +1813,8 @@
       "code": "implementation-open-questions",
       "owner": "operator"
     },
+    "held": null,
+    "code": "implementation-open-questions",
     "actions": ["continue-with-guidance", "stop"],
     "entry": {
       "wait": {
@@ -1671,6 +1842,8 @@
       "code": "review-open-questions",
       "owner": "operator"
     },
+    "held": null,
+    "code": "review-open-questions",
     "actions": ["continue-with-guidance", "stop"],
     "entry": {
       "wait": {
@@ -1698,6 +1871,8 @@
       "code": "workflow-report-invalid",
       "owner": "operator"
     },
+    "held": null,
+    "code": "workflow-report-invalid",
     "actions": ["continue-with-guidance", "stop"],
     "entry": {
       "wait": {
@@ -1725,6 +1900,8 @@
       "code": "workflow-questions-disagree",
       "owner": "operator"
     },
+    "held": null,
+    "code": "workflow-questions-disagree",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1752,6 +1929,8 @@
       "code": "shared-decision-required",
       "owner": "operator"
     },
+    "held": null,
+    "code": "shared-decision-required",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1779,6 +1958,8 @@
       "code": "work-item-questions",
       "owner": "operator"
     },
+    "held": null,
+    "code": "work-item-questions",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1806,6 +1987,8 @@
       "code": "finalization-needs-input",
       "owner": "operator"
     },
+    "held": null,
+    "code": "finalization-needs-input",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1833,6 +2016,8 @@
       "code": "design-open-questions",
       "owner": "operator"
     },
+    "held": null,
+    "code": "design-open-questions",
     "actions": ["resolve-design", "stop"],
     "entry": {
       "wait": {
@@ -1860,6 +2045,8 @@
       "code": "design-decision-required",
       "owner": "operator"
     },
+    "held": null,
+    "code": "design-decision-required",
     "actions": ["resolve-design", "stop"],
     "entry": {
       "wait": {
@@ -1887,6 +2074,8 @@
       "code": "design-planning-conflict",
       "owner": "operator"
     },
+    "held": null,
+    "code": "design-planning-conflict",
     "actions": ["resolve-design", "stop"],
     "entry": {
       "wait": {
@@ -1914,6 +2103,8 @@
       "code": "design-investigation-finished",
       "owner": "operator"
     },
+    "held": null,
+    "code": "design-investigation-finished",
     "actions": ["resolve-design", "stop"],
     "entry": {
       "wait": {
@@ -1941,6 +2132,8 @@
       "code": "scope-review-recovery",
       "owner": "operator"
     },
+    "held": null,
+    "code": "scope-review-recovery",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1968,6 +2161,8 @@
       "code": "scope-review-open-questions",
       "owner": "operator"
     },
+    "held": null,
+    "code": "scope-review-open-questions",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -1995,6 +2190,8 @@
       "code": "step-incomplete",
       "owner": "operator"
     },
+    "held": null,
+    "code": "step-incomplete",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -2022,6 +2219,8 @@
       "code": "step-time-limit",
       "owner": "operator"
     },
+    "held": null,
+    "code": "step-time-limit",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -2049,6 +2248,8 @@
       "code": "integration-refresh-limit",
       "owner": "operator"
     },
+    "held": null,
+    "code": "integration-refresh-limit",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -2076,6 +2277,8 @@
       "code": "legacy-attention",
       "owner": "operator"
     },
+    "held": null,
+    "code": "legacy-attention",
     "actions": ["resume", "stop"],
     "entry": {
       "wait": {
@@ -2103,6 +2306,8 @@
       "code": "controller-wait",
       "owner": "controller"
     },
+    "held": null,
+    "code": "controller-wait",
     "actions": ["pause", "stop"],
     "entry": {
       "wait": {
@@ -2130,6 +2335,8 @@
       "code": "scheduling-held",
       "owner": "controller"
     },
+    "held": null,
+    "code": "scheduling-held",
     "actions": ["pause", "stop"],
     "entry": {
       "wait": {
@@ -2157,6 +2364,8 @@
       "code": "record-scope-evidence",
       "owner": "operator"
     },
+    "held": null,
+    "code": "record-scope-evidence",
     "actions": ["record-scope-evidence", "pause", "stop"],
     "entry": {
       "wait": {
@@ -2197,6 +2406,8 @@
       "code": "final-promotion",
       "owner": "operator"
     },
+    "held": null,
+    "code": "final-promotion",
     "actions": ["approve-promotion", "pause", "stop"],
     "entry": {
       "wait": {
@@ -2224,6 +2435,8 @@
       "code": "merge-approval",
       "owner": "operator"
     },
+    "held": null,
+    "code": "merge-approval",
     "actions": ["merge", "pause", "stop"],
     "entry": {
       "wait": {
@@ -2247,6 +2460,8 @@
   },
   "uncoded: phase blockers": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": ["pause", "stop"],
     "entry": {
       "moved": true
@@ -2322,6 +2537,8 @@
   },
   "ended: stopped by the operator": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -2345,6 +2562,8 @@
   },
   "ended: wound down with its roadmap": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -2368,6 +2587,8 @@
   },
   "ended: retired by an amendment": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -2391,6 +2612,8 @@
   },
   "ended: integrated": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -2414,6 +2637,8 @@
   },
   "ended: merged by the operator, before R-B4": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -2437,6 +2662,8 @@
   },
   "ended: its independent review recorded": {
     "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
@@ -2458,13 +2685,391 @@
       "deferredNits": null
     }
   },
-  "ended: reviewed again, and recorded again": {
+  "written: an operator stop beside a phase wait": {
     "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "held": null,
+    "code": "step-incomplete",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": {
+        "since": "2026-09-20T12:20:00.000Z",
+        "blockers": [
+          {
+            "kind": "dependency",
+            "message": "Slice wi/WI-02/domain must be verified.",
+            "code": "slice-requirement",
+            "refs": {
+              "sliceId": "wi/WI-02/domain"
+            },
+            "resourceKey": null
+          }
+        ]
+      },
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a service stop whose retry was never scheduled": {
+    "contract": "valid",
+    "stop": {
+      "code": "service-retries-exhausted",
+      "owner": "operator"
+    },
+    "held": {
+      "code": "service-retries-exhausted",
+      "owner": "operator"
+    },
+    "code": "service-retries-exhausted",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "providerRecovery": {
+        "attempts": 3,
+        "sourceRunId": "6a1f0c5e-0000-4000-8000-000000000008",
+        "failure": {
+          "kind": "capacity",
+          "message": "Provider overloaded.",
+          "safeToRetry": true
+        },
+        "profile": {
+          "backend": "claude-code",
+          "permissionMode": "auto",
+          "model": "claude-opus"
+        }
+      }
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stops: a merge gate the roadmap claims, with its unmet requirements, beside a phase wait": {
+    "contract": "valid",
+    "stop": {
+      "code": "merge-requirements",
+      "owner": "controller",
+      "claim": "roadmap-merge",
+      "detail": "Slice wi/WI-02/domain must be verified."
+    },
+    "held": {
+      "code": "merge-requirements",
+      "owner": "controller",
+      "claim": "roadmap-merge",
+      "detail": "Slice wi/WI-02/domain must be verified."
+    },
+    "code": "merge-requirements",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-waiting",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": {
+        "since": "2026-09-20T12:20:00.000Z",
+        "blockers": [
+          {
+            "kind": "dependency",
+            "message": "Slice wi/WI-02/domain must be verified.",
+            "code": "slice-requirement",
+            "refs": {
+              "sliceId": "wi/WI-02/domain"
+            },
+            "resourceKey": null
+          }
+        ]
+      },
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stops: an operator stop automation claims, with its detail": {
+    "contract": "valid",
+    "stop": {
+      "code": "scope-review-recovery",
+      "owner": "controller",
+      "claim": "prerequisite-work",
+      "detail": "Waiting for wi/WI-01/domain to merge."
+    },
+    "held": {
+      "code": "scope-review-recovery",
+      "owner": "controller",
+      "claim": "prerequisite-work",
+      "detail": "Waiting for wi/WI-01/domain to merge."
+    },
+    "code": "scope-review-recovery",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-waiting",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stops: an awaiting-merge slice from before codes that the workflow waits on": {
+    "contract": "valid",
+    "stop": {
+      "code": "controller-wait",
+      "owner": "controller"
+    },
+    "held": null,
+    "code": "controller-wait",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-waiting",
+        "reason": "Slice wi/WI-02/domain must be verified.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": {
+        "since": "2026-09-20T12:20:00.000Z",
+        "blockers": [
+          {
+            "kind": "dependency",
+            "message": "Slice wi/WI-02/domain must be verified.",
+            "code": "slice-requirement",
+            "resourceKey": null
+          }
+        ]
+      },
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stops: from before codes, the workflow waiting and further reviews held": {
+    "contract": "valid",
+    "stop": {
+      "code": "controller-wait",
+      "owner": "controller"
+    },
+    "held": null,
+    "code": "controller-wait",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-waiting",
+        "reason": "Technical review finished. Further controller reviews are held by the roadmap.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stops: from before codes, further reviews held at an independent review": {
+    "contract": "valid",
+    "stop": {
+      "code": "scheduling-held",
+      "owner": "controller"
+    },
+    "held": null,
+    "code": "scheduling-held",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-waiting",
+        "reason": "Technical review finished. Further controller reviews are held by the roadmap.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stops: from before codes, a finalization the workflow waits on": {
+    "contract": "valid",
+    "stop": {
+      "code": "controller-wait",
+      "owner": "controller"
+    },
+    "held": null,
+    "code": "controller-wait",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-waiting",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stops: a stop whose code changed while its status stayed": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "held": null,
+    "code": "step-incomplete",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "ended: stopped by the operator, its waits kept": {
+    "contract": "valid",
+    "held": null,
+    "code": null,
     "actions": [],
     "entry": {
       "wait": {
         "code": "cycle-ended",
-        "reason": "Worktree integrated; cycle complete.",
+        "reason": "Automation stopped by operator. Manual flow is available.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": {
+        "since": "2026-09-20T12:20:00.000Z",
+        "blockers": [
+          {
+            "kind": "dependency",
+            "message": "Slice wi/WI-02/domain must be verified.",
+            "code": "slice-requirement",
+            "refs": {
+              "sliceId": "wi/WI-02/domain"
+            },
+            "resourceKey": null
+          }
+        ]
+      },
+      "design": {
+        "since": "2026-09-20T12:21:00.000Z",
+        "requirements": [
+          {
+            "kind": "slice",
+            "id": "wi/WI-01/domain",
+            "state": "merged"
+          }
+        ]
+      }
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "ended: its independent review reviewed again, and recorded again": {
+    "contract": "valid",
+    "held": null,
+    "code": null,
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Independent scope evidence recorded; review cycle complete.",
         "refs": {
           "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
         }

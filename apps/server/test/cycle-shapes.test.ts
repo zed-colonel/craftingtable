@@ -7,6 +7,7 @@ import {
   type PhaseBlocker,
   phaseBlockerCode,
   phaseBlockerResourceKey,
+  stopCode,
   type WorkCycle,
 } from '@craftingtable/domain';
 import { afterAll, expect, it } from 'vitest';
@@ -29,8 +30,9 @@ const recorded: Record<string, Json> = existsSync(RECORD)
   ? (JSON.parse(readFileSync(RECORD, 'utf8')) as Record<string, Json>)
   : {};
 const observed: Record<string, Json> = {};
+// Re-recording merges the rows that ran into the record, so a filtered run keeps the others.
 afterAll(() => {
-  if (UPDATE) writeFileSync(RECORD, `${JSON.stringify(observed, null, 2)}\n`);
+  if (UPDATE) writeFileSync(RECORD, `${JSON.stringify({ ...recorded, ...observed }, null, 2)}\n`);
 });
 
 const json = (value: unknown): Json => JSON.parse(JSON.stringify(value ?? null)) as Json;
@@ -56,6 +58,9 @@ function answers(row: ShapeRow): Json {
   return json({
     contract: contract.success ? 'valid' : contract.error.issues.map((i) => i.path.join('.')),
     stop: effectiveCycleAttention(cycle),
+    // The stop a paused cycle holds, which its resume returns to (increment 1 review, MEDIUM-1).
+    held: cycle.attention ?? null,
+    code: stopCode(cycle) ?? null,
     actions: cycleActions(cycle, cycle.currentRunId),
     entry: cycleStep(cycle),
     keeps,
@@ -90,8 +95,12 @@ it('names each stored shape once, and covers the survey, the decoders and every 
   const names = rows.map((row) => row.name);
   expect(new Set(names).size).toBe(names.length);
   expect(names.filter((name) => name.startsWith('stored: '))).toHaveLength(41);
+  expect(names.filter((name) => name.startsWith('written: '))).toHaveLength(13);
   expect(names.filter((name) => name.startsWith('uncoded: '))).toHaveLength(27);
-  expect(names.filter((name) => name.startsWith('ended: '))).toHaveLength(7);
+  expect(names.filter((name) => name.startsWith('stops: '))).toHaveLength(7);
+  expect(names.filter((name) => name.startsWith('ended: '))).toHaveLength(8);
+  // Every row has its record, and the record names no row that is gone (NIT-1).
+  if (!UPDATE) expect(Object.keys(recorded).sort()).toEqual([...names].sort());
 });
 
 it.each(rows.map((row) => [row.name, row] as const))('%s', (name, row) => {

@@ -499,6 +499,21 @@ function written(): ShapeRow[] {
         },
       },
     ),
+    row('an operator stop beside a phase wait', 'needs-attention', { phaseWait: 'obj' }),
+    row(
+      'a service stop whose retry was never scheduled',
+      'needs-attention',
+      {},
+      {
+        attention: { code: 'service-retries-exhausted', owner: 'operator' },
+        providerRecovery: {
+          attempts: 3,
+          sourceRunId: ID.parent,
+          failure: { kind: 'capacity', message: 'Provider overloaded.', safeToRetry: true },
+          profile: { ...PROFILE, model: 'claude-opus' },
+        },
+      },
+    ),
     row(
       'a merge gate the controller waits at',
       'awaiting-merge',
@@ -509,12 +524,14 @@ function written(): ShapeRow[] {
       },
     ),
     {
+      // A code whose plain resume is redirected, so the kept stop shows in the actions too.
       ...row(
         'a pause kept at a stop',
         'paused',
         { designWait: 'obj' },
         {
-          attention: { code: 'step-incomplete', owner: 'operator' },
+          attention: { code: 'design-open-questions', owner: 'operator' },
+          step: 'design',
         },
       ),
       history: history([
@@ -523,6 +540,91 @@ function written(): ShapeRow[] {
         ['pause', 'paused'],
       ]),
     },
+  ];
+}
+
+/**
+ * The stops the corpus stores, as stored (increment 1 review, LOW-1): its merge gates beside a
+ * phase wait are `merge-requirements` with their detail, most of them claimed by the roadmap's
+ * merge; its commonest stop carries a claim and a detail; and its one `awaiting-merge` record from
+ * before codes (2f1ab211) is a slice the workflow waits on, beside a blocker stored without a code.
+ * Then the order of the `awaiting-merge` derivations (NIT-5: two signals, the earlier wins), and a
+ * stop whose code changed while its status stayed (LOW-3).
+ */
+function stops(): ShapeRow[] {
+  const SCOPE = {
+    definitionId: ID.definition,
+    bindingRevision: 1,
+    sourceId: 'wi/WI-02/domain',
+  };
+  const held = 'Technical review finished. Further controller reviews are held by the roadmap.';
+  const waiting = { ...WORKFLOW, waiting: 'Waiting for the security review.' };
+  const row = (name: string, stored: StoredCycle, entered?: [string, string][]): ShapeRow => ({
+    name: `stops: ${name}`,
+    record: stored,
+    history: history(entered ?? ENTERED[stored.status as string]!),
+  });
+  return [
+    row(
+      'a merge gate the roadmap claims, with its unmet requirements, beside a phase wait',
+      record(
+        'awaiting-merge',
+        { phaseWait: 'obj' },
+        {
+          attention: {
+            code: 'merge-requirements',
+            owner: 'controller',
+            claim: 'roadmap-merge',
+            detail: 'Slice wi/WI-02/domain must be verified.',
+          },
+        },
+      ),
+    ),
+    row(
+      'an operator stop automation claims, with its detail',
+      record(
+        'needs-attention',
+        {},
+        {
+          attention: {
+            code: 'scope-review-recovery',
+            owner: 'controller',
+            claim: 'prerequisite-work',
+            detail: 'Waiting for wi/WI-01/domain to merge.',
+          },
+        },
+      ),
+    ),
+    row('an awaiting-merge slice from before codes that the workflow waits on', {
+      ...record('awaiting-merge', {}),
+      reason: 'Slice wi/WI-02/domain must be verified.',
+      workflow: { ...WORKFLOW, waiting: 'Waiting for the checkpoint review.' },
+      executionScope: { kind: 'slice', ...SCOPE },
+      phaseWait: {
+        startedAt: T(20),
+        blockers: [{ kind: 'dependency', message: 'Slice wi/WI-02/domain must be verified.' }],
+      },
+    }),
+    row('from before codes, the workflow waiting and further reviews held', {
+      ...record('awaiting-merge', {}),
+      reason: held,
+      workflow: waiting,
+    }),
+    row('from before codes, further reviews held at an independent review', {
+      ...record('awaiting-merge', {}),
+      reason: held,
+      executionScope: { kind: 'slice-verification', ...SCOPE },
+    }),
+    row(
+      'from before codes, a finalization the workflow waits on',
+      withoutItem({ ...record('awaiting-merge', {}), ...FINALIZATION, workflow: waiting }),
+    ),
+    row('a stop whose code changed while its status stayed', record('needs-attention', {}), [
+      ['start', 'running'],
+      ['advance', 'needs-attention'],
+      ['investigation-started', 'needs-attention'],
+      ['advance', 'needs-attention'],
+    ]),
   ];
 }
 
@@ -539,6 +641,14 @@ function ended(): ShapeRow[] {
     history: history(entered),
   });
   return [
+    {
+      ...end('stopped by the operator, its waits kept', 'stopped', [
+        ['start', 'running'],
+        ['advance', 'needs-attention'],
+        ['stop', 'stopped'],
+      ]),
+      record: record('stopped', { phaseWait: 'obj', designWait: 'obj' }),
+    },
     end('stopped by the operator', 'stopped', [
       ['start', 'running'],
       ['advance', 'needs-attention'],
@@ -600,17 +710,34 @@ function ended(): ShapeRow[] {
       ),
       scopeReceipt: true,
     },
-    end('reviewed again, and recorded again', 'completed', [
-      ['start', 'running'],
-      ['advance', 'completed'],
-      ['review-again', 'running'],
-      ['advance', 'completed'],
-      // A field-only write after the end keeps its status (no new end).
-      ['checkpoint-completed', 'completed'],
-    ]),
+    {
+      // Review again reopens only an independent review (`decideReviewAgain`, NIT-3).
+      ...end(
+        'its independent review reviewed again, and recorded again',
+        'completed',
+        [
+          ['start', 'running'],
+          ['advance', 'completed'],
+          ['review-again', 'running'],
+          ['advance', 'completed'],
+          // A field-only write after the end keeps its status (no new end).
+          ['checkpoint-completed', 'completed'],
+        ],
+        {
+          reason: 'Independent scope evidence recorded; review cycle complete.',
+          executionScope: {
+            kind: 'parent-acceptance',
+            definitionId: ID.definition,
+            bindingRevision: 1,
+            sourceId: 'wi/WI-02',
+          },
+        },
+      ),
+      scopeReceipt: true,
+    },
   ];
 }
 
 export function cycleShapes(): readonly ShapeRow[] {
-  return [...surveyed(), ...written(), ...uncoded(), ...ended()];
+  return [...surveyed(), ...written(), ...uncoded(), ...stops(), ...ended()];
 }

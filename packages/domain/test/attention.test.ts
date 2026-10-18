@@ -13,9 +13,9 @@ import {
   phaseBlockerCode,
   phaseBlockerResourceKey,
 } from '../src/attention-legacy.js';
+import { asFinalizationId } from '../src/ids.js';
 import type { PhaseBlocker } from '../src/phase-scheduling.js';
 import type { WorkCycle } from '../src/work-cycle.js';
-import { asFinalizationId } from '../src/ids.js';
 
 const stopped = (status: WorkCycle['status'], reason: string, extra: Partial<WorkCycle> = {}) =>
   ({ status, reason, ...extra }) as WorkCycle;
@@ -120,6 +120,10 @@ describe('typed attention (R-A3)', () => {
     expect(effectiveRoadmapAttention({ status: 'running', reason: 'Daemon restarted.' })).toBe(
       undefined,
     );
+    // Any other reason a roadmap stopped for before codes (R-B4b increment 1 review, NIT-4).
+    expect(
+      effectiveRoadmapAttention({ status: 'needs-attention', reason: 'Something else.' })?.code,
+    ).toBe('legacy-attention');
     expect(effectiveHoldAttention({ status: 'needs-attention', reason: 'x' })?.code).toBe(
       'legacy-attention',
     );

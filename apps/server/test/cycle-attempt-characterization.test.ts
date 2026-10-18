@@ -106,17 +106,26 @@ function perStep(seeded: WorkCycle, written: WorkCycle): Record<Field, unknown> 
 const writerOf = (state: Ready) =>
   (state.context.services.workCycleService as unknown as { writer: CycleWriter }).writer;
 
-/** The records the writer writes by `action`, from now on. */
-function writes(state: Ready) {
+/**
+ * The records the writer writes by `action`, from now on. With `seedAt`, the write of that action
+ * starts from the record with every field seeded, as if seeded just before it (`seeded()`), so
+ * the row shows what that write itself keeps and clears.
+ */
+function writes(state: Ready, seedAt?: string) {
   const writer = writerOf(state);
   const change = writer.change.bind(writer);
   const written: { action: string; cycle: WorkCycle }[] = [];
+  let base: WorkCycle | undefined;
   vi.spyOn(writer, 'change').mockImplementation((cycle, input, action = 'advance', context) => {
-    const result = change(cycle, input, action, context);
+    if (action === seedAt && !base)
+      base = { ...cycle, ...seededFields(cycle.currentRunId) } as WorkCycle;
+    const from = action === seedAt && base ? base : cycle;
+    const result = change(from, input, action, context);
     written.push({ action, cycle: result });
     return result;
   });
-  return (action: string) => written.find((w) => w.action === action)?.cycle;
+  const of = (action: string) => written.find((w) => w.action === action)?.cycle;
+  return Object.assign(of, { seeded: () => base, actions: () => written.map((w) => w.action) });
 }
 
 /** A design question stop: the cycle at `design`, its run finished. */
@@ -133,6 +142,22 @@ async function designStop(outputs: Parameters<typeof cycleFixture>[0] = []) {
   return { ...fixture, cycle };
 }
 
+/** The run's turn has completed or the run has ended: the next pass decides on it. */
+const turnOver = (state: Ready, cycle: WorkCycle) => {
+  const found = state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId);
+  return (
+    !!found &&
+    (found.status === 'failed' ||
+      found.status === 'finished' ||
+      !!state.context.storage.execution.runEvents.latestOfKind(
+        state.workspaceId,
+        found.id,
+        'turn-completed',
+      ))
+  );
+};
+const launched = (state: Ready, cycle: WorkCycle) =>
+  !!state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId);
 const run = (state: Ready, cycle: WorkCycle): AgentRun => {
   const found = state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId);
   if (!found) throw new Error('missing run');
@@ -145,54 +170,11 @@ describe("next(): the step's reservation", () => {
     [
       'a new step drops every per-step field but keeps the phase wait',
       'implement' as const,
-      {},
       {
         stepGuidance: 'absent',
         housekeepingInstructions: '',
         resultContinuations: 0,
         outputRepair: null,
-        providerRecovery: null,
-        designWait: null,
-        phaseWait: 'kept',
-      },
-    ],
-    [
-      'a same-step service retry keeps the guidance and takes its retry',
-      'design' as const,
-      { providerRecovery: 'retry' },
-      {
-        stepGuidance: 'kept',
-        housekeepingInstructions: '',
-        resultContinuations: 0,
-        outputRepair: null,
-        providerRecovery: 'retry',
-        designWait: null,
-        phaseWait: 'kept',
-      },
-    ],
-    [
-      'a completion continuation keeps the guidance and takes its count',
-      'design' as const,
-      { resultContinuations: 2 },
-      {
-        stepGuidance: 'kept',
-        housekeepingInstructions: '',
-        resultContinuations: 2,
-        outputRepair: null,
-        providerRecovery: null,
-        designWait: null,
-        phaseWait: 'kept',
-      },
-    ],
-    [
-      'an output repair keeps the guidance and takes its repair',
-      'design' as const,
-      { outputRepair: 'repair' },
-      {
-        stepGuidance: 'kept',
-        housekeepingInstructions: '',
-        resultContinuations: 0,
-        outputRepair: 'repair',
         providerRecovery: null,
         designWait: null,
         phaseWait: 'kept',
@@ -201,7 +183,6 @@ describe("next(): the step's reservation", () => {
     [
       'the same step again after its run finished drops the guidance',
       'design' as const,
-      {},
       {
         stepGuidance: 'absent',
         housekeepingInstructions: '',
@@ -212,28 +193,13 @@ describe("next(): the step's reservation", () => {
         phaseWait: 'kept',
       },
     ],
-  ] as const)('%s', async (_name, step, given, expected) => {
+  ] as const)('%s', async (_name, step, expected) => {
     const { state, cycle } = await designStop();
     const parent = run(state, currentCycle(state, cycle));
     const seeded = seed(state, cycle);
-    const retry = { ...seeded.providerRecovery!, attempts: 2 };
-    const repair = { ...seeded.outputRepair!, attempts: 2 };
-    const changes = {
-      ...('providerRecovery' in given ? { providerRecovery: retry } : {}),
-      ...('outputRepair' in given ? { outputRepair: repair } : {}),
-      ...('resultContinuations' in given ? { resultContinuations: given.resultContinuations } : {}),
-    };
-    const written = await writerOf(state).next(seeded, step, parent, undefined, changes);
+    const written = await writerOf(state).next(seeded, step, parent);
     expect(written.version).toBe(seeded.version + 1);
-    const named = { retry, repair } as Record<string, unknown>;
-    expect(perStep(seeded, written)).toEqual(
-      Object.fromEntries(
-        Object.entries(expected).map(([field, value]) => [
-          field,
-          typeof value === 'string' && value in named ? named[value] : value,
-        ]),
-      ),
-    );
+    expect(perStep(seeded, written)).toEqual(expected);
   });
 
   it('keeps the guidance of a step reserved again before its run launched', async () => {
@@ -245,15 +211,159 @@ describe("next(): the step's reservation", () => {
   });
 });
 
+/** Seeds the per-step fields alone on the stored cycle: a wait would steer the pass elsewhere. */
+function seedAttempt(state: Ready, cycle: WorkCycle, keep: readonly Field[] = []): WorkCycle {
+  const current = currentCycle(state, cycle);
+  const { designWait: _design, phaseWait: _phase, ...fields } = seededFields(current.currentRunId);
+  for (const field of keep) delete (fields as Record<string, unknown>)[field];
+  const seeded = { ...current, ...fields, version: current.version + 1 } as WorkCycle;
+  expect(state.context.storage.execution.cycles.replace(seeded, current.version)).toBeTruthy();
+  return seeded;
+}
+
+/** Steps only the agents, so a run can end with no controller pass after it. */
+const agentsOnly = (state: Ready) => ({
+  step: () => state.context.services.agentRunService.quiesce(),
+});
+
+describe('the same-step attempts, through the callers that take them (increment 1 review, MEDIUM-2)', () => {
+  it('a service retry keeps the guidance, the housekeeping and the continuation count, and takes its retry', async () => {
+    let now = new Date('2026-09-25T12:00:00Z');
+    const { state, worktree, backend } = await cycleFixture(
+      [
+        {
+          resultText: 'At capacity.',
+          providerFailure: { kind: 'capacity', message: 'At capacity.', safeToRetry: true },
+        },
+        designDone,
+      ],
+      () => now,
+    );
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'the retry');
+    // A seeded repair would make the retry resume the session for it: the retry keeps none.
+    const seeded = seedAttempt(state, cycle, ['providerRecovery', 'outputRepair']);
+    const written = writes(state);
+    now = new Date('2026-09-25T12:30:00Z');
+    await waitFor(() => written('retry-provider') !== undefined, 'the service retry', {
+      steps: 20,
+    }).catch((error: Error) => {
+      const at = currentCycle(state, cycle);
+      throw new Error(
+        `${error.message}: ${at.status} ${at.attention?.code} ${at.reason} ${written.actions()} launches=${backend.launches.length} seeded-at=${seeded.providerRecovery?.attempts}/${seeded.providerRecovery?.nextRetryAt}`,
+      );
+    });
+    const retried = written('retry-provider')!;
+    expect(perStep(seeded, retried)).toEqual({
+      stepGuidance: 'kept',
+      housekeepingInstructions: 'kept',
+      resultContinuations: 'kept',
+      outputRepair: null,
+      providerRecovery: {
+        ...seeded.providerRecovery,
+        attempts: seeded.providerRecovery!.attempts + 1,
+        nextRetryAt: undefined,
+      },
+      designWait: null,
+      phaseWait: 'absent',
+    });
+  });
+
+  it('a completion continuation keeps the guidance, the housekeeping and the retry, and counts on', async () => {
+    const { state, worktree } = await cycleFixture([
+      designDone,
+      { resultText: 'Waiting.', exitReason: 'background-work-incomplete' },
+      implementationDone,
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(
+      () =>
+        currentCycle(state, cycle).step === 'implement' &&
+        launched(state, currentCycle(state, cycle)),
+      'the implementation',
+    );
+    await waitFor(
+      () => turnOver(state, currentCycle(state, cycle)),
+      'the implementation ending with background work',
+      agentsOnly(state),
+    );
+    const seeded = seedAttempt(state, cycle);
+    const written = writes(state);
+    await waitFor(() => written('continue-incomplete-result') !== undefined, 'the continuation');
+    expect(perStep(seeded, written('continue-incomplete-result')!)).toEqual({
+      stepGuidance: 'kept',
+      housekeepingInstructions: 'kept',
+      resultContinuations: 2,
+      outputRepair: null,
+      providerRecovery: 'kept',
+      // The stored design wait was already `null`, as `next()` leaves it.
+      designWait: 'kept',
+      phaseWait: 'absent',
+    });
+  });
+
+  it('an output repair keeps the guidance, the housekeeping and the continuation count, and takes its repair', async () => {
+    const { state, worktree } = await cycleFixture([
+      { resultText: 'Design complete.' },
+      designDone,
+    ]);
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => launched(state, currentCycle(state, cycle)), 'the design');
+    await waitFor(
+      () => turnOver(state, currentCycle(state, cycle)),
+      'the design ending without its checkpoint',
+      agentsOnly(state),
+    );
+    const seeded = seedAttempt(state, cycle, ['outputRepair']);
+    const written = writes(state);
+    await waitFor(() => written('repair-output') !== undefined, 'the repair');
+    const repaired = written('repair-output')!;
+    expect(perStep(seeded, repaired)).toMatchObject({
+      stepGuidance: 'kept',
+      housekeepingInstructions: 'kept',
+      resultContinuations: 'kept',
+      providerRecovery: null,
+      designWait: null,
+      phaseWait: 'absent',
+    });
+    expect(repaired.outputRepair).toMatchObject({ attempts: 1, code: 'design-open-questions' });
+  });
+
+  it("a restart's resume keeps every per-step field", async () => {
+    const { state, cycle } = await designStop();
+    const seeded = seed(state, cycle);
+    const restart = (
+      state.context.services.workCycleService as unknown as {
+        restart: { resumeAfterRestart: (cycle: WorkCycle, run: AgentRun) => Promise<void> };
+      }
+    ).restart;
+    const written = writes(state);
+    await restart.resumeAfterRestart(seeded, run(state, seeded));
+    expect(perStep(seeded, written('resume-after-restart')!)).toEqual({
+      stepGuidance: 'kept',
+      housekeepingInstructions: 'kept',
+      resultContinuations: 'kept',
+      outputRepair: 'kept',
+      providerRecovery: 'kept',
+      designWait: null,
+      phaseWait: 'kept',
+    });
+  });
+});
+
 describe('change(): leaving automation keeps the waits', () => {
   it.each([
-    ['a stop', { status: 'needs-attention', attention: cycleAttention('step-incomplete') }],
-    ['a pause', { status: 'paused' }],
-    ['an end', { status: 'stopped' }],
-  ] as const)('%s keeps both waits and ends the output repair', async (_name, changes) => {
+    [
+      'a stop',
+      { status: 'needs-attention', attention: cycleAttention('step-incomplete') },
+      'advance',
+    ],
+    ['a pause', { status: 'paused' }, 'pause'],
+    ['an end', { status: 'stopped' }, 'stop'],
+  ] as const)('%s keeps both waits and ends the output repair', async (_name, changes, action) => {
     const { state, cycle } = await designStop();
     const seeded = seed(state, cycle, { status: 'running', attention: undefined });
-    const written = writerOf(state).change(seeded, changes as never, 'pause');
+    const written = writerOf(state).change(seeded, changes as never, action);
     expect(perStep(seeded, written)).toEqual({
       stepGuidance: 'kept',
       housekeepingInstructions: 'kept',
@@ -312,14 +422,13 @@ describe("the step changes that bypass next() (R-B7's note for R-B4b)", () => {
       ],
     })}\n\`\`\`\n\n## Open questions\nnone`;
     const { state, cycle } = await designStop([{ resultText: answered }, designDone]);
-    // Seeded at the stop: the investigation's recovery keeps the guidance and the housekeeping
-    // (the row above), so the continue meets both.
-    const seeded = seed(state, cycle);
     const url = `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/design-recovery`;
     const snapshot = (
       await state.context.app.inject({ method: 'GET', url, headers: { cookie: state.cookie } })
     ).json();
-    const written = writes(state);
+    // Seeded as the continue's own write starts, after the investigation's recovery cleared its
+    // share (increment 1 review, LOW-4).
+    const written = writes(state, 'design-continue');
     const response = await state.context.app.inject({
       method: 'POST',
       url,
@@ -333,7 +442,7 @@ describe("the step changes that bypass next() (R-B7's note for R-B4b)", () => {
     });
     expect(response.statusCode, response.body).toBe(200);
     await waitFor(() => written('design-continue') !== undefined, 'the design continue');
-    expect(perStep(seeded, written('design-continue')!)).toEqual({
+    expect(perStep(written.seeded()!, written('design-continue')!)).toEqual({
       stepGuidance: 'absent',
       housekeepingInstructions: 'kept',
       resultContinuations: 0,
@@ -394,7 +503,7 @@ describe("the step changes that bypass next() (R-B7's note for R-B4b)", () => {
     });
   });
 
-  it('adopting a newer manual run keeps every per-step field and the phase wait', async () => {
+  it('adopting a newer manual run keeps every per-step field but the repair, and the phase wait', async () => {
     const { state, worktree, cycle } = await designStop([designDone]);
     await runToFinish(state, worktree.id, {
       role: 'design',

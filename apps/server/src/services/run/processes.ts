@@ -34,6 +34,7 @@ import { AGENTS_ROOT_LOCK_FILE } from '../../instance-lock.js';
 import { DRAIN_INTERRUPTED_MESSAGE, type RunLog, SHUTDOWN_GRACE_MS } from './shared.js';
 
 import type { RunState } from './state.js';
+import { clearReservations, removeOrphanRunDirectories } from './reservation.js';
 import type { RunJournal } from './journal.js';
 
 /** A run's own directory beneath the agents' temporary root: random bytes, in hex (LIVE-31). */
@@ -365,6 +366,24 @@ export class RunProcesses {
         "Entries in the agents' temporary root that are not run directories were left in place",
         { root, count: left.length, entries: left.sort().slice(0, LEFT_ENTRIES_NAMED) },
       );
+    // The launches a stop cut short (R-B7 decision 1): a reservation whose run row exists is the
+    // run's now, and goes; one with none goes with what it made. Then, once, the run directories
+    // refused launches left before migration 0046 (AGT-12). Neither keeps the daemon from starting.
+    await clearReservations(
+      this.storage,
+      this.log,
+      (reservation) =>
+        this.storage.execution.runs.find(reservation.workspaceId, reservation.runId) !== undefined,
+    );
+    let runsRoot: string | undefined;
+    try {
+      runsRoot = this.config.runsRoot;
+    } catch (error) {
+      this.log.warn('The runs root is not usable; directories no run owns stay for now', {
+        error: String(error),
+      });
+    }
+    if (runsRoot !== undefined) await removeOrphanRunDirectories(this.storage, this.log, runsRoot);
     this.storage.transaction((tx) =>
       tx.phaseScheduling.releaseOperations(this.now().toISOString()),
     );

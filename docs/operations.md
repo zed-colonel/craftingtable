@@ -285,6 +285,15 @@ its own: the daemon refuses one that is or holds `/`, `/tmp`, `/var/tmp`, `/dev/
 `XDG_RUNTIME_DIR`, `TMPDIR` or the home, or that overlaps its other roots. Each start removes the
 run directories a stopped daemon left there, and logs anything else it finds.
 
+**A launch's directories.** A launch reserves its run before it makes the run's directory
+(`<runs root>/<run id>`) and its check replies (`check-logs/<run id>/replies`). A launch refused
+before its run is recorded (a drain, a phase gate, a repository policy that moved, a check service
+that is not running) removes both before it says why, so a relaunch of the same run starts in an
+empty directory. Each start removes what a launch a stop cut short had made. The first start after
+the update to schema 46 also removes, once, the run directories in the runs root that no run owns,
+which refused launches left before it: its log says how many and names up to 20. A directory a
+start cannot remove stays, is logged, and is tried again at the next start.
+
 **Outside sources** are the hosts a sandboxed agent command may reach, and the caches it may write
 beside its run ([security.md](security.md#agent-sandboxes) says how each agent enforces them).
 They are read from `outside-sources.json` in the settings directory at start; edit it and restart:

@@ -153,6 +153,8 @@ export class RunSpawner {
       });
       throw error;
     }
+    // The run row owns its directory now: the launch's reservation goes (decision 1).
+    this.storage.transaction((tx) => tx.maintenance.dropLaunch(runId));
     // The protected branches as the run starts (R-G5).
     if (this.state.refWatch) {
       const repository = this.storage.execution.sourceRepositories.find(

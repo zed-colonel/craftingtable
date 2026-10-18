@@ -32,6 +32,22 @@ export interface RunDirectory {
   readonly worktreeId: WorktreeId;
   readonly retainedSince: string;
 }
+/**
+ * A launch's reservation (R-B7 decision 1, AGT-12): its durable record before its first file,
+ * naming what the launch will make and the device of the root each is made in.
+ */
+export interface RunLaunchReservation {
+  readonly runId: AgentRunId;
+  readonly workspaceId: WorkspaceId;
+  readonly worktreeId: WorktreeId;
+  readonly runDirectory: string;
+  readonly runDevice: number;
+  readonly replyDirectory: string;
+  readonly replyDevice: number;
+  readonly createdAt: string;
+}
+/** One-time work a migration asks of the next start. */
+export type StartupTask = 'remove-orphan-run-directories';
 export interface StorageBackup {
   readonly path: string;
   readonly createdAt: string;
@@ -64,4 +80,12 @@ export interface StorageMaintenanceRepository {
   recordCleanStop(stop: DaemonCleanStop): void;
   /** Returns and removes the clean-stop record, so each start consumes it once. */
   takeCleanStop(): DaemonCleanStop | undefined;
+  reserveLaunch(reservation: RunLaunchReservation): void;
+  launchReservation(runId: AgentRunId): RunLaunchReservation | undefined;
+  launchReservations(): readonly RunLaunchReservation[];
+  dropLaunch(runId: AgentRunId): void;
+  /** Whether a run row, a directory row or a reservation owns this run id or directory. */
+  ownsRunDirectory(runId: string, path: string): boolean;
+  startupTaskPending(task: StartupTask): boolean;
+  completeStartupTask(task: StartupTask): void;
 }

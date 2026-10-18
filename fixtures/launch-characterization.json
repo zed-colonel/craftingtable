@@ -81,6 +81,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -222,6 +223,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -373,6 +375,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -505,6 +508,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -621,6 +625,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -742,6 +747,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -871,6 +877,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1001,6 +1008,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1139,6 +1147,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1272,6 +1281,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1406,6 +1416,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1540,6 +1551,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1678,6 +1690,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1832,6 +1845,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1966,6 +1980,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -2095,6 +2110,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -2208,6 +2224,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -2327,6 +2344,7 @@
       }
     ],
     "reservations": [],
+    "launch": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -2386,22 +2404,10 @@
       }
     },
     "leftovers": {
-      "runDirectories": {
-        "<uuid:1>": {
-          "checks/": "directory 700",
-          "checks/bin/": "directory 700",
-          "checks/bin/ct-check": "b46aeee586fe40db7b868b4b1d6edb37b7433ecc9760dc45c556b1604785ad4e 500",
-          "checks/manifest.json": "5ad0e2c615d49be23c1fc8fa4f4d2ee641e4f1dcf6f0dcbd3ff48fcf2c073a95 400",
-          "checks/requests/": "directory 700",
-          "scratch/": "directory 700"
-        }
-      },
-      "checkLogs": {
-        "<uuid:1>": {
-          "replies/": "directory 700"
-        }
-      },
-      "processDirectories": 1
+      "runDirectories": {},
+      "checkLogs": {},
+      "launchReservations": 0,
+      "processDirectories": 0
     }
   },
   "refused: design recovery inputs and policy": {
@@ -2414,14 +2420,10 @@
       "reason": "Design recovery inputs changed before launch. Refresh discovery."
     },
     "leftovers": {
-      "runDirectories": {
-        "<uuid:1>": {
-          "plan/": "directory 700",
-          "scratch/": "directory 700"
-        }
-      },
+      "runDirectories": {},
       "checkLogs": {},
-      "processDirectories": 1
+      "launchReservations": 0,
+      "processDirectories": 0
     }
   },
   "refused: drain after the preflight": {
@@ -2437,10 +2439,11 @@
     "leftovers": {
       "runDirectories": {},
       "checkLogs": {},
+      "launchReservations": 0,
       "processDirectories": 0
     }
   },
-  "refused: drain at the record with adopted checks, then the relaunch fails": {
+  "refused: drain at the record with adopted checks, then relaunched": {
     "refused": {
       "cycle": {
         "status": "running",
@@ -2448,57 +2451,153 @@
         "reason": "Starting design. Automation pauses at unresolved design questions or merge approval."
       },
       "leftovers": {
-        "runDirectories": {
-          "<uuid:1>": {
-            "brief.md": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98 600",
-            "checks/": "directory 700",
-            "checks/bin/": "directory 700",
-            "checks/bin/ct-check": "b46aeee586fe40db7b868b4b1d6edb37b7433ecc9760dc45c556b1604785ad4e 500",
-            "checks/manifest.json": "5ad0e2c615d49be23c1fc8fa4f4d2ee641e4f1dcf6f0dcbd3ff48fcf2c073a95 400",
-            "checks/requests/": "directory 700",
-            "plan/": "directory 700",
-            "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-            "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
-            "scratch/": "directory 700"
-          }
-        },
-        "checkLogs": {
-          "<uuid:1>": {
-            "replies/": "directory 700"
-          }
-        },
-        "processDirectories": 1
+        "runDirectories": {},
+        "checkLogs": {},
+        "launchReservations": 0,
+        "processDirectories": 0
       }
     },
     "relaunch": {
-      "sameRun": true,
-      "status": "needs-attention",
-      "attention": {
-        "code": "controller-error",
-        "owner": "operator"
+      "brief": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98",
+      "prompt": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98",
+      "files": {
+        "brief.md": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98 600",
+        "checks/": "directory 700",
+        "checks/bin/": "directory 700",
+        "checks/bin/ct-check": "b46aeee586fe40db7b868b4b1d6edb37b7433ecc9760dc45c556b1604785ad4e 500",
+        "checks/manifest.json": "5ad0e2c615d49be23c1fc8fa4f4d2ee641e4f1dcf6f0dcbd3ff48fcf2c073a95 400",
+        "checks/requests/": "directory 700",
+        "plan/": "directory 700",
+        "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
+        "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
+        "scratch/": "directory 700"
       },
-      "reason": "Controller could not advance this step. Inspect the run before resuming."
+      "run": {
+        "profileSelection": {
+          "purpose": "design"
+        },
+        "id": "<uuid:1>",
+        "workspaceId": "<uuid:3>",
+        "worktreeId": "<uuid:4>",
+        "repositoryId": "<uuid:5>",
+        "projectId": "project-1",
+        "workItemId": "item-1",
+        "backend": "claude-code",
+        "role": "design",
+        "status": "starting",
+        "permissionMode": "auto",
+        "model": "design-model",
+        "createdAt": "<t0+0ms>",
+        "createdByUserId": "<uuid:6>",
+        "turnCount": 0,
+        "version": 1
+      },
+      "evidence": {
+        "runId": "<uuid:1>",
+        "workspaceId": "<uuid:3>",
+        "manifestPath": "<data>/runs/<uuid:1>/checks/manifest.json",
+        "manifestDigest": "<hex64:1>",
+        "receiptAuthority": "daemon",
+        "checkDeclarationId": "<uuid:2>"
+      },
+      "audit": [
+        {
+          "id": "<uuid:7>",
+          "occurred_at": "<t0+0ms>",
+          "actor_kind": "system",
+          "actor_user_id": "<uuid:6>",
+          "session_id": null,
+          "workspace_id": "<uuid:3>",
+          "request_id": null,
+          "action": "agent-run.start",
+          "target_type": "agent-run",
+          "target_id": "<uuid:1>",
+          "outcome": "succeeded",
+          "prior_version": null,
+          "resulting_version": null,
+          "metadata_json": "{\"workItemId\":\"item-1\",\"worktreeId\":\"<uuid:4>\",\"role\":\"design\",\"permissionMode\":\"auto\",\"backend\":\"claude-code\"}"
+        }
+      ],
+      "event": [
+        {
+          "id": "<uuid:8>",
+          "schema_version": 1,
+          "occurred_at": "<t0+0ms>",
+          "workspace_id": "<uuid:3>",
+          "actor_user_id": "<uuid:6>",
+          "project_id": "project-1",
+          "work_item_id": "item-1",
+          "run_id": "<uuid:1>",
+          "kind": "agent-run-started",
+          "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:4>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"design\"}"
+        }
+      ],
+      "directory": [
+        {
+          "run_id": "<uuid:1>",
+          "path": "<data>/runs/<uuid:1>"
+        }
+      ],
+      "reservations": [],
+      "launch": [],
+      "request": {
+        "deniedReads": [
+          "<data>/state",
+          "<data>/backups",
+          "<data>/config"
+        ],
+        "outsideSources": [
+          {
+            "kind": "cargo",
+            "hosts": [
+              "index.crates.io",
+              "static.crates.io"
+            ],
+            "caches": [
+              "<data>/cargo-home/registry",
+              "<data>/cargo-home/git"
+            ]
+          }
+        ],
+        "buildEnvironment": {
+          "binDirectory": "<data>/runs/<uuid:1>/checks/bin",
+          "namespace": "<uuid:1>"
+        },
+        "cwd": "<worktree>",
+        "gitDirectories": {
+          "gitDirectory": "<repository>/.git/worktrees/aq-01-<branch-suffix:1>",
+          "gitCommonDirectory": "<repository>/.git",
+          "worktreeConfig": false
+        },
+        "temporaryDirectory": "<data>/runs/<uuid:1>/scratch",
+        "processTemporaryDirectory": "<data>/t/<process>",
+        "buildCacheDirectory": "<data>/runs/worktree-caches/<uuid:4>",
+        "environment": {
+          "TMPDIR": "<data>/runs/<uuid:1>/scratch",
+          "TMP": "<data>/runs/<uuid:1>/scratch",
+          "TEMP": "<data>/runs/<uuid:1>/scratch",
+          "CARGO_TARGET_DIR": "<data>/runs/worktree-caches/<uuid:4>",
+          "CARGO_HOME": "<data>/cargo-home",
+          "CRAFTINGTABLE_RUN_ID": "<uuid:1>",
+          "CRAFTINGTABLE_RUN_NAMESPACE": "<uuid:1>"
+        },
+        "pathPrefix": [
+          "<data>/runs/<uuid:1>/checks/bin"
+        ],
+        "deadlineAt": "<t0+7200000ms>",
+        "permissionMode": "auto",
+        "model": "design-model",
+        "additionalDirectories": [
+          "<data>/runs/<uuid:1>",
+          "<data>/runs/worktree-caches/<uuid:4>"
+        ],
+        "sessionName": "CraftingTable AQ-01 design"
+      }
     },
     "afterRelaunch": {
-      "runDirectories": {
-        "<uuid:1>": {
-          "brief.md": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98 600",
-          "checks/": "directory 700",
-          "checks/bin/": "directory 700",
-          "checks/bin/ct-check": "b46aeee586fe40db7b868b4b1d6edb37b7433ecc9760dc45c556b1604785ad4e 500",
-          "checks/manifest.json": "5ad0e2c615d49be23c1fc8fa4f4d2ee641e4f1dcf6f0dcbd3ff48fcf2c073a95 400",
-          "checks/requests/": "directory 700",
-          "plan/": "directory 700",
-          "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-          "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
-          "scratch/": "directory 700"
-        }
-      },
-      "checkLogs": {
-        "<uuid:1>": {
-          "replies/": "directory 700"
-        }
-      },
+      "runDirectories": {},
+      "checkLogs": {},
+      "launchReservations": 0,
       "processDirectories": 1
     }
   },
@@ -2510,17 +2609,10 @@
         "reason": "Starting design. Automation pauses at unresolved design questions or merge approval."
       },
       "leftovers": {
-        "runDirectories": {
-          "<uuid:1>": {
-            "brief.md": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98 600",
-            "plan/": "directory 700",
-            "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-            "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
-            "scratch/": "directory 700"
-          }
-        },
+        "runDirectories": {},
         "checkLogs": {},
-        "processDirectories": 1
+        "launchReservations": 0,
+        "processDirectories": 0
       }
     },
     "relaunch": {
@@ -2593,6 +2685,7 @@
         }
       ],
       "reservations": [],
+      "launch": [],
       "request": {
         "deniedReads": [
           "<data>/state",
@@ -2642,6 +2735,7 @@
     "afterRelaunch": {
       "runDirectories": {},
       "checkLogs": {},
+      "launchReservations": 0,
       "processDirectories": 1
     }
   },
@@ -2666,20 +2760,10 @@
         "reason": "Waiting for local-development: 1/1 reservations occupied."
       },
       "leftovers": {
-        "runDirectories": {
-          "<uuid:1>": {
-            "brief.md": "25db909157a23c8076592cd1025b2934b19a1c1ff16d61dc1d924c6219fc1f17 600",
-            "plan/": "directory 700",
-            "plan/craftingtable-controller-obligations.json": "5f9a503c35cf135f28761f82decf42347cbf5d4c3f8a88dccb590df08830a8b0 600",
-            "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-            "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
-            "plan/craftingtable-rules.md": "503610e8e40f9ea56bcb7ddfde585062d54ede096575c5cd554e906dbe57acfa 600",
-            "plan/craftingtable-scope-evidence.json": "1c3825020d97a858d88cb8af8fceabf5e4ae0ac5c7db751bb73f8e7f9b1c66fe 600",
-            "scratch/": "directory 700"
-          }
-        },
+        "runDirectories": {},
         "checkLogs": {},
-        "processDirectories": 1
+        "launchReservations": 0,
+        "processDirectories": 0
       }
     },
     "relaunch": {
@@ -2761,6 +2845,7 @@
           "capacity": 1
         }
       ],
+      "launch": [],
       "request": {
         "deniedReads": [
           "<data>/state",
@@ -2810,6 +2895,7 @@
     "afterRelaunch": {
       "runDirectories": {},
       "checkLogs": {},
+      "launchReservations": 0,
       "processDirectories": 1
     }
   },
@@ -2824,18 +2910,10 @@
       }
     },
     "leftovers": {
-      "runDirectories": {
-        "<uuid:1>": {
-          "brief.md": "0717e725a76c85e5b428c51fb7185a90139a122a4ce367cb6629a8408b900e0e 600",
-          "plan/": "directory 700",
-          "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-          "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
-          "plan/craftingtable-scope-evidence.json": "1c3825020d97a858d88cb8af8fceabf5e4ae0ac5c7db751bb73f8e7f9b1c66fe 600",
-          "scratch/": "directory 700"
-        }
-      },
+      "runDirectories": {},
       "checkLogs": {},
-      "processDirectories": 1
+      "launchReservations": 0,
+      "processDirectories": 0
     }
   },
   "refused: repository policy": {
@@ -2849,14 +2927,10 @@
       }
     },
     "leftovers": {
-      "runDirectories": {
-        "<uuid:1>": {
-          "plan/": "directory 700",
-          "scratch/": "directory 700"
-        }
-      },
+      "runDirectories": {},
       "checkLogs": {},
-      "processDirectories": 1
+      "launchReservations": 0,
+      "processDirectories": 0
     }
   }
 }

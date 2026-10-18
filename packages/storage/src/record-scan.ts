@@ -210,6 +210,8 @@ export const RELATIONAL_TABLES: Readonly<Record<string, string>> = {
   source_repositories: 'relational',
   workspace_run_profiles: 'relational',
   run_directories: 'relational bookkeeping for ADR-034 retention',
+  run_launches: 'relational bookkeeping: a launch reserved before its first file (R-B7, AGT-12)',
+  startup_tasks: 'one-time work a migration asks of the next start',
   storage_backups: 'relational bookkeeping for ADR-034 retention',
   daemon_clean_stop: 'one-row restart bookkeeping (R-B9)',
   worktree_build_caches: 'relational bookkeeping for ADR-039 cleanup (R-G7)',

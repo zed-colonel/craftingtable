@@ -3,6 +3,8 @@ import type Database from 'better-sqlite3';
 import type {
   DaemonCleanStop,
   RunDirectory,
+  RunLaunchReservation,
+  StartupTask,
   StorageBackup,
   StorageMaintenanceRepository,
   StoredStorageSettings,
@@ -152,4 +154,53 @@ export class SqliteStorageMaintenanceRepository implements StorageMaintenanceRep
     this.database.prepare('DELETE FROM daemon_clean_stop').run();
     return row;
   }
+  reserveLaunch(reservation: RunLaunchReservation): void {
+    this.database
+      .prepare(
+        `INSERT INTO run_launches (run_id, workspace_id, worktree_id, run_directory, run_device,
+           reply_directory, reply_device, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        reservation.runId,
+        reservation.workspaceId,
+        reservation.worktreeId,
+        reservation.runDirectory,
+        reservation.runDevice,
+        reservation.replyDirectory,
+        reservation.replyDevice,
+        reservation.createdAt,
+      );
+  }
+  launchReservation(runId: AgentRunId): RunLaunchReservation | undefined {
+    return this.database.prepare(`${LAUNCHES} WHERE run_id = ?`).get(runId) as
+      | RunLaunchReservation
+      | undefined;
+  }
+  launchReservations(): readonly RunLaunchReservation[] {
+    return this.database
+      .prepare(`${LAUNCHES} ORDER BY created_at, run_id`)
+      .all() as RunLaunchReservation[];
+  }
+  dropLaunch(runId: AgentRunId): void {
+    this.database.prepare('DELETE FROM run_launches WHERE run_id = ?').run(runId);
+  }
+  ownsRunDirectory(runId: string, path: string): boolean {
+    return !!this.database
+      .prepare(
+        `SELECT 1 WHERE EXISTS (SELECT 1 FROM agent_runs WHERE id = ?)
+           OR EXISTS (SELECT 1 FROM run_directories WHERE run_id = ? OR path = ?)
+           OR EXISTS (SELECT 1 FROM run_launches WHERE run_id = ? OR run_directory = ?)`,
+      )
+      .get(runId, runId, path, runId, path);
+  }
+  startupTaskPending(task: StartupTask): boolean {
+    return !!this.database.prepare('SELECT 1 FROM startup_tasks WHERE task = ?').get(task);
+  }
+  completeStartupTask(task: StartupTask): void {
+    this.database.prepare('DELETE FROM startup_tasks WHERE task = ?').run(task);
+  }
 }
+
+const LAUNCHES = `SELECT run_id AS runId, workspace_id AS workspaceId, worktree_id AS worktreeId,
+  run_directory AS runDirectory, run_device AS runDevice, reply_directory AS replyDirectory,
+  reply_device AS replyDevice, created_at AS createdAt FROM run_launches`;

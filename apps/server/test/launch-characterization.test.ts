@@ -280,7 +280,7 @@ function captureLaunch(
   const runDirectory = join(state.context.config.execution.runsRoot, runId);
   const files = tree(runDirectory, normalizer, join(dump, 'run'));
   const { brief: _brief, ...row } = run;
-  const { audit, events, directories, reservations } = recordsOf(state, runId);
+  const { audit, events, directories, reservations, launch } = recordsOf(state, runId);
   const captured = {
     brief: digest(brief),
     prompt: digest(prompt),
@@ -292,6 +292,7 @@ function captureLaunch(
     // The run directory's owner row and the phase it reserved (R-B7 increment 1 review, L-1).
     directory: normalizer.value(directories),
     reservations: normalizer.value(reservations),
+    launch: normalizer.value(launch),
     // What the backend is asked to start, the prompt aside.
     request: normalizer.value({ ...request, prompt: undefined }),
   };
@@ -319,6 +320,8 @@ function recordsOf(state: Ready, runId: AgentRunId) {
       reservations: rows(
         'SELECT phase, resource_key, capacity FROM phase_reservations WHERE owner_id = ? ORDER BY resource_key',
       ),
+      // The launch's reservation is gone once its directory is registered (decision 1).
+      launch: rows('SELECT run_id FROM run_launches WHERE run_id = ?'),
     };
   } finally {
     database.close();
@@ -651,10 +654,16 @@ function leftovers(state: Ready, normalizer: Normalizer): Json {
   const { runsRoot, checkLogRoot, agentTemporaryRoot } = state.context.config.execution;
   const database = openDatabase(state.context.storage.databasePath);
   let ids: Set<string>;
+  let launches: number;
   try {
     ids = new Set(
       (database.prepare('SELECT id FROM agent_runs').all() as { id: string }[]).map((r) => r.id),
     );
+    launches = (
+      database.prepare('SELECT COUNT(*) AS count FROM run_launches').get() as {
+        count: number;
+      }
+    ).count;
   } finally {
     database.close();
   }
@@ -669,11 +678,15 @@ function leftovers(state: Ready, normalizer: Normalizer): Json {
     runDirectories: Object.fromEntries(
       unowned.map((id) => [normalizer.text(id), tree(join(runsRoot, id), normalizer)]),
     ),
+    // Every check-log directory of a run with no row, whether or not its run directory is left.
     checkLogs: Object.fromEntries(
-      unowned
-        .filter((id) => existsSync(join(checkLogRoot, id)))
+      (existsSync(checkLogRoot) ? readdirSync(checkLogRoot) : [])
+        .filter((name) => uuid.test(name) && !ids.has(name))
+        .sort()
         .map((id) => [normalizer.text(id), tree(join(checkLogRoot, id), normalizer)]),
     ),
+    // Reservations left (R-B7 decision 1): none once a refused launch has cleared its own.
+    launchReservations: launches,
     processDirectories: existsSync(agentTemporaryRoot)
       ? readdirSync(agentTemporaryRoot).filter((name) => /^[0-9a-f]{12}$/.test(name)).length
       : 0,
@@ -802,35 +815,22 @@ it.each([false, true])(
       relaunched ??= request.environment?.[RUN_ID_VARIABLE];
       captured ??= captureLaunch(state, request, fixtureRoots(worktree.path, root), 'relaunch');
     };
-    if (!adopted) {
-      await waitFor(() => captured !== undefined, 'the relaunch');
-      expect(backend.launches).toHaveLength(1);
-      // The same run, by its raw id, into the directory the refused launch left (review M-3).
-      expect(relaunched).toBe(reserved);
-      expectRecorded('refused: drain at the record, then relaunched', {
+    await waitFor(() => captured !== undefined, 'the relaunch');
+    expect(backend.launches).toHaveLength(1);
+    // The same run, by its raw id (review M-3), into an empty directory: the refused launch
+    // removed what it made (R-B7 decision 1). With adopted checks it once met the read-only check
+    // manifest the refused launch left and stopped `controller-error` (review M-5).
+    expect(relaunched).toBe(reserved);
+    expectRecorded(
+      adopted
+        ? 'refused: drain at the record with adopted checks, then relaunched'
+        : 'refused: drain at the record, then relaunched',
+      {
         refused,
         relaunch: captured!,
         afterRelaunch: leftovers(state, normalizerFor(state, fixtureRoots(worktree.path, root))),
-      });
-      return;
-    }
-    // With adopted checks, the relaunch of the same run meets the read-only check manifest the
-    // refused launch left (review M-5): today it stops; increment 11b's reservation starts it in
-    // an empty directory.
-    await waitFor(() => currentCycle(state, cycle).status !== 'running', 'the failed relaunch');
-    expect(backend.launches).toHaveLength(0);
-    const after = currentCycle(state, cycle);
-    const later = normalizerFor(state, fixtureRoots(worktree.path, root));
-    expectRecorded('refused: drain at the record with adopted checks, then the relaunch fails', {
-      refused,
-      relaunch: later.value({
-        sameRun: after.currentRunId === reserved,
-        status: after.status,
-        attention: after.attention ?? null,
-        reason: after.reason,
-      }),
-      afterRelaunch: leftovers(state, later),
-    });
+      },
+    );
   },
 );
 

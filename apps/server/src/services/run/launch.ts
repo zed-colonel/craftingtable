@@ -6,7 +6,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { AgentBackend } from '@craftingtable/agents';
 import {
   AGENT_BACKEND_LABELS,
@@ -52,7 +52,12 @@ import type { RunPreconditions } from './preconditions.js';
 import type { RunSandbox } from './sandbox.js';
 import type { RunProcesses } from './processes.js';
 import type { RunSpawner } from './spawn.js';
-import type { ControlledRun } from './shared.js';
+import type { ControlledRun, RunLog } from './shared.js';
+import { deviceOf, removeReservation, removeReservedDirectory } from './reservation.js';
+import { removeAgentTree } from '../agent-tree.js';
+import { InvariantError } from '@craftingtable/domain';
+import type { RunLaunchReservation } from '@craftingtable/storage';
+import type { WorktreeId } from '@craftingtable/domain';
 import type { BriefLaunch } from './context/brief-input.js';
 
 /** A parent run's findings are reproduced in the brief up to this size. */
@@ -117,6 +122,7 @@ type Evidence = Awaited<ReturnType<RunLauncher['evidence']>>;
 export class RunLauncher {
   constructor(
     private readonly storage: CraftingTableStorage,
+    private readonly log: RunLog,
     private readonly backends: ReadonlyMap<AgentBackendKind, AgentBackend>,
     private readonly config: ExecutionConfig,
     private readonly now: () => Date,
@@ -181,47 +187,76 @@ export class RunLauncher {
       starting.runId = runId;
       this.state.startingLaunches.add(starting);
       this.storageService.requireSpace('runsRoot', prepared.worktree.path);
-      const { runDirectory, temporaryDirectory, processTemporaryDirectory, buildCacheDirectory } =
-        this.directories(runId, prepared);
-      const { pinned, pythonChecks, checksOnly, verifying } = await this.evidence({
-        runId,
+      // The launch's durable record before its first file (decision 1): a refusal or exception
+      // from here until the record's transaction commits removes what the launch made, then
+      // the reservation, and is thrown as before.
+      const reservation = await this.reserve(workspaceId, prepared.worktree.id, runId);
+      const {
         runDirectory,
-        prepared,
-        cycle,
-        investigation,
-      });
-      const { historical, handoff, brief } = await this.documents({
-        workspaceId,
-        input,
-        prepared,
-        cycle,
-        preparation,
-        investigation,
-        runDirectory,
-        reviewBranchContext,
-        reviewArtifacts,
         temporaryDirectory,
+        processTemporaryDirectory,
         buildCacheDirectory,
         pinned,
-        checksOnly,
-        pythonChecks,
-      });
-      const run = this.record({
-        workspaceId,
-        workItemId,
-        input,
-        actor,
-        requestId,
-        profileSelection,
-        investigation,
-        controlled,
-        backend,
-        prepared,
-        runId,
-        reviewBranchContext,
+        verifying,
+        historical,
+        handoff,
         brief,
-        pinned,
-        checksOnly,
+        run,
+      } = await this.reserved(reservation, async () => {
+        const { runDirectory, temporaryDirectory, processTemporaryDirectory, buildCacheDirectory } =
+          this.directories(runId, prepared);
+        const { pinned, pythonChecks, checksOnly, verifying } = await this.evidence({
+          runId,
+          runDirectory,
+          prepared,
+          cycle,
+          investigation,
+        });
+        const { historical, handoff, brief } = await this.documents({
+          workspaceId,
+          input,
+          prepared,
+          cycle,
+          preparation,
+          investigation,
+          runDirectory,
+          reviewBranchContext,
+          reviewArtifacts,
+          temporaryDirectory,
+          buildCacheDirectory,
+          pinned,
+          checksOnly,
+          pythonChecks,
+        });
+        const run = this.record({
+          workspaceId,
+          workItemId,
+          input,
+          actor,
+          requestId,
+          profileSelection,
+          investigation,
+          controlled,
+          backend,
+          prepared,
+          runId,
+          reviewBranchContext,
+          brief,
+          pinned,
+          checksOnly,
+        });
+        return {
+          runDirectory,
+          temporaryDirectory,
+          processTemporaryDirectory,
+          buildCacheDirectory,
+          pinned,
+          verifying,
+          historical,
+          handoff,
+          brief,
+          run,
+        };
       });
       return this.spawner.spawn({
         workspaceId,
@@ -495,6 +530,85 @@ export class RunLauncher {
         this.state.pendingCycleLaunches.delete(cycle.currentRunId);
     }
     return { reviewBranchContext, reviewArtifacts };
+  }
+
+  /**
+   * Reserves the launch (R-B7 decision 1, AGT-12): its durable record before its first file,
+   * naming the run directory and the check-reply directory it will make, in one transaction. A run
+   * row with the run's id cannot exist here (`startForCycle` returns an existing run before
+   * launching), nor a reservation (a start clears them before any launch): either is a broken
+   * invariant. A directory of the run's id with neither is a refused launch's leftover from before
+   * this release, removed first, so the reservation owns only what this launch makes.
+   */
+  async reserve(
+    workspaceId: WorkspaceId,
+    worktreeId: WorktreeId,
+    runId: AgentRunId,
+  ): Promise<RunLaunchReservation> {
+    if (this.storage.execution.runs.find(workspaceId, runId) !== undefined)
+      throw new InvariantError(`no run row ${runId} before its launch`);
+    if (this.storage.maintenance.launchReservation(runId) !== undefined)
+      throw new InvariantError(`no reservation of run ${runId} before its launch`);
+    const runDirectory = join(this.config.runsRoot, runId);
+    const replyDirectory = join(this.config.checkLogRoot, runId, 'replies');
+    const runDevice = deviceOf(dirname(runDirectory));
+    const replyDevice = deviceOf(dirname(replyDirectory));
+    for (const [path, device] of [
+      [runDirectory, runDevice],
+      [replyDirectory, replyDevice],
+    ] as const) {
+      const failure = await removeReservedDirectory(path, device);
+      if (failure !== undefined)
+        this.log.warn("A refused launch's leftover directory could not be removed", {
+          runId,
+          error: failure,
+        });
+    }
+    const reservation: RunLaunchReservation = {
+      runId,
+      workspaceId,
+      worktreeId,
+      runDirectory,
+      runDevice,
+      replyDirectory,
+      replyDevice,
+      createdAt: this.now().toISOString(),
+    };
+    this.storage.transaction((tx) => tx.maintenance.reserveLaunch(reservation));
+    return reservation;
+  }
+
+  /**
+   * The launch's work from its reservation to its record. A throw first removes, and waits for,
+   * what the launch made (its run and check-reply directories and its process's temporary
+   * directory), then the reservation, and is thrown as it was; a directory that cannot be removed
+   * keeps the reservation for the next start.
+   */
+  async reserved<T>(reservation: RunLaunchReservation, work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      try {
+        const temporary = this.state.processTemporaryDirectories.get(reservation.runId);
+        if (temporary !== undefined) {
+          this.state.processTemporaryDirectories.delete(reservation.runId);
+          const failure = await removeAgentTree(temporary);
+          if (failure)
+            this.log.warn("A refused launch's temporary directory could not be removed", {
+              runId: reservation.runId,
+              directory: temporary,
+              error: failure,
+            });
+        }
+        await removeReservation(this.storage, this.log, reservation);
+      } catch (cleanup) {
+        this.log.warn("A refused launch's reservation could not be cleared", {
+          runId: reservation.runId,
+          error: String(cleanup),
+        });
+      }
+      throw error;
+    }
   }
 
   /** The run's directories (step 4): its run directory and scratch, its process's temporary directory, the build cache. */

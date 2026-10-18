@@ -122,6 +122,7 @@ export class AgentRunService {
     );
     this.launcher = new RunLauncher(
       storage,
+      log,
       backends,
       config,
       now,

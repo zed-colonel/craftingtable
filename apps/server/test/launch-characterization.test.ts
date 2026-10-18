@@ -9,7 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { type AgentLaunchRequest, RUN_ID_VARIABLE } from '@craftingtable/agents';
 import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
@@ -50,6 +50,7 @@ import {
   supervisedMapFixture,
   waitFor,
 } from './execution-test-support.js';
+import { resolveExecutable } from '../src/services/executables.js';
 import { testDataRoot } from './test-support.js';
 
 /**
@@ -81,6 +82,7 @@ const recorded: Record<string, Json> = existsSync(RECORD)
 const observed: Record<string, Json> = {};
 
 afterEach(async () => {
+  clock = undefined;
   vi.restoreAllMocks();
   await cleanupExecutionFixtures();
 });
@@ -98,6 +100,43 @@ afterAll(() => {
 const digest = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
 
 /**
+ * The clock of the case running, when its daemon runs on a fixed one: its times are then recorded
+ * relative to it (`<t0+…ms>`), so a moved deadline shows. Far from the real date, so a time the
+ * real clock wrote never falls near it; those are `<time>`.
+ */
+let clock: Date | undefined;
+const fixtureClock = () => {
+  clock = new Date('2026-01-01T00:00:00Z');
+  return clock;
+};
+const NEAR_CLOCK_MS = 30 * 86_400_000;
+
+/** The fixture machine's executables, named in check manifests and launchers. */
+const EXECUTABLES = [
+  [process.execPath, '<node>'],
+  ...(['cargo', 'git'] as const).flatMap((name) => {
+    const path = resolveExecutable(name, undefined);
+    return path ? [[path, `<${name}>`] as const] : [];
+  }),
+  [homedir(), '<home>'],
+] as const;
+
+/** Every commit of the given repositories, so their short forms are named and nothing else is. */
+function commitsOf(paths: readonly string[]): string[] {
+  return [
+    ...new Set(
+      paths.flatMap((path) => {
+        try {
+          return git(['rev-list', '--all'], path).split('\n').filter(Boolean);
+        } catch {
+          return [];
+        }
+      }),
+    ),
+  ];
+}
+
+/**
  * Replaces what differs between runs and machines with stable names: the fixture's directories
  * by role, then ids, digests and commits numbered by first appearance, then times. One
  * normalizer serves one case, so a name means the same value across its texts.
@@ -105,7 +144,11 @@ const digest = (text: string | Buffer) => createHash('sha256').update(text).dige
 class Normalizer {
   private readonly names = new Map<string, string>();
   private readonly counts = new Map<string, number>();
-  constructor(private readonly roots: readonly (readonly [string, string])[]) {}
+  constructor(
+    private readonly roots: readonly (readonly [string, string])[],
+    /** The fixture's commits: a 7- or 12-character form is named only as one of theirs. */
+    private readonly commits: readonly string[] = [],
+  ) {}
 
   private name(kind: string, value: string): string {
     const known = this.names.get(value);
@@ -125,20 +168,23 @@ class Normalizer {
       this.name('uuid', value),
     );
     text = text.replace(/\b[0-9a-f]{64}\b/g, (value) => this.name('hex64', value));
-    text = text.replace(/\b[0-9a-f]{40}\b/g, (value) => {
-      const named = this.name('sha', value);
-      // A commit is also cited by its first twelve or seven characters (Git's short form).
-      this.names.set(value.slice(0, 12), `${named.slice(0, -1)}/12>`);
-      this.names.set(value.slice(0, 7), `${named.slice(0, -1)}/7>`);
-      return named;
-    });
+    text = text.replace(/\b[0-9a-f]{40}\b/g, (value) => this.name('sha', value));
     // A run's process temporary directory has a random name (LIVE-31).
     text = text.replace(/<data>\/t\/[0-9a-f]{12}\b/g, '<data>/t/<process>');
-    // A short commit cited before, or never, in full; a word of hex letters alone is prose.
-    text = text.replace(/\b(?:[0-9a-f]{12}|[0-9a-f]{7})\b/g, (value) =>
-      /\d/.test(value) ? (this.names.get(value) ?? this.name('short', value)) : value,
-    );
-    return text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z/g, '<time>');
+    // A fixture commit cited by its first twelve or seven characters (Git's short form); any
+    // other run of hex digits, a number included, stays as it is.
+    text = text.replace(/\b(?:[0-9a-f]{12}|[0-9a-f]{7})\b/g, (value) => {
+      const full = this.commits.find((commit) => commit.startsWith(value));
+      return full ? `${this.name('sha', full).slice(0, -1)}/${value.length}>` : value;
+    });
+    // An HTTP request's id counts the requests the fixture made before it.
+    text = text.replace(/"req-\d+"/g, '"<request>"');
+    return text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z/g, (value) => {
+      const offset = clock ? Date.parse(value) - clock.getTime() : Number.NaN;
+      return Math.abs(offset) <= NEAR_CLOCK_MS
+        ? `<t0${offset < 0 ? '-' : '+'}${Math.abs(offset)}ms>`
+        : '<time>';
+    });
   }
 
   value(input: unknown): Json {
@@ -180,6 +226,10 @@ function tree(root: string, normalizer: Normalizer, dump?: string): Record<strin
  * What is named differently on every run: the fixture's directories, by role, and each
  * worktree branch's random suffix, numbered in the order the worktrees were made.
  */
+function normalizerFor(state: Ready, extra: readonly (readonly [string, string])[] = []) {
+  return new Normalizer(rootsOf(state, extra), commitsOf(extra.map(([path]) => path)));
+}
+
 function rootsOf(state: Ready, extra: readonly (readonly [string, string])[] = []) {
   const database = openDatabase(state.context.storage.databasePath);
   let suffixes: string[];
@@ -197,6 +247,7 @@ function rootsOf(state: Ready, extra: readonly (readonly [string, string])[] = [
     [testDataRoot(), '<test-data>'],
     [tmpdir(), '<tmp>'],
     [SOURCE, '<source>'],
+    ...EXECUTABLES,
     ...extra,
     ...suffixes.map((suffix, i) => [suffix, `<branch-suffix:${i + 1}>`] as const),
   ] as const;
@@ -216,7 +267,7 @@ function captureLaunch(
   if (!runId) throw new Error('The launch names no run');
   const storage = state.context.storage;
   const workspaceId = state.workspaceId as WorkspaceId;
-  const normalizer = new Normalizer(rootsOf(state, extraRoots));
+  const normalizer = normalizerFor(state, extraRoots);
   const run = storage.execution.runs.find(workspaceId, runId);
   if (!run) throw new Error('The launch has no run row');
   const dump = join(DUMP, label);
@@ -229,7 +280,7 @@ function captureLaunch(
   const runDirectory = join(state.context.config.execution.runsRoot, runId);
   const files = tree(runDirectory, normalizer, join(dump, 'run'));
   const { brief: _brief, ...row } = run;
-  const { audit, events } = recordsOf(state, runId);
+  const { audit, events, directories, reservations } = recordsOf(state, runId);
   const captured = {
     brief: digest(brief),
     prompt: digest(prompt),
@@ -238,6 +289,9 @@ function captureLaunch(
     evidence: normalizer.value(storage.runtimeEvidence.run(workspaceId, runId) ?? null),
     audit: normalizer.value(audit),
     event: normalizer.value(events),
+    // The run directory's owner row and the phase it reserved (R-B7 increment 1 review, L-1).
+    directory: normalizer.value(directories),
+    reservations: normalizer.value(reservations),
     // What the backend is asked to start, the prompt aside.
     request: normalizer.value({ ...request, prompt: undefined }),
   };
@@ -260,6 +314,11 @@ function recordsOf(state: Ready, runId: AgentRunId) {
       events: rows(
         `SELECT * FROM workspace_events WHERE kind = 'agent-run-started' AND run_id = ? ORDER BY sequence`,
       ),
+      // The device number is the machine's; the row's path and owner are the launch's.
+      directories: rows('SELECT run_id, path FROM run_directories WHERE run_id = ?'),
+      reservations: rows(
+        'SELECT phase, resource_key, capacity FROM phase_reservations WHERE owner_id = ? ORDER BY resource_key',
+      ),
     };
   } finally {
     database.close();
@@ -278,7 +337,7 @@ function expectRecorded(key: string, value: Json): void {
 }
 
 it("pins a cycle's design, implement, review, review continuation, remediate and second review launches (R-B7 increment 1)", async () => {
-  const now = new Date('2026-10-17T12:00:00Z');
+  const now = fixtureClock();
   const { state, backend, worktree, root } = await cycleFixture(
     [
       designDone,
@@ -315,7 +374,7 @@ it("pins a cycle's design, implement, review, review continuation, remediate and
 });
 
 it('pins a manual run (R-B7 increment 1)', async () => {
-  const now = new Date('2026-10-17T12:00:00Z');
+  const now = fixtureClock();
   const { state, backend, worktree, root } = await cycleFixture([implementationDone], () => now);
   let captured: Json | undefined;
   backend.onLaunch = (request) => {
@@ -353,7 +412,7 @@ const fixtureRoots = (worktreePath: string, repository: string) =>
   ] as const;
 
 it("pins a cycle's launches in a repository with adopted checks: check-only manifests, and a review whose checks run first (R-B7 increment 1)", async () => {
-  const now = new Date('2026-10-17T12:00:00Z');
+  const now = fixtureClock();
   const { state, backend, worktree, root } = await cycleFixture(
     [designDone, implementationDone, { resultText: reviewText([]) }],
     () => now,
@@ -378,7 +437,7 @@ it("pins a cycle's launches in a repository with adopted checks: check-only mani
 });
 
 it("pins a staged finalization's first stage launches (R-B7 increment 1)", async () => {
-  const now = new Date('2026-10-17T12:00:00Z');
+  const now = fixtureClock();
   const fixture = await finalizationFixture({ now: () => now });
   const { state, backend, root } = fixture;
   const captures: Json[] = [];
@@ -413,7 +472,7 @@ it("pins a staged finalization's first stage launches (R-B7 increment 1)", async
 });
 
 it('pins an integration resolution launch (R-B7 increment 1)', async () => {
-  const now = new Date('2026-10-17T12:00:00Z');
+  const now = fixtureClock();
   const { state, backend, worktree, root } = await cycleFixture(
     [designDone, implementationDone, { resultText: reviewText([]) }],
     () => now,
@@ -456,7 +515,7 @@ it('pins an integration resolution launch (R-B7 increment 1)', async () => {
 });
 
 it('pins a design recovery launch (R-B7 increment 1)', async () => {
-  const now = new Date('2026-10-17T12:00:00Z');
+  const now = fixtureClock();
   const { state, backend, worktree, root } = await cycleFixture(
     [{ resultText: '## Open questions\nWhich storage format?' }, designDone],
     () => now,
@@ -490,7 +549,7 @@ it('pins a design recovery launch (R-B7 increment 1)', async () => {
 });
 
 it("pins a question stop's investigation launch (R-B7 increment 1)", async () => {
-  const now = new Date('2026-10-17T12:00:00Z');
+  const now = fixtureClock();
   const { state, backend, worktree, root } = await cycleFixture([], () => now);
   let implementations = 0;
   backend.replyForRequest = (request) =>
@@ -657,6 +716,32 @@ async function policyFixture(outputs: readonly ScriptedReply[], now: () => Date)
   return { state, backend, worktree, root };
 }
 
+/**
+ * Takes the local development capacity for another worktree at the first policy read: after the
+ * launch's scope gates passed, before its record reserves the capacity.
+ */
+function holdCapacityDuringPolicy(state: Ready, otherWorktreeId: string) {
+  const storage = state.context.storage;
+  const branches = present(state.context.services.executionService.branches);
+  const evidence = branches.policyEvidence.bind(branches);
+  let calls = 0;
+  vi.spyOn(branches, 'policyEvidence').mockImplementation(async (...args) => {
+    if (calls++ === 0)
+      storage.phaseScheduling.acquire({
+        id: 'held-elsewhere',
+        workspaceId: state.workspaceId,
+        worktreeId: otherWorktreeId as never,
+        ownerId: 'held-elsewhere',
+        phase: 'start',
+        resourceKey: 'local-development',
+        capacity: 1,
+        acquiredAt: '2026-10-17T12:00:00.000Z',
+      });
+    return evidence(...args);
+  });
+  return { calls: () => calls };
+}
+
 /** Moves the frozen branch: the policy's evidence then has an issue, which refuses a launch. */
 const moveFrozenBranch = (root: string) => commitFile(root, 'frozen.txt', 'moved\n');
 
@@ -669,66 +754,98 @@ const manualRun = (state: Ready, worktreeId: string) =>
   });
 
 it('pins what a launch refused by the repository policy leaves behind (R-B7 increment 1, AGT-12)', async () => {
-  const now = new Date('2026-10-17T12:00:00Z');
+  const now = fixtureClock();
   const { state, backend, worktree, root } = await policyFixture([implementationDone], () => now);
   moveFrozenBranch(root);
   const refused = await manualRun(state, worktree.id);
   expect(backend.launches).toHaveLength(0);
-  const normalizer = new Normalizer(rootsOf(state, fixtureRoots(worktree.path, root)));
+  const normalizer = normalizerFor(state, fixtureRoots(worktree.path, root));
   expectRecorded('refused: repository policy', {
     refusal: normalizer.value(refusalOf(refused)),
     leftovers: leftovers(state, normalizer),
   });
 });
 
-it('pins what a launch the drain refused at its record leaves, and the relaunch of the same run into it (R-B7 increment 1, AGT-12)', async () => {
-  const now = new Date('2026-10-17T12:00:00Z');
-  const { state, backend, worktree, root } = await cycleFixture([designDone], () => now);
-  const runs = state.context.services.agentRunService;
-  const branches = present(state.context.services.executionService.branches);
-  const evidence = branches.policyEvidence.bind(branches);
-  // The drain begins after the documents are written, before the run's record.
-  let drains = 0;
-  const spy = vi.spyOn(branches, 'policyEvidence').mockImplementation(async (...args) => {
-    if (drains++ === 0) runs.beginDrain();
-    return evidence(...args);
-  });
-  const cycle = await startCycle(state, worktree.id);
-  await waitFor(() => spy.mock.calls.length === 1 && runs.isDraining(), 'the drain');
-  await stepDaemons(2);
-  expect(backend.launches).toHaveLength(0);
-  const normalizer = new Normalizer(rootsOf(state, fixtureRoots(worktree.path, root)));
-  const refused = {
-    cycle: normalizer.value({
-      status: currentCycle(state, cycle).status,
-      attention: currentCycle(state, cycle).attention ?? null,
-      reason: currentCycle(state, cycle).reason,
-    }),
-    leftovers: leftovers(state, normalizer),
-  };
-  runs.cancelDrain();
-  let captured: Json | undefined;
-  backend.onLaunch = (request) => {
-    captured ??= captureLaunch(state, request, fixtureRoots(worktree.path, root), 'relaunch');
-  };
-  await waitFor(() => captured !== undefined, 'the relaunch');
-  expect(backend.launches).toHaveLength(1);
-  expectRecorded('refused: drain at the record, then relaunched', {
-    refused,
-    relaunch: captured!,
-  });
-});
+it.each([false, true])(
+  'pins what a launch the drain refused at its record leaves, and the relaunch of the same run into it; adopted checks: %s (R-B7 increment 1, AGT-12)',
+  async (adopted) => {
+    const now = fixtureClock();
+    const { state, backend, worktree, root } = await cycleFixture([designDone], () => now);
+    if (adopted) declareFixtureChecks(state);
+    const runs = state.context.services.agentRunService;
+    const branches = present(state.context.services.executionService.branches);
+    const evidence = branches.policyEvidence.bind(branches);
+    // The drain begins after the documents are written, before the run's record.
+    let drains = 0;
+    const spy = vi.spyOn(branches, 'policyEvidence').mockImplementation(async (...args) => {
+      if (drains++ === 0) runs.beginDrain();
+      return evidence(...args);
+    });
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => spy.mock.calls.length === 1 && runs.isDraining(), 'the drain');
+    await stepDaemons(2);
+    expect(backend.launches).toHaveLength(0);
+    const reserved = currentCycle(state, cycle).currentRunId;
+    const normalizer = normalizerFor(state, fixtureRoots(worktree.path, root));
+    const refused = {
+      cycle: normalizer.value({
+        status: currentCycle(state, cycle).status,
+        attention: currentCycle(state, cycle).attention ?? null,
+        reason: currentCycle(state, cycle).reason,
+      }),
+      leftovers: leftovers(state, normalizer),
+    };
+    runs.cancelDrain();
+    let captured: Json | undefined;
+    let relaunched: string | undefined;
+    backend.onLaunch = (request) => {
+      relaunched ??= request.environment?.[RUN_ID_VARIABLE];
+      captured ??= captureLaunch(state, request, fixtureRoots(worktree.path, root), 'relaunch');
+    };
+    if (!adopted) {
+      await waitFor(() => captured !== undefined, 'the relaunch');
+      expect(backend.launches).toHaveLength(1);
+      // The same run, by its raw id, into the directory the refused launch left (review M-3).
+      expect(relaunched).toBe(reserved);
+      expectRecorded('refused: drain at the record, then relaunched', {
+        refused,
+        relaunch: captured!,
+        afterRelaunch: leftovers(state, normalizerFor(state, fixtureRoots(worktree.path, root))),
+      });
+      return;
+    }
+    // With adopted checks, the relaunch of the same run meets the read-only check manifest the
+    // refused launch left (review M-5): today it stops; increment 11b's reservation starts it in
+    // an empty directory.
+    await waitFor(() => currentCycle(state, cycle).status !== 'running', 'the failed relaunch');
+    expect(backend.launches).toHaveLength(0);
+    const after = currentCycle(state, cycle);
+    const later = normalizerFor(state, fixtureRoots(worktree.path, root));
+    expectRecorded('refused: drain at the record with adopted checks, then the relaunch fails', {
+      refused,
+      relaunch: later.value({
+        sameRun: after.currentRunId === reserved,
+        status: after.status,
+        attention: after.attention ?? null,
+        reason: after.reason,
+      }),
+      afterRelaunch: leftovers(state, later),
+    });
+  },
+);
 
 it('pins what a launch refused by a phase gate in its record leaves behind (R-B7 increment 1, AGT-12)', async () => {
   const f = await slicedFixture();
   const { state } = f;
-  const a = await scopeTree(f, f.scopes[0]!);
-  const b = await scopeTree(f, f.scopes[1]!);
+  const tree = await scopeTree(f, f.scopes[0]!);
+  const other = await scopeTree(f, f.scopes[1]!);
   state.context.storage.phaseScheduling.setCapacity('local-development', 1);
-  const responses = await Promise.all([launchScoped(f, a), launchScoped(f, b)]);
-  expect(responses.map((r) => r.statusCode).sort()).toEqual([200, 409]);
-  const refused = present(responses.find((r) => r.statusCode === 409));
-  const normalizer = new Normalizer(rootsOf(state, [[f.root, '<repository>']]));
+  // Another worktree takes the capacity after the scope gates passed, before the run's record
+  // reserves it: one launch, so which one loses is never a race (increment 1 review, M-2).
+  holdCapacityDuringPolicy(state, other.id);
+  const refused = await launchScoped(f, tree);
+  expect(refused.statusCode, refused.body).toBe(409);
+  const normalizer = normalizerFor(state, [[f.root, '<repository>']]);
   expectRecorded('refused: phase gate in the record', {
     refusal: normalizer.value(refusalOf(refused)),
     leftovers: leftovers(state, normalizer),
@@ -736,7 +853,7 @@ it('pins what a launch refused by a phase gate in its record leaves behind (R-B7
 });
 
 it("pins a design recovery refused because its inputs changed, and that refusal before the policy's when both hold (R-B7 increment 1, decision 2)", async () => {
-  const now = new Date('2026-10-17T12:00:00Z');
+  const now = fixtureClock();
   const { state, worktree, root } = await policyFixture(
     [{ resultText: '## Open questions\nWhich storage format?' }, designDone],
     () => now,
@@ -773,7 +890,7 @@ it("pins a design recovery refused because its inputs changed, and that refusal 
   );
   moveFrozenBranch(root);
   await waitFor(() => currentCycle(state, cycle).status !== 'running', 'the refused launch');
-  const normalizer = new Normalizer(rootsOf(state, fixtureRoots(worktree.path, root)));
+  const normalizer = normalizerFor(state, fixtureRoots(worktree.path, root));
   const stopped = currentCycle(state, cycle);
   expectRecorded('refused: design recovery inputs and policy', {
     cycle: normalizer.value({
@@ -792,29 +909,14 @@ it("pins what a cycle's launch refused by a phase gate in its record leaves, and
   const other = await scopeTree(f, f.scopes[1]!);
   const storage = state.context.storage;
   storage.phaseScheduling.setCapacity('local-development', 1);
-  const branches = present(state.context.services.executionService.branches);
-  const evidence = branches.policyEvidence.bind(branches);
-  // Another worktree takes the capacity after the scope gates passed, before the run's record
-  // reserves it.
-  let calls = 0;
-  vi.spyOn(branches, 'policyEvidence').mockImplementation(async (...args) => {
-    if (calls++ === 0)
-      storage.phaseScheduling.acquire({
-        id: 'held-elsewhere',
-        workspaceId: state.workspaceId,
-        worktreeId: other.id,
-        ownerId: 'held-elsewhere',
-        phase: 'start',
-        resourceKey: 'local-development',
-        capacity: 1,
-        acquiredAt: '2026-10-17T12:00:00.000Z',
-      });
-    return evidence(...args);
-  });
+  const held = holdCapacityDuringPolicy(state, other.id);
   const cycle = await startCycle({ ...state, workItemId: present(tree.workItemId) }, tree.id);
-  await waitFor(() => calls >= 1 && !!currentCycle(state, cycle).phaseWait, 'the phase wait');
+  await waitFor(
+    () => held.calls() >= 1 && !!currentCycle(state, cycle).phaseWait,
+    'the phase wait',
+  );
   expect(backend.launches).toHaveLength(0);
-  const normalizer = new Normalizer(rootsOf(state, [[f.root, '<repository>']]));
+  const normalizer = normalizerFor(state, [[f.root, '<repository>']]);
   const waiting = currentCycle(state, cycle);
   const refused = {
     cycle: normalizer.value({
@@ -826,7 +928,9 @@ it("pins what a cycle's launch refused by a phase gate in its record leaves, and
     leftovers: leftovers(state, normalizer),
   };
   let captured: Json | undefined;
+  let relaunched: string | undefined;
   backend.onLaunch = (request) => {
+    relaunched ??= request.environment?.[RUN_ID_VARIABLE];
     captured ??= captureLaunch(
       state,
       request,
@@ -839,11 +943,111 @@ it("pins what a cycle's launch refused by a phase gate in its record leaves, and
   };
   storage.phaseScheduling.release('held-elsewhere', '2026-10-17T12:01:00.000Z', 'released');
   await waitFor(() => captured !== undefined, 'the relaunch');
-  expect(present(captured as { run: { id: string } }).run.id).toBe(
-    normalizer.text(waiting.currentRunId),
-  );
+  // The same run, by its raw id, into the directory the refused launch left (review M-3).
+  expect(relaunched).toBe(waiting.currentRunId);
   expectRecorded('refused: phase gate in a cycle launch, then relaunched', {
     refused,
     relaunch: captured!,
+    afterRelaunch: leftovers(state, normalizerFor(state, [[f.root, '<repository>']])),
   });
+});
+
+it("pins the check service's refusal before the repository policy's, when both hold (R-B7 increment 1 review, M-4, decision 2)", async () => {
+  // Option B of decision 2 would move the policy's refusal ahead of the evidence's: this pair
+  // tells today's order (A) from it, and what the refused launch leaves.
+  const now = fixtureClock();
+  const { state, backend, worktree, root } = await policyFixture([implementationDone], () => now);
+  declareFixtureChecks(state);
+  (state.context.services.agentRunService as unknown as { checks: undefined }).checks = undefined;
+  moveFrozenBranch(root);
+  const refused = await manualRun(state, worktree.id);
+  expect(backend.launches).toHaveLength(0);
+  const normalizer = normalizerFor(state, fixtureRoots(worktree.path, root));
+  expectRecorded('refused: check service and policy', {
+    refusal: normalizer.value(refusalOf(refused)),
+    leftovers: leftovers(state, normalizer),
+  });
+});
+
+it('pins a manual launch the drain refuses after its preflight (R-B7 increment 1 review, L-4)', async () => {
+  const now = fixtureClock();
+  const { state, backend, worktree, root } = await cycleFixture([implementationDone], () => now);
+  const runs = state.context.services.agentRunService;
+  const branches = present(state.context.services.executionService.branches);
+  const validate = branches.validateLaunch.bind(branches);
+  vi.spyOn(branches, 'validateLaunch').mockImplementation(async (...args) => {
+    await validate(...args);
+    runs.beginDrain();
+  });
+  const refused = await manualRun(state, worktree.id);
+  runs.cancelDrain();
+  expect(backend.launches).toHaveLength(0);
+  const normalizer = normalizerFor(state, fixtureRoots(worktree.path, root));
+  expectRecorded('refused: drain after the preflight', {
+    refusal: normalizer.value(refusalOf(refused)),
+    leftovers: leftovers(state, normalizer),
+  });
+});
+
+it("pins the launch after a cut-off run, with its parent's where-stopped record (R-B7 increment 1 review, M-6; R-C17 part 2)", async () => {
+  let now = fixtureClock();
+  const { state, backend, worktree, root } = await cycleFixture(
+    [
+      designDone,
+      // Messages, and no result: the turn never completes.
+      {
+        resultText: '',
+        claudeStream: [1, 2, 3].map((n) => ({
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: `Progress ${n}.` }] },
+        })),
+      },
+      implementationDone,
+    ],
+    () => now,
+  );
+  let captured: Json | undefined;
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model' && backend.launches.length === 1)
+      writeFileSync(join(request.cwd, 'wip.txt'), 'half done\n');
+    if (backend.launches.length === 2)
+      captured = captureLaunch(state, request, fixtureRoots(worktree.path, root), 'cut-off');
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => {
+    const current = currentCycle(state, cycle);
+    const last =
+      current.step === 'implement' &&
+      state.context.storage.execution.runEvents.latestOfKind(
+        state.workspaceId,
+        current.currentRunId,
+        'assistant-message',
+      );
+    return !!last;
+  }, 'the implementation reports progress');
+  now = new Date(Date.parse(currentCycle(state, cycle).runDeadlineAt) + 1);
+  await waitFor(
+    () => currentCycle(state, cycle).attention?.code === 'step-time-limit',
+    'the step time limit',
+  );
+  await controlCycle(state, currentCycle(state, cycle), 'resume');
+  await waitFor(() => captured !== undefined, 'the resumed implementation');
+  expectRecorded('cut-off parent', captured!);
+});
+
+it("pins an output repair's launch: the session resumed with the repair prompt (R-B7 increment 1 review, M-6; R-C2)", async () => {
+  const now = fixtureClock();
+  const { state, backend, worktree, root } = await cycleFixture(
+    [{ resultText: 'Design settled; nothing to ask.' }],
+    () => now,
+  );
+  backend.repairForRequest = () => designDone;
+  let captured: Json | undefined;
+  backend.onLaunch = (request) => {
+    if (backend.launches.length === 1)
+      captured = captureLaunch(state, request, fixtureRoots(worktree.path, root), 'output-repair');
+  };
+  await startCycle(state, worktree.id);
+  await waitFor(() => captured !== undefined, 'the repair');
+  expectRecorded('output repair', captured!);
 });

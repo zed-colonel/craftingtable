@@ -6,12 +6,12 @@
       "brief.md": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98 600",
       "checks/": "directory 700",
       "checks/bin/": "directory 700",
-      "checks/bin/ct-check": "f7ce1829dc69d74fb1001a12d2557dd8670ec6cb03eaf5a69af6eacb37cdf0b1 500",
-      "checks/manifest.json": "3f098719161728b173fa34030c9305acea855ff4c6ad2319feb310c1de1edd76 400",
+      "checks/bin/ct-check": "b46aeee586fe40db7b868b4b1d6edb37b7433ecc9760dc45c556b1604785ad4e 500",
+      "checks/manifest.json": "5ad0e2c615d49be23c1fc8fa4f4d2ee641e4f1dcf6f0dcbd3ff48fcf2c073a95 400",
       "checks/requests/": "directory 700",
       "plan/": "directory 700",
       "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "scratch/": "directory 700"
     },
     "run": {
@@ -29,7 +29,7 @@
       "status": "starting",
       "permissionMode": "auto",
       "model": "design-model",
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:6>",
       "turnCount": 0,
       "version": 1
@@ -45,7 +45,7 @@
     "audit": [
       {
         "id": "<uuid:7>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:6>",
         "session_id": null,
@@ -64,7 +64,7 @@
       {
         "id": "<uuid:8>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:3>",
         "actor_user_id": "<uuid:6>",
         "project_id": "project-1",
@@ -74,6 +74,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:4>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"design\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -118,7 +125,7 @@
       "pathPrefix": [
         "<data>/runs/<uuid:1>/checks/bin"
       ],
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "design-model",
       "additionalDirectories": [
@@ -135,16 +142,16 @@
       "brief.md": "904498dc06b94b8cf033c947695ab01510ee9653dbdfe330be8b2a74d196d149 600",
       "checks/": "directory 700",
       "checks/bin/": "directory 700",
-      "checks/bin/ct-check": "f7ce1829dc69d74fb1001a12d2557dd8670ec6cb03eaf5a69af6eacb37cdf0b1 500",
-      "checks/manifest.json": "3f098719161728b173fa34030c9305acea855ff4c6ad2319feb310c1de1edd76 400",
+      "checks/bin/ct-check": "b46aeee586fe40db7b868b4b1d6edb37b7433ecc9760dc45c556b1604785ad4e 500",
+      "checks/manifest.json": "5ad0e2c615d49be23c1fc8fa4f4d2ee641e4f1dcf6f0dcbd3ff48fcf2c073a95 400",
       "checks/requests/": "directory 700",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "fee6f81ef991bbcd180be58fa8ca729bfa4be858b05fb62836472d66fcff9c76 600",
+      "handoff/0000-conversation.md": "85f07053c33d2bbe3b4f5b1bcc9baeb0bfacae2ad02f6a9b3bdc68b2623d7d55 600",
       "handoff/0000-final.md": "903a9b4293231338090404ebdbebf27ced145d00208ad5526803065f90d23589 600",
       "handoff/manifest.json": "4d92d1903e3390578aa519ba7ce04bf82c9490ccbf5c58c5f1c5da39943eb173 600",
       "plan/": "directory 700",
       "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "scratch/": "directory 700"
     },
     "run": {
@@ -163,7 +170,7 @@
       "status": "starting",
       "permissionMode": "auto",
       "model": "implement-model",
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:7>",
       "turnCount": 0,
       "version": 1
@@ -179,7 +186,7 @@
     "audit": [
       {
         "id": "<uuid:8>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:7>",
         "session_id": null,
@@ -198,7 +205,7 @@
       {
         "id": "<uuid:9>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:4>",
         "actor_user_id": "<uuid:7>",
         "project_id": "project-1",
@@ -208,6 +215,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:5>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"implement\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -252,7 +266,7 @@
       "pathPrefix": [
         "<data>/runs/<uuid:1>/checks/bin"
       ],
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "implement-model",
       "additionalDirectories": [
@@ -269,19 +283,19 @@
       "brief.md": "ea64793a95f523f43df4b13d548a8f0f292185b2a12b81ec4cae93efcc9d1566 600",
       "checks/": "directory 700",
       "checks/bin/": "directory 700",
-      "checks/bin/ct-check": "f7ce1829dc69d74fb1001a12d2557dd8670ec6cb03eaf5a69af6eacb37cdf0b1 500",
-      "checks/manifest.json": "3f098719161728b173fa34030c9305acea855ff4c6ad2319feb310c1de1edd76 400",
+      "checks/bin/ct-check": "b46aeee586fe40db7b868b4b1d6edb37b7433ecc9760dc45c556b1604785ad4e 500",
+      "checks/manifest.json": "5ad0e2c615d49be23c1fc8fa4f4d2ee641e4f1dcf6f0dcbd3ff48fcf2c073a95 400",
       "checks/requests/": "directory 700",
       "declared-checks/": "directory 700",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "6d98152cd19e8a8aec9066662b7d6d694a79424a6f938a2ef9c3e9a1a903226c 600",
+      "handoff/0000-conversation.md": "6f29d62750b849c3bd0295eecd7f57cac34f98dff406d0cb7c4078c868a402dc 600",
       "handoff/0000-final.md": "87b9898b4be89f7fe5d24756b129345eb08a937952f57fe49ce417664fafe9c4 600",
-      "handoff/0001-conversation.md": "46a19c69de040999d18d9d48a48f0ace535c7d17be47b9fd4042e6df42e08a46 600",
+      "handoff/0001-conversation.md": "8bf09671434cc91a70e9f82918ff05dd10c8dafc7ad8254c0ce1ae4dcd444690 600",
       "handoff/0001-final.md": "903a9b4293231338090404ebdbebf27ced145d00208ad5526803065f90d23589 600",
       "handoff/manifest.json": "7767d9c6d6723b382ebd4384479b2a901b0454f827a9c871fe8906bf9a30f8b8 600",
       "plan/": "directory 700",
       "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "plan/craftingtable-rules.md": "f3a9a28ec52f0fa4bb62eb533083255021d0c6db2f69e45e1051d4a28b84bf28 600",
       "scratch/": "directory 700"
     },
@@ -307,7 +321,7 @@
         "targetSha": "<sha:1>",
         "worktreeVersion": 1
       },
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:8>",
       "turnCount": 0,
       "version": 1
@@ -323,7 +337,7 @@
     "audit": [
       {
         "id": "<uuid:9>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:8>",
         "session_id": null,
@@ -342,7 +356,7 @@
       {
         "id": "<uuid:10>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:5>",
         "actor_user_id": "<uuid:8>",
         "project_id": "project-1",
@@ -352,6 +366,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:6>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"review\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -396,7 +417,7 @@
       "pathPrefix": [
         "<data>/runs/<uuid:1>/checks/bin"
       ],
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "review-model",
       "additionalDirectories": [
@@ -406,19 +427,26 @@
       "sessionName": "CraftingTable AQ-01 review"
     }
   },
-  "cycle design": {
-    "brief": "ab9eea219f60390b272f384fca869dcaa5ab8d3d8a6bf2b6b80200fcc5633b01",
-    "prompt": "ab9eea219f60390b272f384fca869dcaa5ab8d3d8a6bf2b6b80200fcc5633b01",
+  "cut-off parent": {
+    "brief": "e74fc4c017bbbc8513fdf1141bf8e6a0850a0a7d0fb3e364150cb544da9147e2",
+    "prompt": "e74fc4c017bbbc8513fdf1141bf8e6a0850a0a7d0fb3e364150cb544da9147e2",
     "files": {
-      "brief.md": "ab9eea219f60390b272f384fca869dcaa5ab8d3d8a6bf2b6b80200fcc5633b01 600",
+      "brief.md": "e74fc4c017bbbc8513fdf1141bf8e6a0850a0a7d0fb3e364150cb544da9147e2 600",
+      "handoff/": "directory 700",
+      "handoff/0000-conversation.md": "422fb117a1449ec11f6e9d32995a75bc5b900b7125205b658a00d33351720092 600",
+      "handoff/0000-cut-off.md": "538014744a87342515534cdf0367b64dccd63bfabcd6165296e5fb788ae1f986 600",
+      "handoff/0000-final.md": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 600",
+      "handoff/0001-conversation.md": "85f07053c33d2bbe3b4f5b1bcc9baeb0bfacae2ad02f6a9b3bdc68b2623d7d55 600",
+      "handoff/0001-final.md": "903a9b4293231338090404ebdbebf27ced145d00208ad5526803065f90d23589 600",
+      "handoff/manifest.json": "986673f6481068c47fd7d6c377dd0cd952bebf1f2493bc9b7de80933cf51da8c 600",
       "plan/": "directory 700",
-      "plan/craftingtable-operator-decisions.json": "5fe7ea0162e35c0fbc4364bf949359a1af960284cde39a29519b0d936050d619 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
+      "plan/craftingtable-repository-policy.json": "6da0c8e4e03909e3b93f04e9d599a61f69d9a1731445995415ff6a17668daa1c 600",
       "scratch/": "directory 700"
     },
     "run": {
       "profileSelection": {
-        "purpose": "design"
+        "purpose": "implement"
       },
       "id": "<uuid:1>",
       "workspaceId": "<uuid:4>",
@@ -426,23 +454,24 @@
       "repositoryId": "<uuid:6>",
       "projectId": "project-1",
       "workItemId": "item-1",
+      "parentRunId": "<uuid:2>",
       "backend": "claude-code",
-      "role": "design",
+      "role": "implement",
       "status": "starting",
       "permissionMode": "auto",
-      "model": "design-model",
-      "createdAt": "<time>",
-      "createdByUserId": "<uuid:3>",
+      "model": "implement-model",
+      "createdAt": "<t0+7200001ms>",
+      "createdByUserId": "<uuid:7>",
       "turnCount": 0,
       "version": 1
     },
     "evidence": null,
     "audit": [
       {
-        "id": "<uuid:7>",
-        "occurred_at": "<time>",
+        "id": "<uuid:8>",
+        "occurred_at": "<t0+7200001ms>",
         "actor_kind": "system",
-        "actor_user_id": "<uuid:3>",
+        "actor_user_id": "<uuid:7>",
         "session_id": null,
         "workspace_id": "<uuid:4>",
         "request_id": null,
@@ -452,23 +481,30 @@
         "outcome": "succeeded",
         "prior_version": null,
         "resulting_version": null,
-        "metadata_json": "{\"workItemId\":\"item-1\",\"worktreeId\":\"<uuid:5>\",\"role\":\"design\",\"permissionMode\":\"auto\",\"backend\":\"claude-code\"}"
+        "metadata_json": "{\"workItemId\":\"item-1\",\"worktreeId\":\"<uuid:5>\",\"role\":\"implement\",\"permissionMode\":\"auto\",\"backend\":\"claude-code\"}"
       }
     ],
     "event": [
       {
-        "id": "<uuid:8>",
+        "id": "<uuid:9>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+7200001ms>",
         "workspace_id": "<uuid:4>",
-        "actor_user_id": "<uuid:3>",
+        "actor_user_id": "<uuid:7>",
         "project_id": "project-1",
         "work_item_id": "item-1",
         "run_id": "<uuid:1>",
         "kind": "agent-run-started",
-        "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:5>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"design\"}"
+        "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:5>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"implement\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -505,7 +541,123 @@
         "CARGO_HOME": "<data>/cargo-home",
         "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
       },
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+14400001ms>",
+      "permissionMode": "auto",
+      "model": "implement-model",
+      "additionalDirectories": [
+        "<data>/runs/<uuid:1>",
+        "<data>/runs/worktree-caches/<uuid:5>"
+      ],
+      "sessionName": "CraftingTable AQ-01 implement"
+    }
+  },
+  "cycle design": {
+    "brief": "ab9eea219f60390b272f384fca869dcaa5ab8d3d8a6bf2b6b80200fcc5633b01",
+    "prompt": "ab9eea219f60390b272f384fca869dcaa5ab8d3d8a6bf2b6b80200fcc5633b01",
+    "files": {
+      "brief.md": "ab9eea219f60390b272f384fca869dcaa5ab8d3d8a6bf2b6b80200fcc5633b01 600",
+      "plan/": "directory 700",
+      "plan/craftingtable-operator-decisions.json": "b445d98b1d5bd087b1390c517963d84ff0d98f6d5c97d84c7fef1d186acbca00 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
+      "scratch/": "directory 700"
+    },
+    "run": {
+      "profileSelection": {
+        "purpose": "design"
+      },
+      "id": "<uuid:1>",
+      "workspaceId": "<uuid:4>",
+      "worktreeId": "<uuid:5>",
+      "repositoryId": "<uuid:6>",
+      "projectId": "project-1",
+      "workItemId": "item-1",
+      "backend": "claude-code",
+      "role": "design",
+      "status": "starting",
+      "permissionMode": "auto",
+      "model": "design-model",
+      "createdAt": "<t0+0ms>",
+      "createdByUserId": "<uuid:3>",
+      "turnCount": 0,
+      "version": 1
+    },
+    "evidence": null,
+    "audit": [
+      {
+        "id": "<uuid:7>",
+        "occurred_at": "<t0+0ms>",
+        "actor_kind": "system",
+        "actor_user_id": "<uuid:3>",
+        "session_id": null,
+        "workspace_id": "<uuid:4>",
+        "request_id": null,
+        "action": "agent-run.start",
+        "target_type": "agent-run",
+        "target_id": "<uuid:1>",
+        "outcome": "succeeded",
+        "prior_version": null,
+        "resulting_version": null,
+        "metadata_json": "{\"workItemId\":\"item-1\",\"worktreeId\":\"<uuid:5>\",\"role\":\"design\",\"permissionMode\":\"auto\",\"backend\":\"claude-code\"}"
+      }
+    ],
+    "event": [
+      {
+        "id": "<uuid:8>",
+        "schema_version": 1,
+        "occurred_at": "<t0+0ms>",
+        "workspace_id": "<uuid:4>",
+        "actor_user_id": "<uuid:3>",
+        "project_id": "project-1",
+        "work_item_id": "item-1",
+        "run_id": "<uuid:1>",
+        "kind": "agent-run-started",
+        "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:5>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"design\"}"
+      }
+    ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
+    "request": {
+      "deniedReads": [
+        "<data>/state",
+        "<data>/backups",
+        "<data>/config"
+      ],
+      "outsideSources": [
+        {
+          "kind": "cargo",
+          "hosts": [
+            "index.crates.io",
+            "static.crates.io"
+          ],
+          "caches": [
+            "<data>/cargo-home/registry",
+            "<data>/cargo-home/git"
+          ]
+        }
+      ],
+      "cwd": "<worktree>",
+      "gitDirectories": {
+        "gitDirectory": "<repository>/.git/worktrees/aq-01-<branch-suffix:1>",
+        "gitCommonDirectory": "<repository>/.git",
+        "worktreeConfig": false
+      },
+      "temporaryDirectory": "<data>/runs/<uuid:1>/scratch",
+      "processTemporaryDirectory": "<data>/t/<process>",
+      "buildCacheDirectory": "<data>/runs/worktree-caches/<uuid:5>",
+      "environment": {
+        "TMPDIR": "<data>/runs/<uuid:1>/scratch",
+        "TMP": "<data>/runs/<uuid:1>/scratch",
+        "TEMP": "<data>/runs/<uuid:1>/scratch",
+        "CARGO_TARGET_DIR": "<data>/runs/worktree-caches/<uuid:5>",
+        "CARGO_HOME": "<data>/cargo-home",
+        "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
+      },
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "design-model",
       "additionalDirectories": [
@@ -521,12 +673,12 @@
     "files": {
       "brief.md": "b86d01e91eed597bf46eca25b690f68b39176d9eedcb8ace8cfc65d405d4296a 600",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "5b7827236bdfe04e3ad19d17f8608e45bd45a27f4ae2393d29be39ec8c319d4b 600",
+      "handoff/0000-conversation.md": "31f72a7813597ebcb952b883910fe3bb1137f3d7fad2003d20fcaa017d1c0b4a 600",
       "handoff/0000-final.md": "903a9b4293231338090404ebdbebf27ced145d00208ad5526803065f90d23589 600",
       "handoff/manifest.json": "77b2524ef2ed0a0802114ab2e5e6476fd02438652b5eb64d62e2a773fb6a3130 600",
       "plan/": "directory 700",
-      "plan/craftingtable-operator-decisions.json": "ec4c88a8f2658bab0ff4bf1f33d8a621a963da71b07bf4e1cddbb36d98f08ab2 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-operator-decisions.json": "eb1992ce4233dbae23f3caf0ec0736a7fdc0318d17694d27e930c6f82ab27daa 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "scratch/": "directory 700"
     },
     "run": {
@@ -545,7 +697,7 @@
       "status": "starting",
       "permissionMode": "auto",
       "model": "implement-model",
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:4>",
       "turnCount": 0,
       "version": 1
@@ -554,7 +706,7 @@
     "audit": [
       {
         "id": "<uuid:8>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:4>",
         "session_id": null,
@@ -573,7 +725,7 @@
       {
         "id": "<uuid:9>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:5>",
         "actor_user_id": "<uuid:4>",
         "project_id": "project-1",
@@ -583,6 +735,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:6>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"implement\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -619,7 +778,7 @@
         "CARGO_HOME": "<data>/cargo-home",
         "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
       },
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "implement-model",
       "additionalDirectories": [
@@ -635,20 +794,20 @@
     "files": {
       "brief.md": "491793c51895087fa7390f7f928ad986bddcd601d923dbf35a9cbc2302472eb9 600",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "a73c16602eb5b76729b5886738d683fc5ad63954083a4954ba1224a7e469a80e 600",
+      "handoff/0000-conversation.md": "d3f41273c7c5ac89d2ad0828d30a4775cbb06f3a20037f65bc7c9f94e9f7604d 600",
       "handoff/0000-final.md": "beea8428c2bd1473d22e28175a65fe5c20ae016d85d9b251eabb519052f8c922 600",
       "handoff/0000-review.json": "f841980eac35d40d9d6f18adca36e6c848cd6a6ad2f668b82292c614669d74bd 600",
-      "handoff/0001-conversation.md": "61284aeed29d6c851449af308ae5951cdde6d172485decf79fd7325664c58cbe 600",
+      "handoff/0001-conversation.md": "f25c465ee8fb631f7dfa046bf2cda47878a4275cb4dd2f40af96cd6e4271b851 600",
       "handoff/0001-final.md": "cc771c66cf97a8d75573de16b205157d2ea12d3678a5540724609ebc4100aa9e 600",
       "handoff/0001-review.json": "5fd0a2ddd563d4f018b19566b372024944752f971dcd0ca06bd214dd201d7bf9 600",
-      "handoff/0002-conversation.md": "3b1710624023434e8fbe3a66a85e8408433210096f887a689833c3de7fea28e0 600",
+      "handoff/0002-conversation.md": "03b2faf55406a31822a8a64879b323538a71b4bae9c08092f7cffabca4476311 600",
       "handoff/0002-final.md": "87b9898b4be89f7fe5d24756b129345eb08a937952f57fe49ce417664fafe9c4 600",
-      "handoff/0003-conversation.md": "6eba567f69177e2eb7dbc4b5d5f9a35096a42b8bf58e9d5b2ad3cf25224013a8 600",
+      "handoff/0003-conversation.md": "d7ff88554cb6bcc21bcd29402fe02223e270d79d6d2b36b41864f06bec8eb3ad 600",
       "handoff/0003-final.md": "903a9b4293231338090404ebdbebf27ced145d00208ad5526803065f90d23589 600",
       "handoff/manifest.json": "6aea6e376161cfde38d72eeb21962f16530e839126feccac2c9c4eab4c3ae74d 600",
       "plan/": "directory 700",
-      "plan/craftingtable-operator-decisions.json": "4a94f02fcc10276a22c9234fb3428285ae84d160322d3ba4725358f682683d86 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-operator-decisions.json": "6bb9439a7296bba7ee3ba4a2c3b7786025cbda95c83506a5336e2b4f917df023 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "scratch/": "directory 700"
     },
     "run": {
@@ -667,7 +826,7 @@
       "status": "starting",
       "permissionMode": "auto",
       "model": "remediate-model",
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:7>",
       "turnCount": 0,
       "version": 1
@@ -676,7 +835,7 @@
     "audit": [
       {
         "id": "<uuid:11>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:7>",
         "session_id": null,
@@ -695,7 +854,7 @@
       {
         "id": "<uuid:12>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:8>",
         "actor_user_id": "<uuid:7>",
         "project_id": "project-1",
@@ -705,6 +864,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:9>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"implement\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -741,7 +907,7 @@
         "CARGO_HOME": "<data>/cargo-home",
         "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
       },
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "remediate-model",
       "additionalDirectories": [
@@ -757,14 +923,14 @@
     "files": {
       "brief.md": "04dfebd1d4a253603051d705547f2ef3963e58f7b5e69828d60da7fa2c93c0ee 600",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "bccb564d9ffe828f0f9aa5101f49945fca5d532ac2290e38283808870b46b7b1 600",
+      "handoff/0000-conversation.md": "f14e54ae2adc00fcfa95f30ec19edb42686a7435cd8ca7038a406252d0ff9bd3 600",
       "handoff/0000-final.md": "87b9898b4be89f7fe5d24756b129345eb08a937952f57fe49ce417664fafe9c4 600",
-      "handoff/0001-conversation.md": "0d364c08aea4819758ef36957c45ac8922863dd0cb57ddb4b55275dc248c7d88 600",
+      "handoff/0001-conversation.md": "03766b116b719ae3e6dc133e7a3d91eb89b3d981b41defc41614fcd4d89f079b 600",
       "handoff/0001-final.md": "903a9b4293231338090404ebdbebf27ced145d00208ad5526803065f90d23589 600",
       "handoff/manifest.json": "37dc4aadcecfcd11a4be219a0961b8b98e8d5de76dd9cd6fb8ddff3f2af0d4a9 600",
       "plan/": "directory 700",
-      "plan/craftingtable-operator-decisions.json": "cb3f54fca4e8745e2e8b93ae4272c408e13bb7dff9d3e00f6e8286a44b59fc84 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-operator-decisions.json": "00c81568722fcb540a9120ef2dc0be1f55ae4a0b8f15fce6723c2f0c19cc0218 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "plan/craftingtable-rules.md": "f3a9a28ec52f0fa4bb62eb533083255021d0c6db2f69e45e1051d4a28b84bf28 600",
       "scratch/": "directory 700"
     },
@@ -790,7 +956,7 @@
         "targetSha": "<sha:1>",
         "worktreeVersion": 1
       },
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:5>",
       "turnCount": 0,
       "version": 1
@@ -799,7 +965,7 @@
     "audit": [
       {
         "id": "<uuid:9>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:5>",
         "session_id": null,
@@ -818,7 +984,7 @@
       {
         "id": "<uuid:10>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:6>",
         "actor_user_id": "<uuid:5>",
         "project_id": "project-1",
@@ -828,6 +994,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:7>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"review\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -864,7 +1037,7 @@
         "CARGO_HOME": "<data>/cargo-home",
         "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
       },
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "review-model",
       "additionalDirectories": [
@@ -880,22 +1053,22 @@
     "files": {
       "brief.md": "b7afe2b17be86fc0da6724d8f19ba6e3a517497943bd1942dd69678dffe91c94 600",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "291562ad761de34abeb3a03cd5c94e5e6b101d0ba4ea5467f56bb1565da67412 600",
+      "handoff/0000-conversation.md": "0d26e847504285bb2879bbcc7b79a0cd9152895fc191b2aafd8b396c25433efc 600",
       "handoff/0000-final.md": "87b9898b4be89f7fe5d24756b129345eb08a937952f57fe49ce417664fafe9c4 600",
-      "handoff/0001-conversation.md": "61d297c1ec280ed95f02f157d1ade0b3b3b16e220dee279dbcb375be8de33554 600",
+      "handoff/0001-conversation.md": "418068f5b92b057e457d85427d6cac42d09df1bafa2fc7b4735034e8b774fc84 600",
       "handoff/0001-final.md": "beea8428c2bd1473d22e28175a65fe5c20ae016d85d9b251eabb519052f8c922 600",
       "handoff/0001-review.json": "f841980eac35d40d9d6f18adca36e6c848cd6a6ad2f668b82292c614669d74bd 600",
-      "handoff/0002-conversation.md": "61284aeed29d6c851449af308ae5951cdde6d172485decf79fd7325664c58cbe 600",
+      "handoff/0002-conversation.md": "f25c465ee8fb631f7dfa046bf2cda47878a4275cb4dd2f40af96cd6e4271b851 600",
       "handoff/0002-final.md": "cc771c66cf97a8d75573de16b205157d2ea12d3678a5540724609ebc4100aa9e 600",
       "handoff/0002-review.json": "5fd0a2ddd563d4f018b19566b372024944752f971dcd0ca06bd214dd201d7bf9 600",
-      "handoff/0003-conversation.md": "4d3cf0ef4b337901a0a0296c69cb63909c268fddb3ca7f8d618dc313a7521591 600",
+      "handoff/0003-conversation.md": "c42876d6cacdfb068fc7110750e6b09f3b6e698a632b5337f1319f9723be0fd9 600",
       "handoff/0003-final.md": "87b9898b4be89f7fe5d24756b129345eb08a937952f57fe49ce417664fafe9c4 600",
-      "handoff/0004-conversation.md": "8a44e203e54401a60b2ad41bab3c1f27de91b0f11d6e1aeeec7ffc3ce20284e0 600",
+      "handoff/0004-conversation.md": "b23b11fadfe34890ecc477d597343c1251c75ae1dac2e231fd2449522c4c3f1e 600",
       "handoff/0004-final.md": "903a9b4293231338090404ebdbebf27ced145d00208ad5526803065f90d23589 600",
       "handoff/manifest.json": "fe389a0a95086cf417dc2d10684e31de46c7e45f818b1a404a360921dbddc218 600",
       "plan/": "directory 700",
-      "plan/craftingtable-operator-decisions.json": "2f2e160245057e611904eb905271836ad6406b620ef965669b24fc7c6b0923f4 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-operator-decisions.json": "e238d45bacf2d9e71379cc3c8b05d9defdd113488fac3292af96fb1974fdb018 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "plan/craftingtable-rules.md": "f3a9a28ec52f0fa4bb62eb533083255021d0c6db2f69e45e1051d4a28b84bf28 600",
       "scratch/": "directory 700"
     },
@@ -921,7 +1094,7 @@
         "targetSha": "<sha:1>",
         "worktreeVersion": 1
       },
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:8>",
       "turnCount": 0,
       "version": 1
@@ -930,7 +1103,7 @@
     "audit": [
       {
         "id": "<uuid:12>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:8>",
         "session_id": null,
@@ -949,7 +1122,7 @@
       {
         "id": "<uuid:13>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:9>",
         "actor_user_id": "<uuid:8>",
         "project_id": "project-1",
@@ -959,6 +1132,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:10>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"review\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -995,7 +1175,7 @@
         "CARGO_HOME": "<data>/cargo-home",
         "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
       },
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "review-model",
       "additionalDirectories": [
@@ -1011,17 +1191,17 @@
     "files": {
       "brief.md": "0e9e2a178d9f025a9df7bdfaa06326669194f9537e30abe4133263a9781dc78c 600",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "61284aeed29d6c851449af308ae5951cdde6d172485decf79fd7325664c58cbe 600",
+      "handoff/0000-conversation.md": "f25c465ee8fb631f7dfa046bf2cda47878a4275cb4dd2f40af96cd6e4271b851 600",
       "handoff/0000-final.md": "cc771c66cf97a8d75573de16b205157d2ea12d3678a5540724609ebc4100aa9e 600",
       "handoff/0000-review.json": "5fd0a2ddd563d4f018b19566b372024944752f971dcd0ca06bd214dd201d7bf9 600",
-      "handoff/0001-conversation.md": "3233a59f5288281318d2f1ba401de0f78f108951de7503cd203753eab3168e65 600",
+      "handoff/0001-conversation.md": "70adf936371ef257aa232dea025007070be676d46b7ccb8a24d87dbb10ff1860 600",
       "handoff/0001-final.md": "87b9898b4be89f7fe5d24756b129345eb08a937952f57fe49ce417664fafe9c4 600",
-      "handoff/0002-conversation.md": "0aa1c2bdff762cb1b1d52781ef03ed5e97ef8386de1d0616bfca890a7f6948a5 600",
+      "handoff/0002-conversation.md": "0e1a14486a597297cca52ae466592833ed2790f843621e3a82e8971bf41b6c18 600",
       "handoff/0002-final.md": "903a9b4293231338090404ebdbebf27ced145d00208ad5526803065f90d23589 600",
       "handoff/manifest.json": "c6260caec8ad8b7966e7e15c5b2767edeff8338170839f6762c11a61039360d1 600",
       "plan/": "directory 700",
-      "plan/craftingtable-operator-decisions.json": "29722739eef2149195cfc9c3eb988a8e0b5567df3d440a42cf1bd6d2c749f6c2 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-operator-decisions.json": "6ef26a29dc8cb71eb5112200a4a08c795b1b2fa131885e9c3fbb8204b5fa4b6d 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "plan/craftingtable-rules.md": "f3a9a28ec52f0fa4bb62eb533083255021d0c6db2f69e45e1051d4a28b84bf28 600",
       "scratch/": "directory 700"
     },
@@ -1047,7 +1227,7 @@
         "targetSha": "<sha:1>",
         "worktreeVersion": 1
       },
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:6>",
       "turnCount": 0,
       "version": 1
@@ -1056,7 +1236,7 @@
     "audit": [
       {
         "id": "<uuid:10>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:6>",
         "session_id": null,
@@ -1075,7 +1255,7 @@
       {
         "id": "<uuid:11>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:7>",
         "actor_user_id": "<uuid:6>",
         "project_id": "project-1",
@@ -1085,6 +1265,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:8>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"review\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1121,7 +1308,7 @@
         "CARGO_HOME": "<data>/cargo-home",
         "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
       },
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "review-model",
       "additionalDirectories": [
@@ -1138,8 +1325,8 @@
       "brief.md": "7f433ffe88d0a82cfb57efdd0b1b74a446ea1cef8545ab5d9c9efa32415a9a81 600",
       "checks/": "directory 700",
       "checks/bin/": "directory 700",
-      "checks/bin/ct-check": "386fcdcff8f9a54ed93da465c47a652ca477d62428966931e1f4f438d9c55928 500",
-      "checks/manifest.json": "9da368b93579b87a743c82fb39883ca7d08cf3b2b3f5ba6cf989c86a92f56a83 400",
+      "checks/bin/ct-check": "a854c931ff4a15350b2a0550c722ba9638779cac55c7be8ebd64cf8f78fd7193 500",
+      "checks/manifest.json": "2a6c8eabe2f231bf821db5600ee31de50c14be6404528ba8f6c5fb7c43034d58 400",
       "checks/requests/": "directory 700",
       "decision-preparation/": "directory 700",
       "decision-preparation/context.json": "8a62619040fa6d378693952c53d3078286d385dda0887c7c465c06dd5a885208 600",
@@ -1212,6 +1399,13 @@
         "payload_json": "{\"runId\":\"<uuid:2>\",\"worktreeId\":\"<uuid:8>\",\"planVersionId\":\"version-1\",\"backend\":\"claude-code\",\"role\":\"design\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:2>",
+        "path": "<data>/runs/<uuid:2>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1277,12 +1471,12 @@
       "design-recovery/manifest.json": "e8f84cbaae77c4afb3df51bbb4a35d4f88fe67c6b0f8cff318def2469eee6495 600",
       "design-recovery/operator-1.txt": "51645a6556087278a5bfbf601dd8564957f6bd2d79873e50fad4f5361fa6ab11 600",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "d64d74729d6a6d55112fa393e33f97873dc588ec305c7f0ca06fce4575468bdf 600",
+      "handoff/0000-conversation.md": "bd604d4a6322ed50720af7b8a131ec66fdcbfbfd9693137e299f005e66a1101d 600",
       "handoff/0000-final.md": "efeb02d8526e3f59d85b194f69d67b0c956087d369102a7969bc8c5b25765319 600",
       "handoff/manifest.json": "77b2524ef2ed0a0802114ab2e5e6476fd02438652b5eb64d62e2a773fb6a3130 600",
       "plan/": "directory 700",
-      "plan/craftingtable-operator-decisions.json": "2af706ad435d0d73654b2b34057769d0e68889884114c3c7b419ec253ab36497 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-operator-decisions.json": "e3dc276f3b5668a34de3c083acce33eaeee482e7918775ec80c9325f9e1fc4a1 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "scratch/": "directory 700"
     },
     "run": {
@@ -1301,7 +1495,7 @@
       "status": "starting",
       "permissionMode": "auto",
       "model": "recovery-model",
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:6>",
       "turnCount": 0,
       "version": 1
@@ -1310,7 +1504,7 @@
     "audit": [
       {
         "id": "<uuid:8>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:6>",
         "session_id": null,
@@ -1329,7 +1523,7 @@
       {
         "id": "<uuid:9>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:7>",
         "actor_user_id": "<uuid:6>",
         "project_id": "project-1",
@@ -1339,6 +1533,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:3>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"design\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1375,7 +1576,7 @@
         "CARGO_HOME": "<data>/cargo-home",
         "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
       },
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "recovery-model",
       "additionalDirectories": [
@@ -1392,16 +1593,16 @@
       "brief.md": "48b570c470783388dfeb19c867c2863e5403e21591fca43b607b95a80a64b760 600",
       "checks/": "directory 700",
       "checks/bin/": "directory 700",
-      "checks/bin/ct-check": "386fcdcff8f9a54ed93da465c47a652ca477d62428966931e1f4f438d9c55928 500",
-      "checks/manifest.json": "aa09e6f8447167cd2a44140de54983713492f8880093124a86466a050e327607 400",
+      "checks/bin/ct-check": "a854c931ff4a15350b2a0550c722ba9638779cac55c7be8ebd64cf8f78fd7193 500",
+      "checks/manifest.json": "78befac762feddc3ccc6ea0416abc0e98382547a4ed26ee8624c7004f18a0f09 400",
       "checks/requests/": "directory 700",
       "declared-checks/": "directory 700",
       "plan/": "directory 700",
       "plan/craftingtable-finalization-state.json": "0ca355c43047cbb277d6408494b17cec2de558d299f1172e8e2a9a2f7d3ed507 600",
       "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-      "plan/craftingtable-repository-policy.json": "5191c503bf67dd11935b21bb79c0cbb7b96074cc6122e31d0a422c9783168d96 600",
+      "plan/craftingtable-repository-policy.json": "554439fa04a40c6b9f4c1c1ae6a456e64cdbb1be55f03c1f973b03ffb6d1b4d3 600",
       "plan/craftingtable-rules.md": "6c21edc921b154f49650e5737fcb5a660bcca99139a5e354224ef224065a5db8 600",
-      "plan/craftingtable-work-items.json": "25a27f83fbbad879c816f80967e6f043be6f4e0659e02a83e197d70288c9e530 600",
+      "plan/craftingtable-work-items.json": "63c9fce2948bdef18c12ff36f1818bf5d6e94b571a8df03d8382d6e4059ddcfb 600",
       "scratch/": "directory 700"
     },
     "run": {
@@ -1425,7 +1626,7 @@
         "targetSha": "<sha:2>",
         "worktreeVersion": 1
       },
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:5>",
       "turnCount": 0,
       "version": 1
@@ -1441,7 +1642,7 @@
     "audit": [
       {
         "id": "<uuid:8>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:5>",
         "session_id": null,
@@ -1460,7 +1661,7 @@
       {
         "id": "<uuid:9>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:4>",
         "actor_user_id": "<uuid:5>",
         "project_id": "project-1",
@@ -1470,6 +1671,13 @@
         "payload_json": "{\"runId\":\"<uuid:2>\",\"worktreeId\":\"<uuid:6>\",\"planVersionId\":\"version-1\",\"backend\":\"claude-code\",\"role\":\"review\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:2>",
+        "path": "<data>/runs/<uuid:2>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1514,7 +1722,7 @@
       "pathPrefix": [
         "<data>/runs/<uuid:2>/checks/bin"
       ],
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "correctness-review",
       "additionalDirectories": [
@@ -1531,12 +1739,12 @@
       "brief.md": "fc5e9f9b65415c92011a9966cfd7ed7693bea25e9b767a7c73a30eb4d69e176a 600",
       "checks/": "directory 700",
       "checks/bin/": "directory 700",
-      "checks/bin/ct-check": "386fcdcff8f9a54ed93da465c47a652ca477d62428966931e1f4f438d9c55928 500",
-      "checks/manifest.json": "aa09e6f8447167cd2a44140de54983713492f8880093124a86466a050e327607 400",
+      "checks/bin/ct-check": "a854c931ff4a15350b2a0550c722ba9638779cac55c7be8ebd64cf8f78fd7193 500",
+      "checks/manifest.json": "78befac762feddc3ccc6ea0416abc0e98382547a4ed26ee8624c7004f18a0f09 400",
       "checks/requests/": "directory 700",
       "declared-checks/": "directory 700",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "617f285a5c34a329befc067be728cf4443c63c3ffe35a91319aafb11b2e41859 600",
+      "handoff/0000-conversation.md": "50bfec7c50751f66535e75da12b0513e3365b5a460e94976bd56f39c53f1652a 600",
       "handoff/0000-final.md": "9d09b657ca34b982c1604b39810b170856ed481d05df5a27f01a197f02804db9 600",
       "handoff/0000-review.json": "400923c78f8332c3cc770a76f78c2125e961f3e4ff2dfdad4a978bad57b4e161 600",
       "handoff/closed-findings.json": "d8f61fe7341b140339eb7b51706fdd672fecf97db085989b78eee32fc562488b 600",
@@ -1545,9 +1753,9 @@
       "plan/": "directory 700",
       "plan/craftingtable-finalization-state.json": "e343bbe2a2c05db0b4349ccc8a6c571c128e14d5602ede2fb39cd32df2049742 600",
       "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-      "plan/craftingtable-repository-policy.json": "5191c503bf67dd11935b21bb79c0cbb7b96074cc6122e31d0a422c9783168d96 600",
+      "plan/craftingtable-repository-policy.json": "554439fa04a40c6b9f4c1c1ae6a456e64cdbb1be55f03c1f973b03ffb6d1b4d3 600",
       "plan/craftingtable-rules.md": "6c21edc921b154f49650e5737fcb5a660bcca99139a5e354224ef224065a5db8 600",
-      "plan/craftingtable-work-items.json": "0c15a44c8105b9d23d439ed979eecafecffeebe7c019c144feb9bfe32e9576d1 600",
+      "plan/craftingtable-work-items.json": "bc5e94e0891c2eb2e82cc272af69d47b781e7d4fb24b5446bbd0d937f353c0da 600",
       "scratch/": "directory 700"
     },
     "run": {
@@ -1572,7 +1780,7 @@
         "targetSha": "<sha:2>",
         "worktreeVersion": 1
       },
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:6>",
       "turnCount": 0,
       "version": 1
@@ -1588,7 +1796,7 @@
     "audit": [
       {
         "id": "<uuid:9>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:6>",
         "session_id": null,
@@ -1607,7 +1815,7 @@
       {
         "id": "<uuid:10>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:5>",
         "actor_user_id": "<uuid:6>",
         "project_id": "project-1",
@@ -1617,6 +1825,13 @@
         "payload_json": "{\"runId\":\"<uuid:2>\",\"worktreeId\":\"<uuid:7>\",\"planVersionId\":\"version-1\",\"backend\":\"claude-code\",\"role\":\"review\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:2>",
+        "path": "<data>/runs/<uuid:2>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1661,7 +1876,7 @@
       "pathPrefix": [
         "<data>/runs/<uuid:2>/checks/bin"
       ],
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "conformance-review",
       "additionalDirectories": [
@@ -1677,17 +1892,17 @@
     "files": {
       "brief.md": "1798718ce8c11f08d3a947f431f0dc642007dcce2d5dfbceb9d92edaf4632d7e 600",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "d82b3e7ea74991e8c9d82ee5ad82eae4bf2acc443a078ef22b20e7b51790f7c9 600",
+      "handoff/0000-conversation.md": "0d0dc2b00c1c48f8b921f9c834785a614fd5c46a139e5b753fbb340dee9c5e68 600",
       "handoff/0000-final.md": "5d8b5e9f382b27f7178547af82f08603626023b18a147aa9dfc32f0f9e2ed6dd 600",
       "handoff/0000-review.json": "cd2e87a39c5dc3ce0c3d0364b93400cbc9d70d3c911a5e1cdf56baa7bd00f140 600",
-      "handoff/0001-conversation.md": "b04e5ed40bb2c482a2e16447abef4579c6ce014b55122f343d186d30df3ab3b0 600",
+      "handoff/0001-conversation.md": "fab45f8204100d352a83bed8366aa74e616f2e99e3046fb29ceeada4e9adb96f 600",
       "handoff/0001-final.md": "87b9898b4be89f7fe5d24756b129345eb08a937952f57fe49ce417664fafe9c4 600",
-      "handoff/0002-conversation.md": "46a19c69de040999d18d9d48a48f0ace535c7d17be47b9fd4042e6df42e08a46 600",
+      "handoff/0002-conversation.md": "8bf09671434cc91a70e9f82918ff05dd10c8dafc7ad8254c0ce1ae4dcd444690 600",
       "handoff/0002-final.md": "903a9b4293231338090404ebdbebf27ced145d00208ad5526803065f90d23589 600",
       "handoff/manifest.json": "38c3c8b915312f7e6ff02ef83fcbded42e7c2031f3d35a7dd80873186275037c 600",
       "plan/": "directory 700",
       "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-      "plan/craftingtable-repository-policy.json": "88a07a25f30d01952b3f7f45140841e0d41689e0adf08278814605ff5387a11d 600",
+      "plan/craftingtable-repository-policy.json": "5de4e5156ae42d22e0e5e8d8cb124fac01af5b15933c23e706090c8e37edfe0a 600",
       "scratch/": "directory 700"
     },
     "run": {
@@ -1706,7 +1921,7 @@
       "status": "starting",
       "permissionMode": "auto",
       "model": "resolution-model",
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:8>",
       "turnCount": 0,
       "version": 1
@@ -1715,7 +1930,7 @@
     "audit": [
       {
         "id": "<uuid:9>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "system",
         "actor_user_id": "<uuid:8>",
         "session_id": null,
@@ -1734,7 +1949,7 @@
       {
         "id": "<uuid:10>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:5>",
         "actor_user_id": "<uuid:8>",
         "project_id": "project-1",
@@ -1744,6 +1959,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:6>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"implement\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1780,7 +2002,7 @@
         "CARGO_HOME": "<data>/cargo-home",
         "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
       },
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+7200000ms>",
       "permissionMode": "auto",
       "model": "resolution-model",
       "additionalDirectories": [
@@ -1796,19 +2018,19 @@
     "files": {
       "brief.md": "f8341c0d7faf08b7225795705cab916e5804f57b87ab67796ce8e89f972d2d83 600",
       "handoff/": "directory 700",
-      "handoff/0000-conversation.md": "29187cf4da39e3c40f2b810c6049f144998ef72c8c35a73a21e553d07dc908f4 600",
+      "handoff/0000-conversation.md": "b4197496e6d4d505d35939bbb30a8b9aa7a514f7d4babdb523c05ef1442b1b50 600",
       "handoff/0000-final.md": "b972c5548fddbe0acf8224d77b37121861a6eeb980448235e10f9f196ae39dbf 600",
-      "handoff/0001-conversation.md": "fee6f81ef991bbcd180be58fa8ca729bfa4be858b05fb62836472d66fcff9c76 600",
+      "handoff/0001-conversation.md": "85f07053c33d2bbe3b4f5b1bcc9baeb0bfacae2ad02f6a9b3bdc68b2623d7d55 600",
       "handoff/0001-final.md": "903a9b4293231338090404ebdbebf27ced145d00208ad5526803065f90d23589 600",
       "handoff/manifest.json": "37dc4aadcecfcd11a4be219a0961b8b98e8d5de76dd9cd6fb8ddff3f2af0d4a9 600",
       "investigation/": "directory 700",
       "investigation/branch.json": "1526bc5c7348e4d1547e0ab239e9dd34f05e85453c779d39580e5cea62c6e88e 600",
-      "investigation/context.json": "9d57a705b008d060be0e9a3c8750a601ce28d16b16ef74944d8734ff5323668e 600",
+      "investigation/context.json": "22f5d109bf921c2e645e933931803078ab9d0bc372e65af4c82882ea34b999b4 600",
       "investigation/patch.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 600",
       "investigation/questions.md": "98a567b3d36e5d31fb377bb17a588743bada457b9bb609f877358824a967eb6b 600",
       "plan/": "directory 700",
       "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "scratch/": "directory 700"
     },
     "run": {
@@ -1828,7 +2050,7 @@
       "status": "starting",
       "permissionMode": "edit-only",
       "model": "design-model",
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:9>",
       "turnCount": 0,
       "version": 1
@@ -1837,7 +2059,7 @@
     "audit": [
       {
         "id": "<uuid:10>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "user",
         "actor_user_id": "<uuid:9>",
         "session_id": "<uuid:11>",
@@ -1856,7 +2078,7 @@
       {
         "id": "<uuid:12>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:6>",
         "actor_user_id": "<uuid:9>",
         "project_id": "project-1",
@@ -1866,6 +2088,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:7>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"design\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -1902,7 +2131,7 @@
         "CARGO_HOME": "<data>/cargo-home",
         "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
       },
-      "deadlineAt": "<time>",
+      "deadlineAt": "<t0+1800000ms>",
       "readOnly": true,
       "permissionMode": "edit-only",
       "model": "design-model",
@@ -1920,7 +2149,7 @@
       "brief.md": "abd79654658cfcc57925fa46d3d5f6d74dc2f009697feb864d6986f0e6cd6be2 600",
       "plan/": "directory 700",
       "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-      "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
       "scratch/": "directory 700"
     },
     "run": {
@@ -1934,7 +2163,7 @@
       "role": "implement",
       "status": "starting",
       "permissionMode": "auto",
-      "createdAt": "<time>",
+      "createdAt": "<t0+0ms>",
       "createdByUserId": "<uuid:5>",
       "turnCount": 0,
       "version": 1
@@ -1943,12 +2172,12 @@
     "audit": [
       {
         "id": "<uuid:6>",
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "actor_kind": "user",
         "actor_user_id": "<uuid:5>",
         "session_id": "<uuid:7>",
         "workspace_id": "<uuid:2>",
-        "request_id": "req-6",
+        "request_id": "<request>",
         "action": "agent-run.start",
         "target_type": "agent-run",
         "target_id": "<uuid:1>",
@@ -1962,7 +2191,7 @@
       {
         "id": "<uuid:8>",
         "schema_version": 1,
-        "occurred_at": "<time>",
+        "occurred_at": "<t0+0ms>",
         "workspace_id": "<uuid:2>",
         "actor_user_id": "<uuid:5>",
         "project_id": "project-1",
@@ -1972,6 +2201,13 @@
         "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:3>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"implement\"}"
       }
     ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
     "request": {
       "deniedReads": [
         "<data>/state",
@@ -2016,6 +2252,158 @@
       "sessionName": "CraftingTable AQ-01 implement"
     }
   },
+  "output repair": {
+    "brief": "052e5efd776752ad8becf4bc3aada1a0339e26bc6ced5144f084c5f441d28b17",
+    "prompt": "dcb9d2d6a195ec0f8c460686a07635a05d6bd602ef538f1f857bc69ab3f19fe6",
+    "files": {
+      "brief.md": "052e5efd776752ad8becf4bc3aada1a0339e26bc6ced5144f084c5f441d28b17 600",
+      "handoff/": "directory 700",
+      "handoff/0000-conversation.md": "0fc973183cba364000c304009da9b956c799a858da98faf608e6aaf7cdbf1711 600",
+      "handoff/0000-final.md": "9227c4f1c0c7144fabbf99122b38820906a5d94d65ca90642ca9210d882cbae1 600",
+      "handoff/manifest.json": "77b2524ef2ed0a0802114ab2e5e6476fd02438652b5eb64d62e2a773fb6a3130 600",
+      "plan/": "directory 700",
+      "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
+      "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
+      "scratch/": "directory 700"
+    },
+    "run": {
+      "profileSelection": {
+        "purpose": "design"
+      },
+      "id": "<uuid:1>",
+      "workspaceId": "<uuid:3>",
+      "worktreeId": "<uuid:4>",
+      "repositoryId": "<uuid:5>",
+      "projectId": "project-1",
+      "workItemId": "item-1",
+      "parentRunId": "<uuid:2>",
+      "backend": "claude-code",
+      "role": "design",
+      "status": "starting",
+      "permissionMode": "auto",
+      "model": "design-model",
+      "createdAt": "<t0+0ms>",
+      "createdByUserId": "<uuid:6>",
+      "turnCount": 0,
+      "version": 1
+    },
+    "evidence": null,
+    "audit": [
+      {
+        "id": "<uuid:7>",
+        "occurred_at": "<t0+0ms>",
+        "actor_kind": "system",
+        "actor_user_id": "<uuid:6>",
+        "session_id": null,
+        "workspace_id": "<uuid:3>",
+        "request_id": null,
+        "action": "agent-run.start",
+        "target_type": "agent-run",
+        "target_id": "<uuid:1>",
+        "outcome": "succeeded",
+        "prior_version": null,
+        "resulting_version": null,
+        "metadata_json": "{\"workItemId\":\"item-1\",\"worktreeId\":\"<uuid:4>\",\"role\":\"design\",\"permissionMode\":\"auto\",\"backend\":\"claude-code\"}"
+      }
+    ],
+    "event": [
+      {
+        "id": "<uuid:8>",
+        "schema_version": 1,
+        "occurred_at": "<t0+0ms>",
+        "workspace_id": "<uuid:3>",
+        "actor_user_id": "<uuid:6>",
+        "project_id": "project-1",
+        "work_item_id": "item-1",
+        "run_id": "<uuid:1>",
+        "kind": "agent-run-started",
+        "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:4>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"design\"}"
+      }
+    ],
+    "directory": [
+      {
+        "run_id": "<uuid:1>",
+        "path": "<data>/runs/<uuid:1>"
+      }
+    ],
+    "reservations": [],
+    "request": {
+      "deniedReads": [
+        "<data>/state",
+        "<data>/backups",
+        "<data>/config"
+      ],
+      "outsideSources": [
+        {
+          "kind": "cargo",
+          "hosts": [
+            "index.crates.io",
+            "static.crates.io"
+          ],
+          "caches": [
+            "<data>/cargo-home/registry",
+            "<data>/cargo-home/git"
+          ]
+        }
+      ],
+      "cwd": "<worktree>",
+      "gitDirectories": {
+        "gitDirectory": "<repository>/.git/worktrees/aq-01-<branch-suffix:1>",
+        "gitCommonDirectory": "<repository>/.git",
+        "worktreeConfig": false
+      },
+      "temporaryDirectory": "<data>/runs/<uuid:1>/scratch",
+      "processTemporaryDirectory": "<data>/t/<process>",
+      "buildCacheDirectory": "<data>/runs/worktree-caches/<uuid:4>",
+      "environment": {
+        "TMPDIR": "<data>/runs/<uuid:1>/scratch",
+        "TMP": "<data>/runs/<uuid:1>/scratch",
+        "TEMP": "<data>/runs/<uuid:1>/scratch",
+        "CARGO_TARGET_DIR": "<data>/runs/worktree-caches/<uuid:4>",
+        "CARGO_HOME": "<data>/cargo-home",
+        "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
+      },
+      "deadlineAt": "<t0+7200000ms>",
+      "resumeSessionId": "scripted-session",
+      "permissionMode": "auto",
+      "model": "design-model",
+      "additionalDirectories": [
+        "<data>/runs/<uuid:1>",
+        "<data>/runs/<uuid:2>",
+        "<data>/runs/worktree-caches/<uuid:4>"
+      ],
+      "sessionName": "CraftingTable AQ-01 design"
+    }
+  },
+  "refused: check service and policy": {
+    "refusal": {
+      "status": 503,
+      "body": {
+        "error": {
+          "code": "unavailable",
+          "message": "CraftingTable's check service is not running, so this repository's adopted checks cannot run."
+        }
+      }
+    },
+    "leftovers": {
+      "runDirectories": {
+        "<uuid:1>": {
+          "checks/": "directory 700",
+          "checks/bin/": "directory 700",
+          "checks/bin/ct-check": "b46aeee586fe40db7b868b4b1d6edb37b7433ecc9760dc45c556b1604785ad4e 500",
+          "checks/manifest.json": "5ad0e2c615d49be23c1fc8fa4f4d2ee641e4f1dcf6f0dcbd3ff48fcf2c073a95 400",
+          "checks/requests/": "directory 700",
+          "scratch/": "directory 700"
+        }
+      },
+      "checkLogs": {
+        "<uuid:1>": {
+          "replies/": "directory 700"
+        }
+      },
+      "processDirectories": 1
+    }
+  },
   "refused: design recovery inputs and policy": {
     "cycle": {
       "status": "needs-attention",
@@ -2036,6 +2424,84 @@
       "processDirectories": 1
     }
   },
+  "refused: drain after the preflight": {
+    "refusal": {
+      "status": 503,
+      "body": {
+        "error": {
+          "code": "unavailable",
+          "message": "CraftingTable is draining for a restart and is not starting new agent runs. Try again after it restarts."
+        }
+      }
+    },
+    "leftovers": {
+      "runDirectories": {},
+      "checkLogs": {},
+      "processDirectories": 0
+    }
+  },
+  "refused: drain at the record with adopted checks, then the relaunch fails": {
+    "refused": {
+      "cycle": {
+        "status": "running",
+        "attention": null,
+        "reason": "Starting design. Automation pauses at unresolved design questions or merge approval."
+      },
+      "leftovers": {
+        "runDirectories": {
+          "<uuid:1>": {
+            "brief.md": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98 600",
+            "checks/": "directory 700",
+            "checks/bin/": "directory 700",
+            "checks/bin/ct-check": "b46aeee586fe40db7b868b4b1d6edb37b7433ecc9760dc45c556b1604785ad4e 500",
+            "checks/manifest.json": "5ad0e2c615d49be23c1fc8fa4f4d2ee641e4f1dcf6f0dcbd3ff48fcf2c073a95 400",
+            "checks/requests/": "directory 700",
+            "plan/": "directory 700",
+            "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
+            "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
+            "scratch/": "directory 700"
+          }
+        },
+        "checkLogs": {
+          "<uuid:1>": {
+            "replies/": "directory 700"
+          }
+        },
+        "processDirectories": 1
+      }
+    },
+    "relaunch": {
+      "sameRun": true,
+      "status": "needs-attention",
+      "attention": {
+        "code": "controller-error",
+        "owner": "operator"
+      },
+      "reason": "Controller could not advance this step. Inspect the run before resuming."
+    },
+    "afterRelaunch": {
+      "runDirectories": {
+        "<uuid:1>": {
+          "brief.md": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98 600",
+          "checks/": "directory 700",
+          "checks/bin/": "directory 700",
+          "checks/bin/ct-check": "b46aeee586fe40db7b868b4b1d6edb37b7433ecc9760dc45c556b1604785ad4e 500",
+          "checks/manifest.json": "5ad0e2c615d49be23c1fc8fa4f4d2ee641e4f1dcf6f0dcbd3ff48fcf2c073a95 400",
+          "checks/requests/": "directory 700",
+          "plan/": "directory 700",
+          "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
+          "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
+          "scratch/": "directory 700"
+        }
+      },
+      "checkLogs": {
+        "<uuid:1>": {
+          "replies/": "directory 700"
+        }
+      },
+      "processDirectories": 1
+    }
+  },
   "refused: drain at the record, then relaunched": {
     "refused": {
       "cycle": {
@@ -2049,7 +2515,7 @@
             "brief.md": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98 600",
             "plan/": "directory 700",
             "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-            "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+            "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
             "scratch/": "directory 700"
           }
         },
@@ -2064,7 +2530,7 @@
         "brief.md": "79af65d59d8853aaa6454974f3ecf74dd4d426bdcb5a3b5bf0ef93e32308bb98 600",
         "plan/": "directory 700",
         "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
-        "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
+        "plan/craftingtable-repository-policy.json": "58f752bfee53bf6dfe2b7982b868b17d4af46866d86ac2aedd194ff9efb8679b 600",
         "scratch/": "directory 700"
       },
       "run": {
@@ -2082,7 +2548,7 @@
         "status": "starting",
         "permissionMode": "auto",
         "model": "design-model",
-        "createdAt": "<time>",
+        "createdAt": "<t0+0ms>",
         "createdByUserId": "<uuid:5>",
         "turnCount": 0,
         "version": 1
@@ -2091,7 +2557,7 @@
       "audit": [
         {
           "id": "<uuid:6>",
-          "occurred_at": "<time>",
+          "occurred_at": "<t0+0ms>",
           "actor_kind": "system",
           "actor_user_id": "<uuid:5>",
           "session_id": null,
@@ -2110,7 +2576,7 @@
         {
           "id": "<uuid:7>",
           "schema_version": 1,
-          "occurred_at": "<time>",
+          "occurred_at": "<t0+0ms>",
           "workspace_id": "<uuid:2>",
           "actor_user_id": "<uuid:5>",
           "project_id": "project-1",
@@ -2120,6 +2586,13 @@
           "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:3>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"design\"}"
         }
       ],
+      "directory": [
+        {
+          "run_id": "<uuid:1>",
+          "path": "<data>/runs/<uuid:1>"
+        }
+      ],
+      "reservations": [],
       "request": {
         "deniedReads": [
           "<data>/state",
@@ -2156,7 +2629,7 @@
           "CARGO_HOME": "<data>/cargo-home",
           "CRAFTINGTABLE_RUN_ID": "<uuid:1>"
         },
-        "deadlineAt": "<time>",
+        "deadlineAt": "<t0+7200000ms>",
         "permissionMode": "auto",
         "model": "design-model",
         "additionalDirectories": [
@@ -2165,6 +2638,11 @@
         ],
         "sessionName": "CraftingTable AQ-01 design"
       }
+    },
+    "afterRelaunch": {
+      "runDirectories": {},
+      "checkLogs": {},
+      "processDirectories": 1
     }
   },
   "refused: phase gate in a cycle launch, then relaunched": {
@@ -2270,6 +2748,19 @@
           "payload_json": "{\"runId\":\"<uuid:1>\",\"worktreeId\":\"<uuid:4>\",\"workItemId\":\"item-1\",\"backend\":\"claude-code\",\"role\":\"design\"}"
         }
       ],
+      "directory": [
+        {
+          "run_id": "<uuid:1>",
+          "path": "<data>/runs/<uuid:1>"
+        }
+      ],
+      "reservations": [
+        {
+          "phase": "start",
+          "resource_key": "local-development",
+          "capacity": 1
+        }
+      ],
       "request": {
         "deniedReads": [
           "<data>/state",
@@ -2315,6 +2806,11 @@
         ],
         "sessionName": "CraftingTable AQ-01 design"
       }
+    },
+    "afterRelaunch": {
+      "runDirectories": {},
+      "checkLogs": {},
+      "processDirectories": 1
     }
   },
   "refused: phase gate in the record": {
@@ -2330,16 +2826,16 @@
     "leftovers": {
       "runDirectories": {
         "<uuid:1>": {
-          "brief.md": "44eb4ce77e7a0cf122f1905098703acc08902f4b979d01e8d3a00584e147ccc9 600",
+          "brief.md": "0717e725a76c85e5b428c51fb7185a90139a122a4ce367cb6629a8408b900e0e 600",
           "plan/": "directory 700",
           "plan/craftingtable-operator-decisions.json": "612611ab18b35d39769bcc0faa053cd3e7d4a6cb9488ab68a098c21b3c3c1ace 600",
           "plan/craftingtable-repository-policy.json": "62b000d5086030a64d5c63808bd9359650ac040f2d4880c2116fefbb071d5e48 600",
-          "plan/craftingtable-scope-evidence.json": "5cae69f60d08813793d39ce012a37f722ed4fba144978634733e28d7bb74dc61 600",
+          "plan/craftingtable-scope-evidence.json": "1c3825020d97a858d88cb8af8fceabf5e4ae0ac5c7db751bb73f8e7f9b1c66fe 600",
           "scratch/": "directory 700"
         }
       },
       "checkLogs": {},
-      "processDirectories": 2
+      "processDirectories": 1
     }
   },
   "refused: repository policy": {

@@ -71,7 +71,7 @@ export function cycleLaunchInput(
       role: cycle.step === 'remediate' ? 'implement' : cycle.step,
       ...(cycle.parentRunId === undefined ? {} : { parentRunId: cycle.parentRunId }),
       instructions: cycle.instructions,
-      stepGuidance: [cycle.stepGuidance, recovery?.instructions, resolution?.instructions]
+      stepGuidance: [cycle.attempt?.stepGuidance, recovery?.instructions, resolution?.instructions]
         .filter(Boolean)
         .join('\n\n'),
       output: {
@@ -92,8 +92,8 @@ export function cycleLaunchInput(
         : {}),
       controllerInstructions: [
         workflow?.rules ?? '',
-        cycle.providerRecovery
-          ? `This is service retry ${cycle.providerRecovery.attempts} of 3 for the SAME step after a model-service failure, in a fresh session with the configured retry backend/model. Read the prior handoff and partial scratch records; preserve completed work and unresolved findings. Inspect the current worktree and evidence before continuing. Do not assume an interrupted check passed, repeat completed side effects blindly, or treat a draft report as accepted. Complete every required check and the final report. Report genuine decisions in ## Open questions; never decide them for the operator. If the previous attempt stopped with questions the service failure caused, do not repeat them; ask again any that remain. The step deadline still applies; it moved only by time spent waiting for a usage-limit reset or for the provider to accept credentials.`
+        cycle.attempt?.providerRecovery
+          ? `This is service retry ${cycle.attempt?.providerRecovery.attempts} of 3 for the SAME step after a model-service failure, in a fresh session with the configured retry backend/model. Read the prior handoff and partial scratch records; preserve completed work and unresolved findings. Inspect the current worktree and evidence before continuing. Do not assume an interrupted check passed, repeat completed side effects blindly, or treat a draft report as accepted. Complete every required check and the final report. Report genuine decisions in ## Open questions; never decide them for the operator. If the previous attempt stopped with questions the service failure caused, do not repeat them; ask again any that remain. The step deadline still applies; it moved only by time spent waiting for a usage-limit reset or for the provider to accept credentials.`
           : '',
         cycle.scopeRepair ? STEP_RULES.scopeRepair : '',
         ...(recovery
@@ -110,7 +110,7 @@ export function cycleLaunchInput(
           ? `Operator-designated independent reviewer responsibilities: ${scopeReviewerRoles(storage, cycle.workspaceId, cycle.executionScope).join(', ') || 'standard independent review'}. Supply evidence for every applicable responsibility; if you cannot perform a required review, report an open question rather than claiming it passed.`
           : '',
         finalization ? finalizationInstructions(finalization, cycle) : '',
-        resolution ? '' : (cycle.housekeepingInstructions ?? ''),
+        resolution ? '' : (cycle.attempt?.housekeepingInstructions ?? ''),
         ...(resolution
           ? [
               'This is a daemon-owned integration conflict resolution. Do not start, abort, or commit a merge; do not commit source edits. Resolve files and explicitly stage all intended changes. The daemon completes the merge.',
@@ -120,8 +120,8 @@ export function cycleLaunchInput(
               'Read the supplied plan and both sides of the incoming commits. Preserve both work items’ intended behavior, including automatically merged files. Use the supplied scratch directory, run the repository checks on the combined state, and report commands, outcomes and any semantic decisions. Remove only your confirmed generated files; leave no untracked files. Preserve existing finding IDs in the handoff.',
             ]
           : []),
-        (cycle.resultContinuations ?? 0) > 0
-          ? `This is completion recovery attempt ${cycle.resultContinuations} of 2 for the SAME step. The previous agent exited while awaiting background work; its result is incomplete. CraftingTable waited for its owned process group to finish before this launch. Read the previous run handoff and its scratch verification records; do not assume any check passed. Reuse recorded passing checks only when their source commit, destination commit where relevant, inputs, and complete logs still match. Inspect and address failures; finish missing verification and reporting without restarting the whole polish pass or adding unrelated improvements. Keep every unresolved finding and operator question. If a decision is needed, report it in ## Open questions and stop rather than deciding for the operator. Do not detach commands with nohup, disown, or a new session. Await background work and produce the final outcome before ending; the original step time limit still applies.`
+        (cycle.attempt?.resultContinuations ?? 0) > 0
+          ? `This is completion recovery attempt ${cycle.attempt?.resultContinuations} of 2 for the SAME step. The previous agent exited while awaiting background work; its result is incomplete. CraftingTable waited for its owned process group to finish before this launch. Read the previous run handoff and its scratch verification records; do not assume any check passed. Reuse recorded passing checks only when their source commit, destination commit where relevant, inputs, and complete logs still match. Inspect and address failures; finish missing verification and reporting without restarting the whole polish pass or adding unrelated improvements. Keep every unresolved finding and operator question. If a decision is needed, report it in ## Open questions and stop rather than deciding for the operator. Do not detach commands with nohup, disown, or a new session. Await background work and produce the final outcome before ending; the original step time limit still applies.`
           : '',
         STEP_RULES.detach,
         STEP_RULES.automated,

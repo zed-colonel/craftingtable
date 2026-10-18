@@ -276,7 +276,9 @@ export function cycleLaunchAgent(
     ...(finalization ? { finalization: finalizationLayer(finalization, cycle) } : {}),
     ...(resolution?.profile ? { integrationResolution: resolution.profile } : {}),
     ...cycleLayers(tx, cycle),
-    ...(cycle.providerRecovery ? { serviceRetry: cycle.providerRecovery.profile } : {}),
+    ...(cycle.attempt?.providerRecovery
+      ? { serviceRetry: cycle.attempt?.providerRecovery.profile }
+      : {}),
   });
 }
 

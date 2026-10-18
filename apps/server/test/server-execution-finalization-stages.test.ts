@@ -11,6 +11,7 @@ import {
   evaluateCycleCompletion,
   FINALIZATION_STAGE_KINDS,
   type Finalization,
+  heldStop,
 } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -991,19 +992,19 @@ describe('staged finalization', () => {
       expect(backend.launches.some((r) => r.model?.endsWith('-implement'))).toBe(false);
       if (variant === 'nit, final review withholding') {
         // The final review's verdict keeps its full force: promotion would need it.
-        expect(cycle.attention?.code).toBe('remediation-exhausted');
+        expect(heldStop(cycle)?.code).toBe('remediation-exhausted');
         expect(cycle.finalizationProgress?.stageIndex).toBe(4);
         expect(cycle.finalizationProgress?.followUps.map((f) => f.id)).toEqual(['C-1']);
         return;
       }
       if (severity === 'minor') {
         // A minor is required work: the spent allowance stops for the operator (ADR-042).
-        expect(cycle.attention?.code).toBe('remediation-exhausted');
+        expect(heldStop(cycle)?.code).toBe('remediation-exhausted');
         expect(cycle.finalizationProgress?.stageIndex).toBe(0);
         expect(cycle.finalizationProgress?.followUps).toEqual([]);
         return;
       }
-      expect(cycle.attention?.code).toBe('final-promotion');
+      expect(heldStop(cycle)?.code).toBe('final-promotion');
       expect(cycle.finalizationProgress?.followUps.map((f) => f.id)).toEqual(['C-1']);
       // Every stage ran its review, the final one with its full checks.
       expect(backend.launches.map((r) => r.model)).toEqual(
@@ -1090,7 +1091,7 @@ describe('staged finalization', () => {
           ...(blocker === 'selected finding' && !decided ? { questions: 'Fix this nit now?' } : {}),
         }));
         if (blocker === 'selected finding') {
-          expect(f.cycle().attention?.code).toBe('finalization-needs-input');
+          expect(heldStop(f.cycle())?.code).toBe('finalization-needs-input');
           decided = true;
           const response = await finalizationCommand(f.state, f.value, 'remediate-findings', {
             findingIds: ['C-1'],
@@ -1100,7 +1101,7 @@ describe('staged finalization', () => {
           expect(response.statusCode, response.body).toBe(200);
           await waitFor(() => f.cycle().status === 'needs-attention', 'stop after the attempt');
         }
-        expect(f.cycle().attention?.code).toBe('remediation-exhausted');
+        expect(heldStop(f.cycle())?.code).toBe('remediation-exhausted');
         expect(f.cycle().finalizationProgress?.stageIndex).toBe(0);
         expect(f.cycle().finalizationProgress?.followUps).toEqual([]);
       },
@@ -1120,7 +1121,7 @@ describe('staged finalization', () => {
                 ? { findings: [nit], met: false }
                 : { findings: [nit, idea], met: false },
         );
-        expect(f.cycle().attention?.code).toBe('remediation-exhausted');
+        expect(heldStop(f.cycle())?.code).toBe('remediation-exhausted');
         expect(f.cycle().finalizationProgress?.stageIndex).toBe(
           open === 'a parked nit and an optional idea' ? 1 : 0,
         );
@@ -1143,14 +1144,14 @@ describe('staged finalization', () => {
             ? { findings: [nit, idea] }
             : { findings: [nit] },
       );
-      expect(f.cycle().attention?.code).toBe('stage-batch-selection');
+      expect(heldStop(f.cycle())?.code).toBe('stage-batch-selection');
       const selected = await finalizationCommand(f.state, f.value, 'select-stage-findings', {
         selectedFindingIds: [],
         rationale: 'Keep it as follow-up work.',
       });
       expect(selected.statusCode, selected.body).toBe(200);
       await f.stopped();
-      expect(f.cycle().attention?.code).toBe('final-promotion');
+      expect(heldStop(f.cycle())?.code).toBe('final-promotion');
       expect(
         f
           .cycle()
@@ -1175,7 +1176,7 @@ describe('staged finalization', () => {
                 met: later === 'resolved',
               },
         );
-        expect(f.cycle().attention?.code).toBe(
+        expect(heldStop(f.cycle())?.code).toBe(
           later === 'resolved' ? 'final-promotion' : 'remediation-exhausted',
         );
         expect(f.cycle().finalizationProgress?.followUps).toEqual([]);
@@ -1203,7 +1204,7 @@ describe('staged finalization', () => {
           : { findings: [nit], met: kind !== 'correctness' };
       });
       // The final review's minor reopened correctness at its spent allowance.
-      expect(f.cycle().attention?.code).toBe('remediation-exhausted');
+      expect(heldStop(f.cycle())?.code).toBe('remediation-exhausted');
       expect(f.cycle().finalizationProgress?.stageIndex).toBe(0);
       expect(f.cycle().finalizationProgress?.followUps.map((x) => x.id)).toEqual(['C-1']);
       const listed = await f.state.context.app.inject({
@@ -1233,7 +1234,7 @@ describe('staged finalization', () => {
       // Un-parked by the decision itself, not only while it is the focus.
       expect(f.cycle().finalizationProgress?.followUps).toEqual([]);
       await f.stopped();
-      expect(f.cycle().attention?.code).toBe('final-promotion');
+      expect(heldStop(f.cycle())?.code).toBe('final-promotion');
       expect(f.cycle().finalizationProgress?.followUps).toEqual([]);
     });
   });
@@ -1284,7 +1285,7 @@ describe('staged finalization', () => {
       'promotion',
     );
     const cycle = finalizationCycle(state, value);
-    expect(cycle.attention?.code).toBe('final-promotion');
+    expect(heldStop(cycle)?.code).toBe('final-promotion');
     expect(cycle.finalizationProgress?.followUps.map((f) => f.id).sort()).toEqual(['P-1', 'S-1']);
     expect(cycle.finalizationProgress?.decisions).toEqual([]);
     // Each discovery reviewed once: nothing was selected, so nothing was verified again.

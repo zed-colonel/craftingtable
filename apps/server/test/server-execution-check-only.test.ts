@@ -16,6 +16,7 @@ import {
   asDeclaredCheckId,
   asRepositoryCheckDeclarationId,
   asRoadmapId,
+  heldStop,
 } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import { DeclaredChecksMissingError } from '../src/services/errors.js';
@@ -178,7 +179,7 @@ it("a whole-item roadmap cycle's review gets a check-only manifest, and the daem
     const cycle =
       attempt && state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId);
     if (cycle?.status === 'needs-attention')
-      throw new Error(`${cycle.attention?.code}: ${cycle.reason}`);
+      throw new Error(`${heldStop(cycle)?.code}: ${cycle.reason}`);
     return cycle?.status === 'awaiting-merge';
   }, 'the roadmap cycle awaits its merge');
   const attempt = storedRoadmap(state).attempts[0]!;
@@ -203,7 +204,7 @@ it('a roadmap cycle in a repository without adopted checks stops as repository-c
   }, 'the roadmap cycle stops');
   const attempt = storedRoadmap(state).attempts[0]!;
   const cycle = state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId)!;
-  expect(cycle.attention).toMatchObject({
+  expect(heldStop(cycle)).toMatchObject({
     code: 'repository-checks-undeclared',
     refs: { repositoryId: repository.id },
   });
@@ -451,7 +452,7 @@ it('a manual cycle in a repository without adopted checks keeps the earlier rule
   await waitFor(() => {
     const current = currentCycle(state, cycle);
     if (current.status === 'needs-attention')
-      throw new Error(`${current.attention?.code}: ${current.reason}`);
+      throw new Error(`${heldStop(current)?.code}: ${current.reason}`);
     return current.status === 'awaiting-merge';
   }, 'the manual cycle awaits its merge');
   expect(
@@ -558,7 +559,7 @@ it('a check-only review whose work changed an adopted definition stops as check-
   // Repositories page.
   expect(currentCycle(state, cycle)).toMatchObject({
     status: 'needs-attention',
-    attention: { code: 'check-definition-changed', refs: { repositoryId: repository.id } },
+    stop: { code: 'check-definition-changed', refs: { repositoryId: repository.id } },
   });
 });
 
@@ -703,7 +704,7 @@ it("a roadmap cycle awaiting the operator's merge with a review prepared before 
     await waitFor(() => {
       const cycle = storage.execution.cycles.find(state.workspaceId, first.id)!;
       if (cycle.status === 'needs-attention')
-        throw new Error(`${cycle.attention?.code}: ${cycle.reason}`);
+        throw new Error(`${heldStop(cycle)?.code}: ${cycle.reason}`);
       return cycle.status === 'awaiting-merge' && cycle.currentRunId !== first.currentRunId;
     }, 'a fresh review awaits the merge');
     const fresh = storage.execution.cycles.find(state.workspaceId, first.id)!;

@@ -605,7 +605,7 @@ it('phase resource waits resume cycles automatically without consuming the execu
   const started = await launchScoped(f, a);
   const run = startAgentRunResponseSchema.parse(started.json()).run;
   const cycle = await startCycle(state, b.id);
-  await waitFor(() => !!currentCycle(state, cycle).phaseWait, 'queued for resources');
+  await waitFor(() => !!currentCycle(state, cycle).waits?.phase, 'queued for resources');
   expect(currentCycle(state, cycle).status).toBe('running');
   expect(
     state.context.storage.execution.runs.find(state.workspaceId, cycle.currentRunId),
@@ -624,7 +624,8 @@ it('phase resource waits resume cycles automatically without consuming the execu
   expect(Date.parse(currentCycle(state, cycle).runDeadlineAt)).toBeGreaterThan(
     Date.parse(deadline),
   );
-  expect(currentCycle(state, cycle).phaseWait).toBeNull();
+  // A cleared wait is absent (R-B4b; it was written `null`).
+  expect(currentCycle(state, cycle).waits?.phase).toBeUndefined();
 });
 it('phase merge dependencies let an independent sibling integrate first and then refresh the waiting review', async () => {
   const f = await slicedFixture(
@@ -814,7 +815,7 @@ it('phase started milestones require a launched run, not a cycle queued for reso
     ),
   );
   const cycle = await startCycle(state, a.id);
-  await waitFor(() => !!currentCycle(state, cycle).phaseWait, 'queued start');
+  await waitFor(() => !!currentCycle(state, cycle).waits?.phase, 'queued start');
   await expect(scopeTree(f, f.scopes[1]!)).rejects.toThrow('must be started');
   state.context.storage.transaction((tx) =>
     tx.phaseScheduling.release('operation:held', new Date().toISOString(), 'test-finished'),

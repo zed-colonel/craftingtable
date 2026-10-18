@@ -7,6 +7,7 @@ import type {
 
 /** A proposal as the daemon receives it. */
 type Proposal = RequestInput<typeof proposeArchitectureDecisionSchema>;
+
 import { runtimeAddress } from '../../lib/runtime-evidence-api.js';
 import { proposeDecision } from './architecture-api.js';
 

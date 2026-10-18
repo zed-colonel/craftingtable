@@ -11,6 +11,7 @@ import {
   DEFAULT_COMPLETION_POLICY,
   FINALIZATION_STAGE_KINDS,
   type WorkCycle,
+  heldStop,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExecutionRequestError } from '../src/services/errors.js';
@@ -80,7 +81,7 @@ describe('background-work completion recovery', () => {
     expect(backend.launches[2]?.prompt).toContain('completion recovery attempt 1 of 2');
     expect(backend.launches[2]?.prompt).toContain('Keep the agreed scope.');
     expect(currentCycle(state, cycle)).toMatchObject({
-      resultContinuations: 0,
+      attempt: { resultContinuations: 0 },
       remediationRounds: 0,
     });
     const runs = [
@@ -108,14 +109,14 @@ describe('background-work completion recovery', () => {
     expect(backend.launches).toHaveLength(3);
     expect(new Set(backend.launches.map((r) => r.deadlineAt)).size).toBe(1);
     expect(currentCycle(state, cycle)).toMatchObject({
-      resultContinuations: 2,
+      attempt: { resultContinuations: 2 },
       remediationRounds: 0,
     });
     expect(currentCycle(state, cycle).reason).toContain('exhausted its two continuation');
     const reopened = openDaemonStorage(state.context.storage.databasePath);
     try {
       expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)).toMatchObject({
-        resultContinuations: 2,
+        attempt: { resultContinuations: 2 },
         runDeadlineAt: cycle.runDeadlineAt,
       });
     } finally {
@@ -151,7 +152,7 @@ describe('background-work completion recovery', () => {
       // fault, which gets the separate automatic format repair first (R-C2).
       expect(backend.repairs).toBe(reply.exitReason === undefined ? 2 : 0);
       expect(backend.launches).toHaveLength(1 + backend.repairs);
-      expect(currentCycle(state, cycle).resultContinuations ?? 0).toBe(0);
+      expect(currentCycle(state, cycle).attempt?.resultContinuations ?? 0).toBe(0);
     },
   );
 
@@ -168,7 +169,7 @@ describe('background-work completion recovery', () => {
     );
     expect(backend.launches).toHaveLength(2);
     expect(currentCycle(state, cycle).reason).toContain('Step time limit');
-    expect(currentCycle(state, cycle).resultContinuations).toBe(1);
+    expect(currentCycle(state, cycle).attempt?.resultContinuations).toBe(1);
   });
 
   it('continues an interrupted stage remediation and still requires every stage review, with no automatic promotion', async () => {
@@ -238,7 +239,7 @@ describe('collecting background review results', () => {
     await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'collected result');
     expect(session.endCount).toBe(1);
     expect(backend.launches).toHaveLength(3);
-    expect(currentCycle(state, cycle).resultContinuations ?? 0).toBe(0);
+    expect(currentCycle(state, cycle).attempt?.resultContinuations ?? 0).toBe(0);
   });
 
   it('still cancels pending background work at the original step deadline', async () => {
@@ -301,7 +302,7 @@ describe('collecting background review results', () => {
     expect(backend.launches[3]?.deadlineAt).toBe(backend.launches[2]?.deadlineAt);
     expect(currentCycle(state, cycle)).toMatchObject({
       remediationRounds: 0,
-      resultContinuations: 1,
+      attempt: { resultContinuations: 1 },
     });
     const runs = state.context.storage.execution.runs.listForWorktree(
       state.workspaceId,
@@ -371,7 +372,7 @@ describe('collecting background review results', () => {
         'changed review baseline',
       );
       expect(backend.launches).toHaveLength(3);
-      expect(currentCycle(state, cycle).resultContinuations ?? 0).toBe(0);
+      expect(currentCycle(state, cycle).attempt?.resultContinuations ?? 0).toBe(0);
       expect(currentCycle(state, cycle).reason).toMatch(
         /Review continuation requires|review baseline changed/,
       );
@@ -404,7 +405,7 @@ describe('collecting background review results', () => {
         () => currentCycle(state, cycle).status === 'needs-attention',
         'refused continuation capture',
       );
-      expect(currentCycle(state, cycle).attention?.code).toBe('review-capture-failed');
+      expect(heldStop(currentCycle(state, cycle))?.code).toBe('review-capture-failed');
       expect(currentCycle(state, cycle).reason).toContain('Simulated refused capture.');
       expect(backend.launches).toHaveLength(3);
     },
@@ -420,7 +421,7 @@ describe('collecting background review results', () => {
     ]);
     const cycle = await startCycle(state, worktree.id);
     await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'reviewed');
-    const { attention: _attention, ...reviewed } = currentCycle(state, cycle);
+    const { stop: _attention, ...reviewed } = currentCycle(state, cycle);
     // A continuation reserved after the review had finished: it has nothing to continue.
     const running = state.context.storage.execution.cycles.replace(
       {
@@ -430,7 +431,7 @@ describe('collecting background review results', () => {
         version: reviewed.version + 1,
         currentRunId: asAgentRunId('cccccccc-cccc-4ccc-cccc-cccccccccccc'),
         parentRunId: reviewed.currentRunId,
-        resultContinuations: 1,
+        attempt: { ...reviewed.attempt, resultContinuations: 1 },
         reason: 'Continuing the review.',
         runDeadlineAt: new Date(Date.now() + 3_600_000).toISOString(),
       },
@@ -489,7 +490,7 @@ describe('collecting background review results', () => {
               version: current.version + 1,
               currentRunId: asAgentRunId('bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb'),
               parentRunId: current.currentRunId,
-              resultContinuations: 1,
+              attempt: { ...current.attempt, resultContinuations: 1 },
             },
             current.version,
           ),
@@ -548,19 +549,22 @@ describe('bounded model service recovery', () => {
       () => now,
     );
     const cycle = await startCycle(state, worktree.id, { instructions: 'Keep the scope.' });
-    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'backoff');
+    await waitFor(
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
+      'backoff',
+    );
     const waiting = currentCycle(state, cycle);
     expect(waiting.status).toBe('running');
-    expect(waiting.providerRecovery).toMatchObject({
+    expect(waiting.attempt?.providerRecovery).toMatchObject({
       attempts: 0,
       nextRetryAt: '2026-09-22T12:01:00.000Z',
     });
     expect(backend.launches).toHaveLength(2);
     const reopened = openDaemonStorage(state.context.storage.databasePath);
     try {
-      expect(reopened.execution.cycles.find(state.workspaceId, cycle.id)?.providerRecovery).toEqual(
-        waiting.providerRecovery,
-      );
+      expect(
+        reopened.execution.cycles.find(state.workspaceId, cycle.id)?.attempt?.providerRecovery,
+      ).toEqual(waiting.attempt?.providerRecovery);
     } finally {
       reopened.close();
     }
@@ -589,7 +593,7 @@ describe('bounded model service recovery', () => {
     expect(backend.launches[2]?.prompt).toContain('Keep the scope.');
     expect(currentCycle(state, cycle)).toMatchObject({
       remediationRounds: 0,
-      providerRecovery: null,
+      attempt: { providerRecovery: null },
     });
     const runs = [
       ...state.context.storage.execution.runs.listForWorktree(state.workspaceId, worktree.id),
@@ -607,11 +611,11 @@ describe('bounded model service recovery', () => {
     for (const [attempt, minutes] of [1, 5, 15].entries()) {
       await waitFor(
         () =>
-          currentCycle(state, cycle).providerRecovery?.attempts === attempt &&
-          !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+          currentCycle(state, cycle).attempt?.providerRecovery?.attempts === attempt &&
+          !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
         'retry backoff',
       );
-      const recovery = currentCycle(state, cycle).providerRecovery!;
+      const recovery = currentCycle(state, cycle).attempt!.providerRecovery!;
       expect(Date.parse(recovery.nextRetryAt!) - now.getTime()).toBe(minutes * 60_000);
       now = new Date(recovery.nextRetryAt!);
     }
@@ -623,7 +627,7 @@ describe('bounded model service recovery', () => {
     expect(new Set(backend.launches.map((r) => r.deadlineAt)).size).toBe(1);
     expect(currentCycle(state, cycle)).toMatchObject({
       remediationRounds: 0,
-      providerRecovery: { attempts: 3 },
+      attempt: { providerRecovery: { attempts: 3 } },
     });
     expect(currentCycle(state, cycle).reason).toContain('three service retries are exhausted');
     expect((await command(state, cycle, 'retry-provider')).statusCode).toBe(409);
@@ -632,7 +636,10 @@ describe('bounded model service recovery', () => {
   it('supports version-checked Retry now and Pause without resetting allowances', async () => {
     const { state, backend, worktree } = await cycleFixture([overloaded, overloaded]);
     const cycle = await startCycle(state, worktree.id);
-    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'backoff');
+    await waitFor(
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
+      'backoff',
+    );
     const version = currentCycle(state, cycle).version;
     expect((await command(state, cycle, 'pause')).statusCode).toBe(200);
     const before = currentCycle(state, cycle);
@@ -647,17 +654,19 @@ describe('bounded model service recovery', () => {
       },
     });
     expect(resumed.statusCode, resumed.body).toBe(200);
-    expect(currentCycle(state, cycle).stepGuidance).toBe('Keep the saved scope.');
+    expect(currentCycle(state, cycle).attempt?.stepGuidance).toBe('Keep the saved scope.');
     expect(currentCycle(state, cycle).runDeadlineAt).toBe(before.runDeadlineAt);
-    expect(currentCycle(state, cycle).providerRecovery).toEqual(before.providerRecovery);
+    expect(currentCycle(state, cycle).attempt?.providerRecovery).toEqual(
+      before.attempt?.providerRecovery,
+    );
     expect((await command(state, cycle, 'pause')).statusCode).toBe(200);
     expect((await command(state, cycle, 'retry-provider', version)).statusCode).toBe(409);
     expect(backend.launches).toHaveLength(1);
     expect((await command(state, cycle, 'retry-provider')).statusCode).toBe(200);
     await waitFor(
       () =>
-        currentCycle(state, cycle).providerRecovery?.attempts === 1 &&
-        !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+        currentCycle(state, cycle).attempt?.providerRecovery?.attempts === 1 &&
+        !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
       'second backoff',
     );
     expect(backend.launches).toHaveLength(2);
@@ -690,7 +699,7 @@ describe('bounded model service recovery', () => {
     const cycle = await startCycle(state, worktree.id);
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'safe hold');
     expect(backend.launches).toHaveLength(1);
-    expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
+    expect(currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt).toBeUndefined();
   });
 
   it('continues a nonretryable service stop with the guidance its stop asks for', async () => {
@@ -710,7 +719,7 @@ describe('bounded model service recovery', () => {
       await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'service stop');
       expect(currentCycle(state, cycle)).toMatchObject({
         step: 'implement',
-        attention: { code: 'service-failure-not-retryable' },
+        stop: { code: 'service-failure-not-retryable' },
       });
       const response = await state.context.app.inject({
         method: 'POST',
@@ -790,10 +799,13 @@ describe('bounded model service recovery', () => {
       { resultText: 'API Error', providerFailure: failure },
     ]);
     const cycle = await startCycle(state, worktree.id);
-    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'backoff');
+    await waitFor(
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
+      'backoff',
+    );
     expect(currentCycle(state, cycle)).toMatchObject({
       status: 'running',
-      providerRecovery: { attempts: 0, failure },
+      attempt: { providerRecovery: { attempts: 0, failure } },
     });
     expect(backend.launches).toHaveLength(1);
   });
@@ -809,7 +821,7 @@ describe('bounded model service recovery', () => {
     const cycle = await startCycle(state, worktree.id);
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'safe hold');
     expect(backend.launches).toHaveLength(1);
-    expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
+    expect(currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt).toBeUndefined();
   });
 
   it('waits for a recorded session limit to reset, then retries the same agent (R-C8)', async () => {
@@ -827,13 +839,18 @@ describe('bounded model service recovery', () => {
     );
     const cycle = await startCycle(state, worktree.id);
     const deadline = Date.parse(currentCycle(state, cycle).runDeadlineAt);
-    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'quota wait');
+    await waitFor(
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
+      'quota wait',
+    );
     const waiting = currentCycle(state, cycle);
     expect(waiting).toMatchObject({
       status: 'running',
-      providerRecovery: { attempts: 0, failure, nextRetryAt: '2026-09-15T14:52:00.000Z' },
+      attempt: {
+        providerRecovery: { attempts: 0, failure, nextRetryAt: '2026-09-15T14:52:00.000Z' },
+      },
     });
-    expect(waiting.attention).toBeUndefined();
+    expect(heldStop(waiting)).toBeUndefined();
     // The wait does not use up the step's own time.
     expect(Date.parse(waiting.runDeadlineAt) - deadline).toBe(172 * 60_000);
     expect(waiting.reason).toContain('resets at 2026-09-15T14:50:00.000Z');
@@ -858,21 +875,23 @@ describe('bounded model service recovery', () => {
     const cycle = await startCycle(state, worktree.id);
     const deadline = Date.parse(currentCycle(state, cycle).runDeadlineAt);
     await waitFor(
-      () => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
       'credential wait',
     );
     const waiting = currentCycle(state, cycle);
     expect(waiting).toMatchObject({
       status: 'running',
-      providerRecovery: { attempts: 0, failure, nextRetryAt: '2026-09-25T22:46:00.000Z' },
+      attempt: {
+        providerRecovery: { attempts: 0, failure, nextRetryAt: '2026-09-25T22:46:00.000Z' },
+      },
     });
-    expect(waiting.attention).toBeUndefined();
+    expect(heldStop(waiting)).toBeUndefined();
     expect(Date.parse(waiting.runDeadlineAt) - deadline).toBe(5 * 60_000);
     expect(waiting.reason).toContain('provider-side outage is suspected');
     expect(waiting.reason).toContain('Evidence: ');
     now = new Date('2026-09-25T22:46:00Z');
     await waitFor(() => backend.launches.length === 3, 'retried design, then implementation');
-    expect(currentCycle(state, cycle).attention).toBeUndefined();
+    expect(heldStop(currentCycle(state, cycle))).toBeUndefined();
   });
 
   it('retries a step that stopped with questions after the provider refused its approval review (R-C11)', async () => {
@@ -892,20 +911,22 @@ describe('bounded model service recovery', () => {
     await waitFor(() => backend.launches.length === 2, 'implementation');
     const before = deadline();
     await waitFor(
-      () => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
       'credential wait',
     );
     const waiting = currentCycle(state, cycle);
     expect(waiting).toMatchObject({
       status: 'running',
       step: 'implement',
-      providerRecovery: {
-        attempts: 0,
-        failure: suspectedOutage,
-        nextRetryAt: '2026-09-25T22:46:00.000Z',
+      attempt: {
+        providerRecovery: {
+          attempts: 0,
+          failure: suspectedOutage,
+          nextRetryAt: '2026-09-25T22:46:00.000Z',
+        },
       },
     });
-    expect(waiting.attention).toBeUndefined();
+    expect(heldStop(waiting)).toBeUndefined();
     expect(deadline() - before).toBe(5 * 60_000);
     // The operator can see which stop the retry set aside.
     expect(waiting.reason).toContain('implementation-open-questions');
@@ -916,7 +937,7 @@ describe('bounded model service recovery', () => {
       'implement-model',
     ]);
     await waitFor(() => currentCycle(state, cycle).step !== 'implement', 'implementation done');
-    expect(currentCycle(state, cycle).attention).toBeUndefined();
+    expect(heldStop(currentCycle(state, cycle))).toBeUndefined();
   });
 
   it('retries a review that stopped with questions after the provider refused its approval review (R-C11)', async () => {
@@ -935,7 +956,7 @@ describe('bounded model service recovery', () => {
     );
     const cycle = await startCycle(state, worktree.id);
     await waitFor(
-      () => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
       'credential wait',
     );
     expect(currentCycle(state, cycle)).toMatchObject({ status: 'running', step: 'review' });
@@ -945,7 +966,7 @@ describe('bounded model service recovery', () => {
     // The retried review was judged on its own report (the recorded one carried findings the
     // scripted retry leaves out), not refused at launch as a missing continuation.
     const c = currentCycle(state, cycle);
-    expect(c.attention?.code).toBe('review-needs-attention');
+    expect(heldStop(c)?.code).toBe('review-needs-attention');
     const turn = state.context.storage.execution.runEvents.latestOfKind(
       state.workspaceId,
       c.currentRunId,
@@ -963,7 +984,7 @@ describe('bounded model service recovery', () => {
     const cycle = await startCycle(state, worktree.id);
     await waitFor(() => backend.launches.length === 2, 'implementation');
     expect(currentCycle(state, cycle)).toMatchObject({ step: 'implement' });
-    expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
+    expect(currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt).toBeUndefined();
   });
 
   it('keeps the operator stop when a refused approval review comes with clipped output (R-C11)', async () => {
@@ -976,10 +997,10 @@ describe('bounded model service recovery', () => {
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'clipped stop');
     expect(backend.launches).toHaveLength(2);
     expect(currentCycle(state, cycle)).toMatchObject({
-      attention: { code: 'step-incomplete' },
+      stop: { code: 'step-incomplete' },
       reason: expect.stringContaining('Evidence: automatic approval review: HTTP 401'),
     });
-    expect(currentCycle(state, cycle).providerRecovery?.nextRetryAt).toBeUndefined();
+    expect(currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt).toBeUndefined();
   });
 
   it('keeps the questions of a failed turn with the operator, even in a credential outage (R-C11)', async () => {
@@ -995,7 +1016,7 @@ describe('bounded model service recovery', () => {
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'question stop');
     expect(backend.launches).toHaveLength(1);
     expect(currentCycle(state, cycle)).toMatchObject({
-      attention: { code: 'provider-credentials-rejected' },
+      stop: { code: 'provider-credentials-rejected' },
       reason: expect.stringContaining('Automatic retry is not safe here'),
     });
   });
@@ -1015,10 +1036,12 @@ describe('bounded model service recovery', () => {
       [3, 30],
     ] as const) {
       await waitFor(
-        () => currentCycle(state, cycle).providerRecovery?.nextRetryAt !== undefined,
+        () => currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt !== undefined,
         `wait ${attempt}`,
       );
-      now = new Date(Date.parse(currentCycle(state, cycle).providerRecovery!.nextRetryAt!));
+      now = new Date(
+        Date.parse(currentCycle(state, cycle).attempt!.providerRecovery!.nextRetryAt!),
+      );
       expect(now.getTime() - Date.parse(currentCycle(state, cycle).updatedAt)).toBeLessThanOrEqual(
         minutes * 60_000,
       );
@@ -1026,7 +1049,7 @@ describe('bounded model service recovery', () => {
     }
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'spent');
     const stopped = currentCycle(state, cycle);
-    expect(stopped.attention).toMatchObject({
+    expect(heldStop(stopped)).toMatchObject({
       code: 'provider-credentials-rejected',
       owner: 'operator',
     });
@@ -1045,7 +1068,7 @@ describe('bounded model service recovery', () => {
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'login stop');
     expect(backend.launches).toHaveLength(1);
     expect(currentCycle(state, cycle)).toMatchObject({
-      attention: { code: 'service-failure-not-retryable' },
+      stop: { code: 'service-failure-not-retryable' },
       reason: expect.stringContaining('Sign in again on the workstation'),
     });
   });
@@ -1063,12 +1086,15 @@ describe('bounded model service recovery', () => {
       () => now,
     );
     const cycle = await startCycle(state, worktree.id);
-    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'quota wait');
+    await waitFor(
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
+      'quota wait',
+    );
     expect(currentCycle(state, cycle)).toMatchObject({
       status: 'running',
-      providerRecovery: { attempts: 0, nextRetryAt: '2026-09-15T14:52:00.000Z' },
+      attempt: { providerRecovery: { attempts: 0, nextRetryAt: '2026-09-15T14:52:00.000Z' } },
     });
-    expect(currentCycle(state, cycle).attention).toBeUndefined();
+    expect(heldStop(currentCycle(state, cycle))).toBeUndefined();
     now = new Date('2026-09-15T14:52:00Z');
     await waitFor(() => backend.launches.length === 3, 'retried, then the next step');
   });
@@ -1077,7 +1103,10 @@ describe('bounded model service recovery', () => {
     let now = new Date('2026-09-22T12:00:00Z');
     const { state, backend, worktree } = await cycleFixture([overloaded], () => now);
     const cycle = await startCycle(state, worktree.id);
-    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'backoff');
+    await waitFor(
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
+      'backoff',
+    );
     now = new Date(Date.parse(currentCycle(state, cycle).runDeadlineAt) + 1);
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'deadline');
     expect(backend.launches).toHaveLength(1);
@@ -1098,12 +1127,12 @@ it('holds provider backoff after a daemon restart and while its roadmap is pause
     () =>
       state.context.storage.execution.cycles
         .listForWorkspace(state.workspaceId)
-        .some((c) => c.providerRecovery?.nextRetryAt),
+        .some((c) => c.attempt?.providerRecovery?.nextRetryAt),
     'roadmap service backoff',
   );
   const cycle = state.context.storage.execution.cycles
     .listForWorkspace(state.workspaceId)
-    .find((c) => c.providerRecovery)!;
+    .find((c) => c.attempt?.providerRecovery)!;
   state.context.services.workCycleService.recoverInterrupted();
   expect(currentCycle(state, cycle).status).toBe('needs-attention');
   // The roadmap waits on its cycle's restart stop, running (R-C10's follow-up, decision 1).
@@ -1129,8 +1158,8 @@ it('holds provider backoff after a daemon restart and while its roadmap is pause
   expect((await command()).statusCode).toBe(200);
   await waitFor(
     () =>
-      currentCycle(state, cycle).providerRecovery?.attempts === 1 &&
-      !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+      currentCycle(state, cycle).attempt?.providerRecovery?.attempts === 1 &&
+      !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
     'operator resumed service recovery',
   );
   expect(backend.launches).toHaveLength(2);
@@ -1148,7 +1177,10 @@ it('retries an interrupted review on its pinned snapshot but never adopts its fa
     { resultText: reviewText([]) },
   ]);
   const cycle = await startCycle(state, worktree.id);
-  await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'review backoff');
+  await waitFor(
+    () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
+    'review backoff',
+  );
   expect((await merge(state, worktree.id)).statusCode).toBe(409);
   const failed = state.context.storage.execution.runs.find(
     state.workspaceId,

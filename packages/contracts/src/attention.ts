@@ -24,6 +24,8 @@ import {
   type WorkCycleId,
   type WorkItemId,
   type WorktreeId,
+  AWAITING_MERGE_GATES,
+  CYCLE_END_CODES,
 } from '@craftingtable/domain';
 import { z } from 'zod';
 import { branded } from './ids.js';
@@ -63,19 +65,50 @@ const attentionRefsSchema = z
   .optional();
 const ownerSchema = z.enum(['operator', 'controller']);
 
+const cycleAttentionShape = {
+  code: z.enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]]),
+  owner: ownerSchema,
+  claim: z.enum(ATTENTION_CLAIMS).optional(),
+  refs: attentionRefsSchema,
+  detail: z.string().max(2000).optional(),
+  repairAttempts: z.number().int().min(1).max(OUTPUT_REPAIR_LIMIT).optional(),
+};
+const ownedAsDeclared = (a: {
+  readonly code: CycleAttentionCode;
+  readonly owner: 'operator' | 'controller';
+  readonly claim?: string;
+}) => a.owner === (a.claim ? 'controller' : CYCLE_ATTENTION[a.code]);
+const OWNER_RULE =
+  'The attention owner must be the one its code declares, or the controller for a claim.';
+
 export const cycleAttentionSchema = z
-  .strictObject({
-    code: z.enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]]),
-    owner: ownerSchema,
-    claim: z.enum(ATTENTION_CLAIMS).optional(),
-    refs: attentionRefsSchema,
-    detail: z.string().max(2000).optional(),
-    repairAttempts: z.number().int().min(1).max(OUTPUT_REPAIR_LIMIT).optional(),
-  })
-  .refine(
-    (a) => a.owner === (a.claim ? 'controller' : CYCLE_ATTENTION[a.code]),
-    'The attention owner must be the one its code declares, or the controller for a claim.',
-  );
+  .strictObject(cycleAttentionShape)
+  .refine(ownedAsDeclared, OWNER_RULE);
+
+const GATES: ReadonlySet<CycleAttentionCode> = new Set(AWAITING_MERGE_GATES);
+/**
+ * A cycle's stop (R-B4 decision 5): an operator's stop or a merge gate, with when it began, or
+ * how an ended cycle ended. A stop is a gate exactly when its code is one of the merge
+ * boundary's; which status carries which is the transition table's.
+ */
+export const cycleStopSchema = z.union([
+  z
+    .strictObject({
+      kind: z.enum(['attention', 'gate']),
+      ...cycleAttentionShape,
+      since: z.iso.datetime(),
+    })
+    .refine(ownedAsDeclared, OWNER_RULE)
+    .refine(
+      (stop) => (stop.kind === 'gate') === GATES.has(stop.code),
+      "A stop is a gate exactly when its code is one of the merge boundary's gates.",
+    ),
+  z.strictObject({
+    kind: z.literal('ended'),
+    code: z.enum(CYCLE_END_CODES),
+    at: z.iso.datetime(),
+  }),
+]);
 
 export const roadmapAttentionSchema = z
   .strictObject({

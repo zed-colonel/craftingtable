@@ -3,11 +3,11 @@
  * investigation in progress, and the stops a plain resume would only repeat.
  */
 import {
-  effectiveCycleAttention,
   raisesOpenQuestions,
   type WorkCycle,
   type WorkItemId,
   type WorkspaceId,
+  heldStop,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { BranchService } from '../branch-service.js';
@@ -80,7 +80,7 @@ export class CycleGates {
    * taken at the stop keeps its code, so it is held to the same rule.
    */
   async assertPinsRefreshed(cycle: WorkCycle): Promise<void> {
-    const stop = cycle.status === 'paused' ? cycle.attention : effectiveCycleAttention(cycle);
+    const stop = heldStop(cycle);
     if (stop?.code !== 'upstream-pin-moved') return;
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (!tree) return;
@@ -135,7 +135,7 @@ export class CycleGates {
    */
   attestationInputsChanged(cycle: WorkCycle): boolean {
     const active = cycle.workflow?.activeReview;
-    const stop = cycle.status === 'paused' ? cycle.attention : effectiveCycleAttention(cycle);
+    const stop = heldStop(cycle);
     return (
       stop?.code === 'checkpoint-attestation-failed' &&
       active?.kind === 'checkpoint' &&

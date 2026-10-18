@@ -2,55 +2,57 @@ import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
 import { scopeArchitectureDecisions } from './architecture-decision-policy.js';
 import { bindingIssues } from './map-binding-policy.js';
 export { bindingIssues } from './map-binding-policy.js';
-import { mapReadSnapshot } from './map-read-snapshot.js';
-import { integratedSlice } from './scope-lineage.js';
+
 import { randomUUID } from 'node:crypto';
+import {
+  type CrossProjectSave,
+  type CrossProjectView,
+  roadmapEntryFieldsSchema,
+  type SaveCrossProjectRequest,
+} from '@craftingtable/contracts';
 import {
   asAuditEventId,
   asEventId,
   asMapDecisionId,
   asRoadmapEntryId,
-  mapCapabilities,
-  targetClosure,
-  milestoneKey,
-  sameExecutionScope,
-  type CrossProjectConfiguration,
+  type ConcurrencyDefinitionId,
   type ConcurrencyRequirement,
-  type WorkspaceId,
+  type CrossProjectConfiguration,
   type EvidenceDecision,
   type ExecutionScope,
-  type WorkItemId,
   type MapActivity,
   type MapActivitySettings,
+  mapCapabilities,
+  milestoneKey,
   type RoadmapEntry,
+  sameExecutionScope,
   startedAttempts,
-  type ConcurrencyDefinitionId,
+  targetClosure,
+  type WorkItemId,
+  type WorkspaceId,
 } from '@craftingtable/domain';
-import { withPermissions } from './agent-profile-policy.js';
-import {
-  roadmapEntryFieldsSchema,
-  type CrossProjectView,
-  type CrossProjectSave,
-  type SaveCrossProjectRequest,
-} from '@craftingtable/contracts';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
+import { withPermissions } from './agent-profile-policy.js';
 import type { AuthContext } from './auth-service.js';
-import type { WorkspaceService } from './workspace-service.js';
-import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
-import type { RoadmapService } from './roadmap-service.js';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
-import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
+import { scopePhaseBlockers } from './execution-scope.js';
 import { carryPlanAcceptance } from './generated-plan-evidence.js';
+import { adoptedDecisions, mapAdopted } from './map-adoption-policy.js';
+import { mapReadSnapshot } from './map-read-snapshot.js';
+import { milestoneMet, milestoneSatisfied } from './milestone-policy.js';
+import type { RoadmapService } from './roadmap-service.js';
 import {
   acceptedEvidence,
   activeRuntime,
   type ReceiptStaleReason,
   receiptStaleness,
 } from './runtime-evidence-policy.js';
-import { scopePhaseBlockers } from './execution-scope.js';
-import { milestoneMet, milestoneSatisfied } from './milestone-policy.js';
+import { integratedSlice } from './scope-lineage.js';
+import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
+import type { WorkspaceService } from './workspace-service.js';
 
 export { milestoneMemoKey, milestoneSatisfied } from './milestone-policy.js';
+
 function conflict(m: string): never {
   throw new ExecutionRequestError('conflict', m);
 }

@@ -5,6 +5,7 @@ import {
   cycleActions,
   type WorkCycle,
   type WorktreeId,
+  stopRecord,
 } from '@craftingtable/domain';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -68,7 +69,10 @@ it("renders a design stop's questions, and no scope repair (R-A6 increment 2a)",
   show({
     ...base,
     step: 'design',
-    attention: { code: 'design-open-questions', owner: 'operator' },
+    stop: stopRecord(
+      { code: 'design-open-questions', owner: 'operator' },
+      '2026-09-20T12:00:00.000Z',
+    ),
   } as WorkCycle);
   expect(screen.getByRole('region', { name: 'Resolve design questions' })).toBeDefined();
   expect(requested('/cycles/c1/scope-repair')).toBe(false);
@@ -85,7 +89,10 @@ it("renders a scope review's repair, and no integration conflict", async () => {
         bindingRevision: 1,
         sourceId: 's',
       },
-      attention: { code: 'scope-review-recovery', owner: 'operator' },
+      stop: stopRecord(
+        { code: 'scope-review-recovery', owner: 'operator' },
+        '2026-09-20T12:00:00.000Z',
+      ),
     } as WorkCycle,
     true,
   );
@@ -94,7 +101,13 @@ it("renders a scope review's repair, and no integration conflict", async () => {
 });
 
 it('renders an integration conflict, and no design questions', () => {
-  show({ ...base, attention: { code: 'integration-conflict', owner: 'operator' } } as WorkCycle);
+  show({
+    ...base,
+    stop: stopRecord(
+      { code: 'integration-conflict', owner: 'operator' },
+      '2026-09-20T12:00:00.000Z',
+    ),
+  } as WorkCycle);
   expect(screen.getByRole('region', { name: 'Integration conflicts' })).toBeDefined();
   expect(screen.queryByRole('region', { name: 'Resolve design questions' })).toBeNull();
 });
@@ -107,7 +120,10 @@ it("in the inbox, shows the cycle's questions, its run and its shared decisions,
       cycle={
         {
           ...base,
-          attention: { code: 'shared-decision-required', owner: 'operator' },
+          stop: stopRecord(
+            { code: 'shared-decision-required', owner: 'operator' },
+            '2026-09-20T12:00:00.000Z',
+          ),
           workflow: { questions: [{ destination: 'local', question: 'Which queue backs it?' }] },
           executionScope: { kind: 'slice', definitionId: 'm', bindingRevision: 1, sourceId: 's' },
         } as unknown as WorkCycle

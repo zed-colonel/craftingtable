@@ -2,6 +2,7 @@ import {
   type AgentRun,
   cycleAttention,
   DEFAULT_COMPLETION_POLICY,
+  stopRecord,
   type WorkCycle,
 } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
@@ -211,7 +212,7 @@ const rows: readonly Row[] = [
     cycle: {
       status: 'needs-attention',
       executionScope: sliceScope,
-      attention: cycleAttention('implementation-open-questions'),
+      stop: stopRecord(cycleAttention('implementation-open-questions'), '2026-01-01T00:00:00.000Z'),
     },
     facts: {
       currentRun: () => finished,
@@ -225,7 +226,7 @@ const rows: readonly Row[] = [
     cycle: {
       status: 'needs-attention',
       executionScope: sliceScope,
-      attention: cycleAttention('implementation-open-questions'),
+      stop: stopRecord(cycleAttention('implementation-open-questions'), '2026-01-01T00:00:00.000Z'),
       workflow: { reassessments: 2, questions: [] },
     },
     facts: {
@@ -252,7 +253,10 @@ const rows: readonly Row[] = [
   },
   {
     name: 'a merge only the operator can advance waits for the operator',
-    cycle: { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+    cycle: {
+      status: 'awaiting-merge',
+      stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
+    },
     facts: { onlyOperatorCanAdvance: () => true },
     expected: { guard: 'operator-merge-only', kind: 'idle', code: 'operator-merge-only' },
   },
@@ -260,7 +264,10 @@ const rows: readonly Row[] = [
   // hand keeps the operator's merge, which reconciles it, as its exit (increment 5 review).
   {
     name: 'a merge only the operator can advance stops when its item was withdrawn',
-    cycle: { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+    cycle: {
+      status: 'awaiting-merge',
+      stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
+    },
     facts: {
       onlyOperatorCanAdvance: () => true,
       itemRefusal: () => 'item-not-admitted',
@@ -274,7 +281,10 @@ const rows: readonly Row[] = [
   },
   {
     name: 'a merge only the operator can advance waits for it when its item was completed by hand',
-    cycle: { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+    cycle: {
+      status: 'awaiting-merge',
+      stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
+    },
     facts: { onlyOperatorCanAdvance: () => true, itemRefusal: () => 'item-completed-unmerged' },
     expected: { guard: 'operator-merge-only', kind: 'idle', code: 'operator-merge-only' },
   },
@@ -307,7 +317,10 @@ const rows: readonly Row[] = [
   ),
   {
     name: 'a cycle at the merge boundary advances its workflow, then refreshes',
-    cycle: { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+    cycle: {
+      status: 'awaiting-merge',
+      stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
+    },
     expected: { guard: 'merge-boundary', kind: 'effect', code: 'merge-boundary' },
   },
   {
@@ -333,7 +346,7 @@ const rows: readonly Row[] = [
   },
   {
     name: 'unsupported design dependencies stop the cycle',
-    cycle: { step: 'design', designWait: { startedAt: EARLIER, requirements: [] } },
+    cycle: { step: 'design', waits: { design: { since: EARLIER, requirements: [] } } },
     facts: { designDependencies: () => ({ supported: false, pending: ['Unknown slice.'] }) },
     expected: {
       guard: 'design-dependencies',
@@ -343,19 +356,19 @@ const rows: readonly Row[] = [
   },
   {
     name: 'pending design dependencies wait',
-    cycle: { step: 'design', designWait: { startedAt: EARLIER, requirements: [] } },
+    cycle: { step: 'design', waits: { design: { since: EARLIER, requirements: [] } } },
     facts: { designDependencies: () => ({ supported: true, pending: ['wi/B merged'] }) },
     expected: { guard: 'design-dependencies', kind: 'idle', code: 'dependencies-pending' },
   },
   {
     name: 'met design dependencies wait while the roadmap is paused',
-    cycle: { step: 'design', designWait: { startedAt: EARLIER, requirements: [] } },
+    cycle: { step: 'design', waits: { design: { since: EARLIER, requirements: [] } } },
     facts: { roadmapPaused: () => true },
     expected: { guard: 'design-dependencies', kind: 'idle', code: 'roadmap-paused' },
   },
   {
     name: 'met design dependencies need the finished design to recheck',
-    cycle: { step: 'design', designWait: { startedAt: EARLIER, requirements: [] } },
+    cycle: { step: 'design', waits: { design: { since: EARLIER, requirements: [] } } },
     expected: {
       guard: 'design-dependencies',
       kind: 'attention',
@@ -366,7 +379,7 @@ const rows: readonly Row[] = [
     name: 'two automatic design continuations are the limit',
     cycle: {
       step: 'design',
-      designWait: { startedAt: EARLIER, requirements: [] },
+      waits: { design: { since: EARLIER, requirements: [] } },
       designDependencyContinuations: 2,
     },
     facts: { currentRun: () => finished },
@@ -378,13 +391,13 @@ const rows: readonly Row[] = [
   },
   {
     name: 'met design dependencies recheck the design',
-    cycle: { step: 'design', designWait: { startedAt: EARLIER, requirements: [] } },
+    cycle: { step: 'design', waits: { design: { since: EARLIER, requirements: [] } } },
     facts: { currentRun: () => finished },
     expected: { guard: 'design-dependencies', kind: 'launch', code: 'design' },
   },
   {
     name: 'a cleared phase wait is lifted',
-    cycle: { phaseWait: { startedAt: EARLIER, blockers: [waitingBlocker] } },
+    cycle: { waits: { phase: { since: EARLIER, blockers: [waitingBlocker] } } },
     expected: { guard: 'phase-wait-cleared', kind: 'wait', code: 'clear-phase' },
   },
   {
@@ -394,18 +407,18 @@ const rows: readonly Row[] = [
   },
   {
     name: 'a service retry is held while the roadmap is paused',
-    cycle: { providerRecovery: recovery },
+    cycle: { attempt: { providerRecovery: recovery } },
     facts: { roadmapPaused: () => true },
     expected: { guard: 'provider-retry-due', kind: 'idle', code: 'retry-held' },
   },
   {
     name: 'a service retry waits for its time',
-    cycle: { providerRecovery: { ...recovery, nextRetryAt: LATER } },
+    cycle: { attempt: { providerRecovery: { ...recovery, nextRetryAt: LATER } } },
     expected: { guard: 'provider-retry-due', kind: 'idle', code: 'retry-not-due' },
   },
   {
     name: 'a service retry that no longer matches the latest failed run stops',
-    cycle: { providerRecovery: recovery },
+    cycle: { attempt: { providerRecovery: recovery } },
     facts: {
       currentRun: () => runOf({ status: 'failed' }),
       newestRun: () => runOf({ id: 'run-2' }),
@@ -414,13 +427,13 @@ const rows: readonly Row[] = [
   },
   {
     name: 'a due service retry relaunches the step',
-    cycle: { providerRecovery: recovery },
+    cycle: { attempt: { providerRecovery: recovery } },
     facts: { currentRun: () => runOf({ status: 'failed' }) },
     expected: { guard: 'provider-retry-due', kind: 'launch', code: 'implement' },
   },
   {
     name: 'a pending retry with no run waits while the roadmap is paused',
-    cycle: { providerRecovery: { ...recovery, nextRetryAt: undefined } },
+    cycle: { attempt: { providerRecovery: { ...recovery, nextRetryAt: undefined } } },
     facts: { currentRun: () => undefined, roadmapPaused: () => true },
     expected: { guard: 'provider-retry-held', kind: 'idle', code: 'retry-held' },
   },
@@ -555,7 +568,7 @@ describe('decide', () => {
     expect(
       run({
         name: '',
-        cycle: { executionScope: sliceScope, providerRecovery: recovery },
+        cycle: { executionScope: sliceScope, attempt: { providerRecovery: recovery } },
         facts: { ...refused, currentRun: () => runOf({ status: 'failed' }) },
         expected: { guard: 'provider-retry-due', kind: '' },
       }),
@@ -589,7 +602,10 @@ describe('decide', () => {
     expect(
       decisionSummary(
         decide(
-          cycleOf({ status: 'awaiting-merge', attention: cycleAttention('merge-approval') }),
+          cycleOf({
+            status: 'awaiting-merge',
+            stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
+          }),
           merging,
           kernelOf(),
           NOW,
@@ -604,9 +620,11 @@ describe('decide', () => {
     const decision = run({
       name: '',
       cycle: {
-        providerRecovery: recovery,
-        resultContinuations: 1,
-        housekeepingInstructions: 'Tidy.',
+        attempt: {
+          providerRecovery: recovery,
+          resultContinuations: 1,
+          housekeepingInstructions: 'Tidy.',
+        },
       },
       facts: { currentRun: () => runOf({ status: 'failed' }) },
       expected: { guard: 'provider-retry-due', kind: 'launch' },
@@ -616,25 +634,27 @@ describe('decide', () => {
       step: 'implement',
       action: 'retry-provider',
       changes: {
-        providerRecovery: { attempts: 2, sourceRunId: 'run-1' },
+        attempt: {
+          providerRecovery: { attempts: 2, sourceRunId: 'run-1' },
+          resultContinuations: 1,
+          housekeepingInstructions: 'Tidy.',
+        },
         runDeadlineAt: LATER,
-        resultContinuations: 1,
         instructions: 'Build it',
-        housekeepingInstructions: 'Tidy.',
         reason:
           'Starting service retry 2 of 3 on the same backend/model; no remediation round consumed.',
       },
     });
-    expect(decision.kind === 'launch' && decision.changes.providerRecovery).not.toHaveProperty(
-      'nextRetryAt',
-    );
+    expect(
+      decision.kind === 'launch' && decision.changes.attempt?.providerRecovery,
+    ).not.toHaveProperty('nextRetryAt');
   });
 
   it('extends the step time limit by a phase wait only before its run', () => {
     const cleared = (overrides: Record<string, unknown>, facts: Row['facts'] = {}) =>
       run({
         name: '',
-        cycle: { phaseWait: { startedAt: EARLIER, blockers: [] }, ...overrides },
+        cycle: { waits: { phase: { since: EARLIER, blockers: [] } }, ...overrides },
         facts,
         expected: { guard: 'phase-wait-cleared', kind: '' },
       });
@@ -644,7 +664,7 @@ describe('decide', () => {
     expect(cleared({})).toMatchObject({ wait: { runDeadlineAt: LATER } });
     expect(
       cleared(
-        { providerRecovery: { ...recovery, nextRetryAt: undefined } },
+        { attempt: { providerRecovery: { ...recovery, nextRetryAt: undefined } } },
         { currentRun: () => undefined },
       ),
     ).toMatchObject({
@@ -671,28 +691,34 @@ describe('which guard decides', () => {
     [
       // G1: a step that waited on a phase past its window has its deadline moved, not stopped.
       'a cleared phase wait before the step deadline',
-      { phaseWait: { startedAt: EARLIER, blockers: [] }, runDeadlineAt: EARLIER },
+      { waits: { phase: { since: EARLIER, blockers: [] } }, runDeadlineAt: EARLIER },
       { currentRun: () => undefined },
       { guard: 'phase-wait-cleared', kind: 'wait', code: 'clear-phase' },
     ],
     [
       // G2: past its deadline, a scheduled retry does not run.
       'the step deadline before a due service retry',
-      { providerRecovery: recovery, runDeadlineAt: EARLIER },
+      { attempt: { providerRecovery: recovery }, runDeadlineAt: EARLIER },
       { currentRun: () => runOf({ status: 'failed' }) },
       { guard: 'step-deadline', kind: 'attention', code: 'step-time-limit' },
     ],
     [
       // G3: a reserved merge is left to it; the boundary's workflow and refresh wait.
       'a reserved merge before the merge boundary',
-      { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+      {
+        status: 'awaiting-merge',
+        stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
+      },
       { mergeReserved: () => true },
       { guard: 'merge-reserved', kind: 'idle', code: 'merge-reserved' },
     ],
     [
       // G4: an operator-only merge idles before its gate is asked.
       'an operator-only merge before the item gate',
-      { status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+      {
+        status: 'awaiting-merge',
+        stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
+      },
       {
         onlyOperatorCanAdvance: () => true,
         readiness: () => ({ kind: 'refused', code: 'predecessors-incomplete', message: 'Open.' }),
@@ -704,7 +730,7 @@ describe('which guard decides', () => {
       'shared decisions not yet accepted',
       {
         status: 'needs-attention',
-        attention: cycleAttention('shared-decision-required'),
+        stop: stopRecord(cycleAttention('shared-decision-required'), '2026-01-01T00:00:00.000Z'),
         workflow: { reassessments: 0, questions: [sharedQuestion] },
       },
       { delegationRunnable: () => true, sharedDecisionsAccepted: () => false },
@@ -713,7 +739,7 @@ describe('which guard decides', () => {
     [
       // G6: a retry whose source run is no longer the current one does not relaunch.
       'a due retry whose source run is not the current run',
-      { providerRecovery: { ...recovery, sourceRunId: 'run-0' } },
+      { attempt: { providerRecovery: { ...recovery, sourceRunId: 'run-0' } } },
       {
         currentRun: () => runOf({ status: 'failed' }),
         newestRun: () => runOf({ status: 'failed' }),
@@ -726,7 +752,7 @@ describe('which guard decides', () => {
       {
         status: 'needs-attention',
         executionScope: sliceScope,
-        attention: cycleAttention('workflow-report-invalid'),
+        stop: stopRecord(cycleAttention('workflow-report-invalid'), '2026-01-01T00:00:00.000Z'),
       },
       {
         currentRun: () => finished,
@@ -738,7 +764,11 @@ describe('which guard decides', () => {
     [
       // G8: a scoped slice at the merge boundary is gated even with a run.
       'a scoped slice at the merge boundary whose gate refuses',
-      { ...sliceRun, status: 'awaiting-merge', attention: cycleAttention('merge-approval') },
+      {
+        ...sliceRun,
+        status: 'awaiting-merge',
+        stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
+      },
       {
         currentRun: () => finished,
         readiness: () => ({ kind: 'refused', code: 'predecessors-incomplete', message: 'Open.' }),
@@ -798,8 +828,19 @@ describe('which guard decides', () => {
   ];
   it('orders every guard', () => expect([...order].sort()).toEqual([...CYCLE_GUARDS].sort()));
   const pairs = order.slice(1).map((later, i) => [order[i]!, later] as const);
+  // A cycle's waits and attempt are records of their own: two rows' are merged field by field,
+  // as two flat fields were before R-B4b.
+  const record = (key: 'waits' | 'attempt', a: Row, b: Row) => {
+    const both = { ...(b.cycle?.[key] as object), ...(a.cycle?.[key] as object) };
+    return Object.keys(both).length ? { [key]: both } : {};
+  };
   const merged = (a: Row, b: Row) => ({
-    cycle: cycleOf({ ...b.cycle, ...a.cycle }),
+    cycle: cycleOf({
+      ...b.cycle,
+      ...a.cycle,
+      ...record('waits', a, b),
+      ...record('attempt', a, b),
+    }),
     facts: factsOf({ ...b.facts, ...a.facts }),
     kernel: kernelOf({ ...b.kernel, ...a.kernel }),
   });

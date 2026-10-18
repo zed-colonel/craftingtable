@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { finalizationsResponseSchema, finalizationViewSchema } from '@craftingtable/contracts';
-import { asPlanVersionId, asProjectId } from '@craftingtable/domain';
+import { asPlanVersionId, asProjectId, stopRecord } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import {
   cleanupExecutionFixtures,
@@ -88,7 +88,10 @@ it('serves the completed legacy finalization through the finalization list route
     rounds: record.finalization.rounds,
   });
   expect(view?.finalization.stages).toBeUndefined();
-  expect(view?.cycle).toMatchObject({ polishPhase: 'final-review', polishRound: 2 });
+  expect(view?.cycle).toMatchObject({
+    polishPhase: 'final-review',
+    retiredFinalization: { polishRound: 2 },
+  });
 });
 
 it('refuses to start a finalization with improvement rounds (R-B10)', async () => {
@@ -135,7 +138,7 @@ it('lets an open finalization with improvement rounds only stop (R-B10)', async 
     ...owned,
     status: 'needs-attention',
     version: 1,
-    attention: { code: 'review-needs-attention', owner: 'operator' },
+    stop: stopRecord({ code: 'review-needs-attention', owner: 'operator' }, record.cycle.updatedAt),
   };
   state.context.storage.transaction((tx) => {
     tx.execution.worktrees.insert({
@@ -183,7 +186,7 @@ it('lets an open finalization with improvement rounds only stop (R-B10)', async 
   expect(fixture.backend.launches).toHaveLength(launches);
   // Service retries and continuations are decided before the controller's legacy check; the
   // launch itself refuses, so none of them can start a run either.
-  const { attention: _attention, ...stopped } = state.context.storage.execution.cycles.find(
+  const { stop: _attention, ...stopped } = state.context.storage.execution.cycles.find(
     ws,
     cycle.id,
   )!;

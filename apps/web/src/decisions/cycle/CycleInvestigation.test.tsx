@@ -9,6 +9,7 @@ import {
   type CycleProjection,
   PROFILE_INHERITANCE,
   type SpecialistProfile,
+  stopRecord,
   type WorkCycle,
   type WorktreeId,
 } from '@craftingtable/domain';
@@ -36,7 +37,10 @@ const base = {
   currentRunId: 'run-1',
   reason: 'Partly implemented.',
   remediationRounds: 0,
-  attention: { code: 'implementation-open-questions', owner: 'operator' },
+  stop: stopRecord(
+    { code: 'implementation-open-questions', owner: 'operator' },
+    '2026-09-20T12:00:00.000Z',
+  ),
   policy: { maxNits: 0, maxRemediationRounds: 3, maxRunMinutes: 60 },
   profiles: Object.fromEntries(
     ['design', 'implement', 'review', 'remediate'].map((step) => [
@@ -225,7 +229,10 @@ it('fills the remediation grant at the round limit, and shows a failure with ano
       ...base,
       step: 'review',
       remediationRounds: 3,
-      attention: { code: 'review-open-questions-at-limit', owner: 'operator' },
+      stop: stopRecord(
+        { code: 'review-open-questions-at-limit', owner: 'operator' },
+        '2026-09-20T12:00:00.000Z',
+      ),
       investigation: { ...record, result: finished },
     } as WorkCycle,
     ['authorize-remediation', 'investigate', 'stop'],
@@ -327,7 +334,10 @@ it('offers Use proposed answers only where a form takes them, a scope review inc
       bindingRevision: 1,
       sourceId: 'P',
     },
-    attention: { code: 'scope-review-open-questions', owner: 'operator' },
+    stop: stopRecord(
+      { code: 'scope-review-open-questions', owner: 'operator' },
+      '2026-09-20T12:00:00.000Z',
+    ),
     investigation: { ...record, result: finished },
   } as unknown as WorkCycle;
   show(scoped, ['resume', 'investigate', 'stop']);
@@ -564,7 +574,10 @@ it('offers no proposals to a stop that only resumes, and focuses the grant and s
   show(
     {
       ...base,
-      attention: { code: 'scope-review-open-questions', owner: 'operator' },
+      stop: stopRecord(
+        { code: 'scope-review-open-questions', owner: 'operator' },
+        '2026-09-20T12:00:00.000Z',
+      ),
       investigation: { ...record, result: finished },
     } as WorkCycle,
     ['resume', 'investigate', 'stop'],
@@ -577,7 +590,10 @@ it('offers no proposals to a stop that only resumes, and focuses the grant and s
       ...base,
       step: 'review',
       remediationRounds: 3,
-      attention: { code: 'review-open-questions-at-limit', owner: 'operator' },
+      stop: stopRecord(
+        { code: 'review-open-questions-at-limit', owner: 'operator' },
+        '2026-09-20T12:00:00.000Z',
+      ),
       investigation: { ...record, result: finished },
     } as WorkCycle,
     ['authorize-remediation', 'investigate', 'stop'],
@@ -597,7 +613,10 @@ it('offers no proposals to a stop that only resumes, and focuses the grant and s
         bindingRevision: 1,
         sourceId: 'P',
       },
-      attention: { code: 'scope-review-open-questions', owner: 'operator' },
+      stop: stopRecord(
+        { code: 'scope-review-open-questions', owner: 'operator' },
+        '2026-09-20T12:00:00.000Z',
+      ),
       investigation: { ...record, result: finished },
     } as unknown as WorkCycle,
     ['resume', 'investigate', 'stop'],

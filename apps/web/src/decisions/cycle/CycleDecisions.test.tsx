@@ -7,6 +7,8 @@ import {
   cycleActions,
   DEFAULT_COMPLETION_POLICY,
   type WorkCycle,
+  type CycleAttention,
+  stopRecord,
 } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -23,7 +25,11 @@ afterEach(() => {
 });
 
 /** A cycle as the daemon sends it: beside its projection, with the actions it offers (R-A6). */
-function cycle(fields: Partial<WorkCycle>, projected: Partial<CycleProjection> = {}): CycleView {
+/** A cycle view; `attention` is the stop it is at, as the daemon stores it (R-B4b). */
+function cycle(
+  { attention, ...fields }: Partial<WorkCycle> & { readonly attention?: CycleAttention },
+  projected: Partial<CycleProjection> = {},
+): CycleView {
   const base = {
     id: 'c1',
     workspaceId: 'ws',
@@ -38,6 +44,7 @@ function cycle(fields: Partial<WorkCycle>, projected: Partial<CycleProjection> =
     stalledReviews: 0,
     reason: 'Stopped.',
     ...fields,
+    ...(attention ? { stop: stopRecord(attention, '2026-09-20T12:00:00.000Z') } : {}),
   } as WorkCycle;
   return {
     cycle: base,

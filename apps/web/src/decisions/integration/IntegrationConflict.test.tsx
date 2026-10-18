@@ -3,14 +3,26 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
 import { IntegrationConflict } from './IntegrationConflict.js';
+import { stopRecord, type CycleAttention } from '@craftingtable/domain';
 
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(cleanup);
 
-const panel = (cycle: Partial<WorkCycle>) =>
+const panel = ({
+  attention,
+  ...cycle
+}: Partial<WorkCycle> & { readonly attention?: CycleAttention }) =>
   render(
     <IntegrationConflict
-      cycle={{ status: 'needs-attention', reason: '', profiles: {}, ...cycle } as WorkCycle}
+      cycle={
+        {
+          status: 'needs-attention',
+          reason: '',
+          profiles: {},
+          ...cycle,
+          ...(attention ? { stop: stopRecord(attention, '2026-09-20T12:00:00.000Z') } : {}),
+        } as WorkCycle
+      }
       backends={[]}
       disabled={false}
       canMutate
@@ -36,8 +48,12 @@ it('keeps inspection reachable on a paused cycle after a manual update conflicte
   expect(screen.getByRole('button', { name: 'Inspect integration conflicts' })).toBeDefined();
 });
 
-it('shows the panel for an integration stop written before codes existed', () => {
-  panel({ reason: 'Integration refresh limit reached.' });
+it('shows the panel for an integration stop written before codes existed, as migration 0047 coded it', () => {
+  // The browser reads stored codes only (R-B4b): the decoder's code is what the record holds now.
+  panel({
+    reason: 'Integration refresh limit reached.',
+    attention: { code: 'integration-refresh-limit', owner: 'operator' },
+  });
   expect(screen.getByRole('region', { name: 'Integration conflicts' })).toBeDefined();
 });
 

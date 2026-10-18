@@ -3,6 +3,7 @@
  * workspace event, the reservation of a step's next run, and the two inserts. Each write is
  * checked against the state machine (`checkTransition`, R-B4).
  */
+
 import { finalizationAgent } from '../agent-profile-policy.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -19,6 +20,12 @@ import {
   type PhaseBlocker,
   remediationAllowance,
   type WorkCycle,
+  type CycleAttention,
+  type CycleStop,
+  cycleStop,
+  heldStop,
+  type StepAttempt,
+  stopRecord,
 } from '@craftingtable/domain';
 import { required } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
@@ -91,13 +98,21 @@ export class CycleWriter {
     context?: CommandContext,
   ): WorkCycle {
     // Entering a stop declares its attention (enforced by CycleChanges); a pause keeps the
-    // stop it was taken at (R-A7); any other status clears it, so attention always describes
-    // the current state (R-A3).
-    const { attention: declared, ...fields } = input;
+    // stop it was taken at (R-A7); an end records how the cycle ended (R-B4b); any other status
+    // has none, so the stop always describes the current state (R-A3).
+    const {
+      attention: declared,
+      end,
+      attempt: declaredAttempt,
+      waits: waitChanges,
+      keepAttempt,
+      ...fields
+    } = input;
     const nextStatus = fields.status ?? cycle.status;
+    const at = this.now().toISOString();
     let attention =
       ATTENTION_STATUSES.has(nextStatus) || (nextStatus === 'paused' && cycle.status === 'paused')
-        ? (declared ?? cycle.attention)
+        ? (declared ?? heldStop(cycle))
         : nextStatus === 'paused'
           ? declared
           : undefined;
@@ -106,18 +121,49 @@ export class CycleWriter {
     if (declared && fields.status !== undefined)
       try {
         attention =
-          currentCycleAttention(this.storage, { ...cycle, ...fields, attention: declared }) ??
-          declared;
+          currentCycleAttention(this.storage, {
+            ...cycle,
+            ...fields,
+            stop: this.stopFor(cycle, declared, at),
+          }) ?? declared;
       } catch {
         attention = declared;
       }
+    const stop: CycleStop | undefined = attention
+      ? this.stopFor(cycle, attention, at)
+      : nextStatus === 'stopped' || nextStatus === 'completed'
+        ? end
+          ? { kind: 'ended', code: end, at }
+          : nextStatus === cycle.status
+            ? cycle.stop
+            : undefined
+        : undefined;
+    // A step attempt belongs to its run (R-B4 decision 6): a write that reserves another run
+    // writes the attempt it declares and nothing of the last one, unless it carries the attempt
+    // on (`keepAttempt`); any other write changes only the attempt fields it names.
+    const fresh =
+      fields.currentRunId !== undefined &&
+      fields.currentRunId !== cycle.currentRunId &&
+      !keepAttempt;
+    const attempt: Record<string, unknown> = fresh
+      ? { ...declaredAttempt }
+      : { ...cycle.attempt, ...declaredAttempt };
     // A repair budget belongs to the run it repairs (R-C2). Leaving automation (a stop, a
     // pause, an end) or an operator command ends it, so a later run never inherits spent
     // repairs; the stop itself records them in `attention.repairAttempts`.
-    const repairEnded =
-      !!cycle.outputRepair &&
-      !('outputRepair' in fields) &&
-      (nextStatus !== 'running' || context !== undefined);
+    if (
+      cycle.attempt?.outputRepair &&
+      !fresh &&
+      !(declaredAttempt && 'outputRepair' in declaredAttempt) &&
+      (nextStatus !== 'running' || context !== undefined)
+    )
+      attempt.outputRepair = null;
+    for (const [key, value] of Object.entries(attempt))
+      if (value === undefined) delete attempt[key];
+    const waits: Record<string, unknown> = { ...cycle.waits };
+    for (const [key, value] of Object.entries(waitChanges ?? {}))
+      if (value === null) delete waits[key];
+      else if (value !== undefined) waits[key] = value;
     // An investigation belongs to the stop it was started at (R-C16): leaving that stop, for
     // another status or another run, ends it.
     const investigationEnded =
@@ -128,8 +174,9 @@ export class CycleWriter {
         (attention !== undefined && attention.code !== cycle.investigation.code));
     let changes: Partial<WorkCycle> = {
       ...fields,
-      ...(attention ? { attention } : {}),
-      ...(repairEnded ? { outputRepair: null } : {}),
+      stop,
+      attempt: Object.keys(attempt).length ? (attempt as StepAttempt) : undefined,
+      waits: Object.keys(waits).length ? waits : undefined,
     };
     // Keep lifetime totals and independent stage allowance/usage together in the same transaction.
     if (
@@ -165,12 +212,13 @@ export class CycleWriter {
       ...changes,
       reason: (changes.reason ?? cycle.reason).slice(0, 4000),
       version: cycle.version + 1,
-      updatedAt: this.now().toISOString(),
+      updatedAt: at,
     };
-    const { attention: _cleared, ...unattended } = merged;
-    const attended: WorkCycle = attention ? merged : unattended;
-    const { investigation: ended, ...uninvestigated } = attended;
-    const updated: WorkCycle = investigationEnded ? uninvestigated : attended;
+    // The records a write leaves without content are absent, never `undefined`.
+    for (const key of ['stop', 'attempt', 'waits'] as const)
+      if (merged[key] === undefined) delete (merged as Partial<WorkCycle>)[key];
+    const { investigation: ended, ...uninvestigated } = merged;
+    const updated: WorkCycle = investigationEnded ? uninvestigated : merged;
     // The one write path checks every write against the state machine (R-B4 increment 6).
     checkTransition(cycle, updated, action);
     // A controller write that changes nothing is not a transition: no version, audit entry
@@ -199,12 +247,23 @@ export class CycleWriter {
     return updated;
   }
 
+  /**
+   * The stop record for a stop a write declares or keeps: a gate exactly when its code is one of
+   * the merge boundary's, beginning now unless the cycle already holds a stop of the same code
+   * (refreshed, paused at, or resumed to), whose start it keeps.
+   */
+  private stopFor(cycle: WorkCycle, attention: CycleAttention, at: string): CycleStop {
+    const held = cycle.stop?.kind === 'ended' ? undefined : cycle.stop;
+    return stopRecord(attention, held && held.code === attention.code ? held.since : at);
+  }
+
   record(
     tx: StorageRepositories,
     cycle: WorkCycle,
     action: string,
     context?: CommandContext,
   ): void {
+    const stopped = heldStop(cycle);
     tx.audit.append({
       id: asAuditEventId(randomUUID()),
       occurredAt: cycle.updatedAt,
@@ -232,12 +291,12 @@ export class CycleWriter {
         reason: cycle.reason,
         runId: cycle.currentRunId,
         // The stop this transition entered, so operator wait can be measured by code (R-C1).
-        ...(cycle.attention
+        ...(stopped
           ? {
               attention: {
-                code: cycle.attention.code,
-                owner: cycle.attention.owner,
-                ...(cycle.attention.claim ? { claim: cycle.attention.claim } : {}),
+                code: stopped.code,
+                owner: stopped.owner,
+                ...(stopped.claim ? { claim: stopped.claim } : {}),
               },
             }
           : {}),
@@ -272,7 +331,7 @@ export class CycleWriter {
           : {}),
         ...(action === 'authorize-remediation' || action === 'remediate-findings'
           ? {
-              instructions: cycle.stepGuidance ?? '',
+              instructions: cycle.attempt?.stepGuidance ?? '',
               initialRemediationAllowance: cycle.policy.maxRemediationRounds,
               additionalRemediationRounds: cycle.additionalRemediationRounds ?? 0,
               remediationAllowance: remediationAllowance(cycle),
@@ -282,7 +341,7 @@ export class CycleWriter {
         ...(action === 'remediate-findings'
           ? {
               findingFocus: cycle.findingFocus ?? [],
-              instructions: cycle.stepGuidance ?? '',
+              instructions: cycle.attempt?.stepGuidance ?? '',
             }
           : {}),
         ...(cycle.integrationResolution
@@ -343,14 +402,14 @@ export class CycleWriter {
       parent?.role === 'review' &&
       parent.id === cycle.currentRunId &&
       (drainInterrupted(this.storage.execution, parent) ||
-        changes.outputRepair?.sourceRunId === parent.id);
+        changes.attempt?.outputRepair?.sourceRunId === parent.id);
     const collectingReview =
       resumingReview ||
       (step === 'review' &&
         cycle.step === 'review' &&
         parent !== undefined &&
         (parent.id === cycle.currentRunId ||
-          ((cycle.resultContinuations ?? 0) > 0 &&
+          ((cycle.attempt?.resultContinuations ?? 0) > 0 &&
             parent.id === cycle.parentRunId &&
             !this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId))) &&
         parent.role === 'review' &&
@@ -358,10 +417,10 @@ export class CycleWriter {
         !ownsIntegrationResolution(cycle) &&
         ended?.kind === 'run-finished' &&
         ((ended.payload.reason === 'background-work-incomplete' &&
-          (!!context || (changes.resultContinuations ?? 0) > 0)) ||
-          (changes.providerRecovery?.sourceRunId === parent.id &&
-            changes.providerRecovery.failure.safeToRetry &&
-            (changes.providerRecovery.attempts ?? 0) > 0)));
+          (!!context || (changes.attempt?.resultContinuations ?? 0) > 0)) ||
+          (changes.attempt?.providerRecovery?.sourceRunId === parent.id &&
+            changes.attempt.providerRecovery.failure.safeToRetry &&
+            (changes.attempt.providerRecovery.attempts ?? 0) > 0)));
     // A checkpoint review that runs again attests the checkpoint's current inputs, so a later
     // failure compares against them; a session that continues keeps the inputs it was given.
     const active = cycle.workflow?.activeReview;
@@ -431,30 +490,36 @@ export class CycleWriter {
     const sameStepAttempt =
       step === cycle.step &&
       (!this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId) ||
-        (changes.providerRecovery?.attempts ?? 0) > 0 ||
-        (changes.resultContinuations ?? 0) > 0 ||
-        !!changes.outputRepair);
+        (changes.attempt?.providerRecovery?.attempts ?? 0) > 0 ||
+        (changes.attempt?.resultContinuations ?? 0) > 0 ||
+        !!changes.attempt?.outputRepair);
     reservation?.check?.();
     return this.storage.transaction(() => {
       const result = this.change(
         cycle,
         {
-          housekeepingInstructions: '',
-          designWait: null,
           ...(context ? { designDependencyContinuations: 0 } : {}),
           ...(step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
             ? { designRecovery: { ...cycle.designRecovery, runId: nextRunId } }
             : {}),
-          // An explicit resume grants a fresh recovery window; automatic attempts retain their count/deadline.
-          resultContinuations: collectingReview && context ? 1 : 0,
-          providerRecovery: null,
-          outputRepair: null,
-          stepGuidance: sameStepAttempt ? cycle.stepGuidance : undefined,
           // Legacy finalization records kept resume guidance here; it belonged to that attempt.
           ...(cycle.finalizationId && parent?.id === cycle.currentRunId
             ? { instructions: '' }
             : {}),
           ...changes,
+          // The step's attempt, fresh: what its callers carry on is in `changes.attempt`.
+          attempt: {
+            housekeepingInstructions: '',
+            // An explicit resume grants a fresh recovery window; automatic attempts retain their count/deadline.
+            resultContinuations: collectingReview && context ? 1 : 0,
+            providerRecovery: null,
+            outputRepair: null,
+            ...(sameStepAttempt && cycle.attempt?.stepGuidance !== undefined
+              ? { stepGuidance: cycle.attempt.stepGuidance }
+              : {}),
+            ...changes.attempt,
+          },
+          waits: { design: null, ...changes.waits },
           status: 'running',
           step,
           currentRunId: nextRunId,
@@ -480,17 +545,24 @@ export class CycleWriter {
   refreshAttention(cycle: WorkCycle): WorkCycle {
     try {
       const current = currentCycleAttention(this.storage, cycle);
-      if (!current || JSON.stringify(current) === JSON.stringify(cycle.attention)) return cycle;
+      const stopped = cycleStop(cycle);
+      const stop = cycle.stop;
+      if (!current || !stopped || !stop || stop.kind === 'ended') return cycle;
+      if (JSON.stringify(current) === JSON.stringify(stopped)) return cycle;
       // A derived annotation, not a transition: written in place so an operator command
-      // holding this version stays valid, with an event so open browsers show the owner.
-      const updated: WorkCycle = { ...cycle, attention: current };
+      // holding this version stays valid, with an event so open browsers show the owner. The
+      // stop keeps its kind and its start.
+      const updated: WorkCycle = {
+        ...cycle,
+        stop: { kind: stop.kind, ...current, since: stop.since },
+      };
       const at = this.now().toISOString();
       const written = this.storage.transaction((tx) => {
         if (!tx.execution.cycles.replace(updated, cycle.version)) return false;
         this.appendCycleEvent(tx, updated, at);
         // A change of owner or code changes who the stop waits on, so it is audited like a
         // transition for operator-wait measurement (R-C1); claim details alone are not.
-        if (current.code !== cycle.attention?.code || current.owner !== cycle.attention?.owner)
+        if (current.code !== stopped.code || current.owner !== stopped.owner)
           this.record(tx, { ...updated, updatedAt: at }, 'attention-refreshed');
         return true;
       });
@@ -507,10 +579,10 @@ export class CycleWriter {
    * stays current. The original start is kept: it measures the whole wait.
    */
   waitForPhase(cycle: WorkCycle, blockers: readonly PhaseBlocker[], reason: string): void {
-    if (cycle.phaseWait && JSON.stringify(cycle.phaseWait.blockers) === JSON.stringify(blockers))
-      return;
+    const phase = cycle.waits?.phase;
+    if (phase && JSON.stringify(phase.blockers) === JSON.stringify(blockers)) return;
     this.change(cycle, {
-      phaseWait: { startedAt: cycle.phaseWait?.startedAt ?? this.now().toISOString(), blockers },
+      waits: { phase: { since: phase?.since ?? this.now().toISOString(), blockers } },
       reason,
     });
   }

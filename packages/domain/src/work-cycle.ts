@@ -224,13 +224,6 @@ export interface WorkCycle {
   readonly owner?: CycleOwner | null;
   readonly workflow?: import('./workflow.js').CycleWorkflow;
   readonly designDependencyContinuations?: number;
-  readonly designWait?: {
-    readonly startedAt: string;
-    readonly requirements: readonly (
-      | { readonly kind: 'work_item'; readonly id: string; readonly state: 'accepted' }
-      | { readonly kind: 'slice'; readonly id: string; readonly state: 'merged' | 'verified' }
-    )[];
-  } | null;
 
   /** Explicit repair delegation, with immutable journal turns from related scope reviews. */
   readonly scopeRepair?: {
@@ -253,7 +246,6 @@ export interface WorkCycle {
   readonly finalizationId?: FinalizationId;
   readonly finalizationProgress?: import('./finalization-stages.js').FinalizationProgress;
   readonly planVersionId?: import('./ids.js').PlanVersionId;
-  readonly polishRound?: number;
   readonly polishPhase?: 'assess' | 'polish' | 'verify' | 'final-review';
   /**
    * The label the cycle is shown by: its work item's source id, its scope's source id, or
@@ -277,28 +269,106 @@ export interface WorkCycle {
    * be separated reliably, so it is kept as-is, but commands no longer append to it.
    */
   readonly instructions: string;
-  /**
-   * One-shot operator guidance for the step reserved by the command that supplied it (resume,
-   * continue, retry, authorize remediation, review again, finalization decisions). Same-step
-   * service retries and completion continuations keep it; any other transition clears it, so
-   * later steps never inherit it. The run it applies to records it in its brief.
-   */
-  readonly stepGuidance?: string;
   /** Reserved durably before process launch. A missing run after restart needs operator attention. */
   readonly currentRunId: AgentRunId;
   readonly parentRunId?: AgentRunId;
   readonly runDeadlineAt: string;
-  readonly phaseWait?: {
-    readonly startedAt: string;
+  /** The current step attempt's own state (R-B4b): every step change writes a fresh one. */
+  readonly attempt?: StepAttempt;
+  /** What the controller waits on beside the stop, on any status (R-B4b). */
+  readonly waits?: CycleWaits;
+  readonly remediationRounds: number;
+  /** Extra attempts explicitly authorized after a cycle exhausts its initial allowance. */
+  readonly additionalRemediationRounds?: number;
+  readonly finalizationAgentOverride?: AgentSelection | null;
+  /** The improvement-round finalization's fields, read only for the one 2026-09-13 record. */
+  readonly retiredFinalization?: RetiredFinalization;
+  readonly findingFocus?: readonly string[];
+  readonly stalledReviews: number;
+  readonly previousFindingFingerprint?: string;
+  readonly reviewHeadSha?: string;
+  readonly checkpoint?: {
+    readonly sourceRunId: AgentRunId;
+    readonly previousHeadSha: string;
+    readonly fingerprint: string;
+    readonly paths: readonly string[];
+    readonly createdAt: string;
+    readonly commitSha?: string;
+  };
+  readonly integrationResolution?: IntegrationResolution;
+  readonly integrationRefreshes?: number;
+  /** Display text for the current state; never parsed. `stop` carries its meaning. */
+  readonly reason: string;
+  /**
+   * The typed stop (R-A3, R-B4b): an operator's stop at `needs-attention`, a gate at
+   * `awaiting-merge`, the stop a pause was taken at, or how an ended cycle ended. Read the stop
+   * the cycle is at through `cycleStop`.
+   */
+  readonly stop?: CycleStop;
+}
+
+/** How a cycle ended (R-B4 decision 7), so a reader learns why without the audit or the reason. */
+export const CYCLE_END_CODES = [
+  'operator-stopped',
+  'roadmap-wound-down',
+  'amendment-retired',
+  'integrated',
+  'scope-evidence-recorded',
+] as const;
+export type CycleEndCode = (typeof CYCLE_END_CODES)[number];
+
+/**
+ * A cycle's stop (R-B4 decision 5). `attention` is an operator's stop (or one automation claims),
+ * `gate` one of the merge boundary's gates (`AWAITING_MERGE_GATES`), each with when it began; a
+ * pause keeps the stop it was taken at, as it was. `ended` is how a stopped or completed cycle
+ * ended, and when.
+ */
+export type CycleStop =
+  | (import('./attention.js').CycleAttention & {
+      readonly kind: 'attention' | 'gate';
+      readonly since: string;
+    })
+  | { readonly kind: 'ended'; readonly code: CycleEndCode; readonly at: string };
+
+/** The design dependencies a cycle waits for (`design-report.ts`'s requirements). */
+export type DesignRequirement =
+  | { readonly kind: 'work_item'; readonly id: string; readonly state: 'accepted' }
+  | { readonly kind: 'slice'; readonly id: string; readonly state: 'merged' | 'verified' };
+
+/**
+ * What the controller waits on (R-B4 decision 5): a scope's phase gates, and a design's
+ * dependencies. Either sits beside the stop, on any status: nothing clears a wait when a cycle
+ * stops, pauses or ends.
+ */
+export interface CycleWaits {
+  readonly phase?: {
+    readonly since: string;
     readonly blockers: readonly import('./phase-scheduling.js').PhaseBlocker[];
-  } | null;
-  /** Automatic recovery attempts within the current step, independent of remediation. */
+  };
+  readonly design?: { readonly since: string; readonly requirements: readonly DesignRequirement[] };
+}
+
+/**
+ * The state that belongs to one attempt at a step (R-B4 decision 6). Every step change writes a
+ * fresh one, so none of it reaches the next step; a same-step service retry, a completion
+ * continuation and an output repair carry what they continue. Stored values keep the forms
+ * earlier releases wrote (`''`, `0`, `null`).
+ */
+export interface StepAttempt {
+  /**
+   * One-shot operator guidance for the step reserved by the command that supplied it (resume,
+   * continue, retry, authorize remediation, review again, finalization decisions). The run it
+   * applies to records it in its brief.
+   */
+  readonly stepGuidance?: string;
+  /** What a housekeeping remediation must tidy. */
+  readonly housekeepingInstructions?: string;
+  /** Automatic recovery attempts within the step, independent of remediation. */
   readonly resultContinuations?: number;
   /**
-   * Automatic output-format repair of the current step (R-C2): the run whose final report
-   * failed validation, the stop it would have been, and the validator's issues. The next run
-   * resumes that run's session and asks for the corrected report. Any other transition
-   * clears it.
+   * Automatic output-format repair of the step (R-C2): the run whose final report failed
+   * validation, the stop it would have been, and the validator's issues. The next run resumes
+   * that run's session and asks for the corrected report.
    */
   readonly outputRepair?: {
     readonly attempts: number;
@@ -314,10 +384,11 @@ export interface WorkCycle {
     readonly profile: AgentProfile;
     readonly nextRetryAt?: string;
   } | null;
-  readonly remediationRounds: number;
-  /** Extra attempts explicitly authorized after a cycle exhausts its initial allowance. */
-  readonly additionalRemediationRounds?: number;
-  readonly finalizationAgentOverride?: AgentSelection | null;
+}
+
+/** The improvement-round finalization's fields (R-B4 decision 11). */
+interface RetiredFinalization {
+  readonly polishRound?: number;
   readonly deferredNits?: readonly {
     readonly finding: ReviewFinding;
     readonly sourceRunId: AgentRunId;
@@ -327,29 +398,6 @@ export interface WorkCycle {
     readonly createdAt: string;
     readonly createdByUserId: UserId;
   }[];
-  readonly findingFocus?: readonly string[];
-  readonly stalledReviews: number;
-  readonly previousFindingFingerprint?: string;
-  readonly reviewHeadSha?: string;
-  readonly housekeepingInstructions?: string;
-  readonly checkpoint?: {
-    readonly sourceRunId: AgentRunId;
-    readonly previousHeadSha: string;
-    readonly fingerprint: string;
-    readonly paths: readonly string[];
-    readonly createdAt: string;
-    readonly commitSha?: string;
-  };
-  readonly integrationResolution?: IntegrationResolution;
-  readonly integrationRefreshes?: number;
-  /** Display text for the current state; never parsed. `attention` carries its meaning. */
-  readonly reason: string;
-  /**
-   * Present while the cycle is `needs-attention` or `awaiting-merge`: the typed stop and who
-   * resolves it, written with the transition (R-A3). Older records lack it; read it through
-   * `effectiveCycleAttention`.
-   */
-  readonly attention?: import('./attention.js').CycleAttention;
 }
 
 /**

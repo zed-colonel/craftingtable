@@ -1,8 +1,4 @@
-import {
-  effectiveCycleAttention,
-  type WorkCycle,
-  type WorkflowQuestion,
-} from '@craftingtable/domain';
+import { type WorkCycle, type WorkflowQuestion, cycleStop } from '@craftingtable/domain';
 import { Link } from '../../lib/navigation.js';
 import { sharedDecisionsRoute } from '../../lib/decision-links.js';
 import type { Route } from '../../lib/route.js';
@@ -84,7 +80,7 @@ export function WorkflowStatus({
                     {cycle.step === 'design'
                       ? 'Answer in this work item’s Resolve design questions controls'
                       : ['remediation-exhausted', 'review-open-questions-at-limit'].includes(
-                            effectiveCycleAttention(cycle)?.code ?? '',
+                            cycleStop(cycle)?.code ?? '',
                           )
                         ? 'Answer when authorizing more remediation for this work item'
                         : 'Answer in this work item’s Continue with guidance form'}

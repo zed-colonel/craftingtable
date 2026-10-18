@@ -79,7 +79,7 @@ itNeedsCargo.each([
       const stopped = currentCycle(f.state, cycle);
       expect(stopped).toMatchObject({
         step: 'review',
-        attention: { code: 'remediation-exhausted' },
+        stop: { code: 'remediation-exhausted' },
         reason: expect.stringContaining('Verification changed the worktree.'),
       });
       const grant = await f.state.context.app.inject({

@@ -741,3 +741,62 @@ function ended(): ShapeRow[] {
 export function cycleShapes(): readonly ShapeRow[] {
   return [...surveyed(), ...written(), ...uncoded(), ...stops(), ...ended()];
 }
+
+/**
+ * Stores each row raw, as a release before R-B4b did, in a database at schema 46: its record
+ * under ids of its own (the unique indexes allow one active cycle per worktree and item), the
+ * audit rows that entered its statuses, and its scope receipt. Foreign keys are off for the
+ * seeding: the rows name no workspace, worktree or run that exists. Returns the stored records.
+ */
+export function storeShapes(
+  database: import('better-sqlite3').Database,
+  rows: readonly ShapeRow[],
+): { readonly row: ShapeRow; readonly record: StoredCycle }[] {
+  database.pragma('foreign_keys = OFF');
+  const id = (part: string, index: number) =>
+    `6a1f0c5e-${part}-4000-8000-${index.toString(16).padStart(12, '0')}`;
+  const insert = database.prepare(
+    'INSERT INTO work_cycles (id, workspace_id, work_item_id, worktree_id, status, version, state_json) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  );
+  const audit = database.prepare(
+    "INSERT INTO audit_events (id, occurred_at, actor_kind, action, target_type, target_id, outcome, metadata_json) VALUES (?, ?, 'system', 'work-cycle.updated', 'work-cycle', ?, 'succeeded', ?)",
+  );
+  const receipt = database.prepare(
+    "INSERT INTO scope_receipts (id, workspace_id, work_item_id, worktree_id, review_run_id, kind, record_json) VALUES (?, ?, ?, ?, ?, 'slice', '{}')",
+  );
+  const stored = rows.map((row, index) => {
+    const record: StoredCycle = {
+      ...row.record,
+      id: id('0001', index),
+      worktreeId: id('0002', index),
+      ...('workItemId' in row.record ? { workItemId: id('0003', index) } : {}),
+    };
+    insert.run(
+      record.id,
+      record.workspaceId,
+      record.workItemId ?? null,
+      record.worktreeId,
+      record.status,
+      record.version,
+      JSON.stringify(record),
+    );
+    for (const [n, entry] of row.history.entries())
+      audit.run(
+        id(`${(n + 4).toString(16).padStart(4, '0')}`, index),
+        entry.at,
+        record.id,
+        JSON.stringify({ action: entry.action, status: entry.status }),
+      );
+    if (row.scopeReceipt)
+      receipt.run(
+        id('00ff', index),
+        record.workspaceId,
+        record.workItemId,
+        record.worktreeId,
+        record.currentRunId,
+      );
+    return { row, record };
+  });
+  database.pragma('foreign_keys = ON');
+  return stored;
+}

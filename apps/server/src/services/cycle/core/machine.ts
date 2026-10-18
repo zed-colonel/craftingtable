@@ -4,18 +4,19 @@ import {
   type AttentionRefs,
   type CycleAttentionCode,
   type CycleStep,
-  effectiveCycleAttention,
   ownsIntegrationResolution,
   PHASE_BLOCKERS,
   type PhaseBlocker,
   phaseBlockerCode,
   type WorkCycle,
   type Worktree,
+  cycleStop,
 } from '@craftingtable/domain';
 import type { Readiness } from './effect-decisions.js';
 import type { CycleFacts, KernelFacts } from './facts.js';
 import { investigationLive, worktreeChangeOpen } from '../../investigation.js';
 import { decideStepOutcome, type StepOutcomeDecision } from './step-outcome.js';
+import type { CycleFieldChanges } from './transitions.js';
 
 /**
  * The cycle controller's decision core (R-B4).
@@ -140,7 +141,7 @@ export type CycleDecisionBody =
       readonly kind: 'launch';
       readonly step: CycleStep;
       readonly parent: AgentRun | undefined;
-      readonly changes: Omit<Partial<WorkCycle>, 'status' | 'attention'>;
+      readonly changes: CycleFieldChanges;
       readonly action?: string;
     }
   | {
@@ -278,7 +279,7 @@ const GUARDS: Record<CycleGuard, Guard> = {
       cycle.status !== 'needs-attention' ||
       cycle.executionScope?.kind !== 'slice' ||
       !['implement', 'review', 'remediate'].includes(cycle.step) ||
-      !REASSESSABLE_STOPS.has(effectiveCycleAttention(cycle)?.code ?? 'legacy-attention') ||
+      !REASSESSABLE_STOPS.has(cycleStop(cycle)?.code ?? 'legacy-attention') ||
       ownsIntegrationResolution(cycle)
     )
       return undefined;
@@ -358,8 +359,9 @@ const GUARDS: Record<CycleGuard, Guard> = {
         });
   },
   'design-dependencies': ({ cycle, facts }) => {
-    if (!cycle.designWait) return undefined;
-    const state = facts.designDependencies(cycle.designWait.requirements);
+    const wait = cycle.waits?.design;
+    if (!wait) return undefined;
+    const state = facts.designDependencies(wait.requirements);
     if (!state.supported)
       return attention('design-dependency-unsupported', state.pending.join(' '));
     if (state.pending.length) return idle('dependencies-pending');
@@ -380,19 +382,19 @@ const GUARDS: Record<CycleGuard, Guard> = {
       step: 'design',
       parent,
       changes: {
-        designWait: null,
-        phaseWait: null,
+        waits: { design: null, phase: null },
         designDependencyContinuations: (cycle.designDependencyContinuations ?? 0) + 1,
         reason: 'Mapped predecessors are ready. Rechecking the design with current evidence.',
       },
     };
   },
   'phase-wait-cleared': ({ cycle, facts, now }) => {
-    if (!cycle.phaseWait) return undefined;
+    const wait = cycle.waits?.phase;
+    if (!wait) return undefined;
     // The step's time limit moves by the time it spent waiting, unless it had already run.
     const delay =
-      !facts.currentRun() && !cycle.providerRecovery
-        ? now.getTime() - Date.parse(cycle.phaseWait.startedAt)
+      !facts.currentRun() && !cycle.attempt?.providerRecovery
+        ? now.getTime() - Date.parse(wait.since)
         : 0;
     return {
       kind: 'wait',
@@ -412,7 +414,7 @@ const GUARDS: Record<CycleGuard, Guard> = {
         )
       : undefined,
   'provider-retry-due': ({ cycle, facts, now }) => {
-    const recovery = cycle.providerRecovery;
+    const recovery = cycle.attempt?.providerRecovery;
     if (!recovery?.nextRetryAt) return undefined;
     if (facts.roadmapPaused()) return idle('retry-held');
     if (now.getTime() < Date.parse(recovery.nextRetryAt))
@@ -440,18 +442,20 @@ const GUARDS: Record<CycleGuard, Guard> = {
       step: cycle.step,
       parent,
       changes: {
-        providerRecovery: { ...pending, attempts: pending.attempts + 1 },
+        attempt: {
+          providerRecovery: { ...pending, attempts: pending.attempts + 1 },
+          resultContinuations: cycle.attempt?.resultContinuations ?? 0,
+          housekeepingInstructions: cycle.attempt?.housekeepingInstructions,
+        },
         runDeadlineAt: cycle.runDeadlineAt,
-        resultContinuations: cycle.resultContinuations ?? 0,
         instructions: cycle.instructions,
-        housekeepingInstructions: cycle.housekeepingInstructions,
         reason: `Starting service retry ${pending.attempts + 1} of 3 on the same backend/model; no remediation round consumed.`,
       },
       action: 'retry-provider',
     };
   },
   'provider-retry-held': ({ cycle, facts }) =>
-    cycle.providerRecovery && !facts.currentRun() && facts.roadmapPaused()
+    cycle.attempt?.providerRecovery && !facts.currentRun() && facts.roadmapPaused()
       ? idle('retry-held')
       : undefined,
   'integration-resolution': ({ cycle }) =>

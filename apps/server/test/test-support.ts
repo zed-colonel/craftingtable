@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentBackend } from '@craftingtable/agents';
-import { CYCLE_ATTENTION } from '@craftingtable/domain';
+import { CYCLE_ATTENTION, cycleStop } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { FastifyInstance } from 'fastify';
 import { inject } from 'vitest';
@@ -214,14 +214,14 @@ export async function createTestContext(
  */
 export function untypedStops(storage: ReturnType<typeof openDaemonStorage>): string[] {
   const problems: string[] = [];
-  for (const cycle of storage.execution.cycles.listAll())
+  for (const cycle of storage.execution.cycles.listAll()) {
+    const stop = cycleStop(cycle);
     if (
       (cycle.status === 'needs-attention' || cycle.status === 'awaiting-merge') &&
-      (!cycle.attention ||
-        cycle.attention.owner !==
-          (cycle.attention.claim ? 'controller' : CYCLE_ATTENTION[cycle.attention.code]))
+      (!stop || stop.owner !== (stop.claim ? 'controller' : CYCLE_ATTENTION[stop.code]))
     )
       problems.push(`cycle ${cycle.status}: ${cycle.reason.slice(0, 80)}`);
+  }
   for (const roadmap of storage.roadmaps.list()) {
     if (roadmap.status === 'needs-attention' && !roadmap.attention)
       problems.push(`roadmap needs-attention: ${roadmap.reason.slice(0, 80)}`);

@@ -7,6 +7,7 @@ import {
   asWorkItemDependencyId,
   asWorkItemId,
   type WorkCycle,
+  heldStop,
 } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { openDatabase } from '@craftingtable/storage';
@@ -976,8 +977,10 @@ it.each([
       const attempt = storedRoadmap(state).attempts[0];
       return (
         !!attempt &&
-        state.context.storage.execution.cycles.find(ws, attempt.cycleId)?.attention?.code ===
-          'implementation-open-questions'
+        (state.context.storage.execution.cycles.find(ws, attempt.cycleId) === undefined
+          ? undefined
+          : heldStop(state.context.storage.execution.cycles.find(ws, attempt.cycleId))
+        )?.code === 'implementation-open-questions'
       );
     }, 'implementation question');
     const attempt = present(storedRoadmap(state).attempts[0]);
@@ -1048,7 +1051,7 @@ it.each([
       integrationRefreshes: roadmapState === 'advancing' ? 2 : 1,
     });
     // Waiting for the operator's merge approval, not for an integration update.
-    expect(cycle.attention?.code).toBe('merge-approval');
+    expect(heldStop(cycle)?.code).toBe('merge-approval');
     expect(
       state.context.storage.execution.runs.find(ws, cycle.currentRunId)?.reviewBranchContext
         ?.targetSha,

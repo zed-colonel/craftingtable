@@ -3,6 +3,7 @@
  * remediation and housekeeping, a grant's rounds, and the implementation checkpoint. R-B4
  * decided each (`effect-decisions.ts`); these carry the decisions out, writes in their order.
  */
+
 import { activeEditor } from '../../authority-policy.js';
 import type { AgentRunId } from '@craftingtable/domain';
 import { required } from '@craftingtable/domain';
@@ -230,7 +231,10 @@ export class CycleRemediation {
         ...(cycle.workflow?.activeReview
           ? { workflow: { ...cycle.workflow, activeReview: null, waiting: null } }
           : {}),
-        housekeepingInstructions: this.housekeepingGuidance(),
+        attempt: {
+          housekeepingInstructions: this.housekeepingGuidance(),
+          ...(grant ? { stepGuidance: grant.instructions } : {}),
+        },
         remediationRounds: cycle.remediationRounds + 1,
         previousFindingFingerprint: fingerprint,
         stalledReviews,
@@ -241,7 +245,6 @@ export class CycleRemediation {
               ...(grant.agentOverride === undefined
                 ? {}
                 : { finalizationAgentOverride: grant.agentOverride }),
-              stepGuidance: grant.instructions,
               reason:
                 grant.additionalRounds === 0
                   ? 'Starting remediation with operator guidance using the existing allowance.'
@@ -304,7 +307,10 @@ export class CycleRemediation {
           ? { workflow: { ...cycle.workflow, activeReview: null, waiting: null } }
           : {}),
         remediationRounds: cycle.remediationRounds + 1,
-        housekeepingInstructions: `${reason}\n\n${this.housekeepingGuidance()}`,
+        attempt: {
+          housekeepingInstructions: `${reason}\n\n${this.housekeepingGuidance()}`,
+          ...(grant ? { stepGuidance: grant.instructions } : {}),
+        },
         ...(grant
           ? {
               // An explicit grant opens a new bounded progress window, as at a review's limit.
@@ -314,7 +320,6 @@ export class CycleRemediation {
               ...(grant.agentOverride === undefined
                 ? {}
                 : { finalizationAgentOverride: grant.agentOverride }),
-              stepGuidance: grant.instructions,
               reason: `Authorized ${grant.additionalRounds} additional remediation attempt(s); starting remediation.`,
             }
           : {}),

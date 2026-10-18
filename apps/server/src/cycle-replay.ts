@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   type AuditEvent,
-  effectiveCycleAttention,
   phaseBlockerCode,
   type WorkCycle,
   type WorkspaceId,
+  cycleStop,
 } from '@craftingtable/domain';
 import { openDaemonStorage } from './persisted-records.js';
 import {
@@ -155,7 +155,7 @@ function replayState(
   reserved = false,
   before?: { readonly cycle: WorkCycle; readonly known: ReadonlySet<string> },
 ): CycleReplayState {
-  const attention = effectiveCycleAttention(cycle);
+  const attention = cycleStop(cycle);
   return {
     status: cycle.status,
     step: cycle.step,
@@ -166,8 +166,8 @@ function replayState(
           ...(attention.claim ? { claim: attention.claim } : {}),
         }
       : {}),
-    ...(cycle.phaseWait ? { phaseWait: cycle.phaseWait.blockers.map(phaseBlockerCode) } : {}),
-    ...(cycle.designWait ? { designWait: true as const } : {}),
+    ...(cycle.waits?.phase ? { phaseWait: cycle.waits?.phase.blockers.map(phaseBlockerCode) } : {}),
+    ...(cycle.waits?.design ? { designWait: true as const } : {}),
     ...(reserved ? { reserved: true as const } : {}),
     reason: digest(cycle.reason),
     ...(before
@@ -235,11 +235,13 @@ export async function replayCyclePass(
           // As every resume leaves a cycle (`change()`'s rules for an operator command): its stop
           // cleared, its investigation and output repair ended, and a new window for the step.
           // Waits stay: only one resume path clears a phase wait.
-          const { attention: _stop, investigation: _ended, ...rest } = cycle;
+          const { stop: _stop, investigation: _ended, ...rest } = cycle;
           storage.execution.cycles.replace(
             {
               ...rest,
-              ...(cycle.outputRepair ? { outputRepair: null } : {}),
+              ...(cycle.attempt?.outputRepair
+                ? { attempt: { ...cycle.attempt, outputRepair: null } }
+                : {}),
               status: 'running',
               runDeadlineAt: new Date(
                 now.getTime() + cycle.policy.maxRunMinutes * 60_000,

@@ -2,6 +2,7 @@
  * The cycle's effects that continue a session (R-B7): a restart's resume, an output repair, and a
  * design continued after its investigation.
  */
+
 import { cycleLayers } from '../../agent-profile-policy.js';
 import { resolveAgent } from '../../agent-resolution.js';
 import { randomUUID } from 'node:crypto';
@@ -43,12 +44,15 @@ export class CycleRestart {
       undefined,
       {
         runDeadlineAt: cycle.runDeadlineAt,
-        resultContinuations: cycle.resultContinuations ?? 0,
-        providerRecovery: cycle.providerRecovery ?? null,
-        outputRepair: cycle.outputRepair ?? null,
-        stepGuidance: cycle.stepGuidance,
+        // The interrupted attempt goes on.
+        attempt: {
+          resultContinuations: cycle.attempt?.resultContinuations ?? 0,
+          providerRecovery: cycle.attempt?.providerRecovery ?? null,
+          outputRepair: cycle.attempt?.outputRepair ?? null,
+          stepGuidance: cycle.attempt?.stepGuidance,
+          housekeepingInstructions: cycle.attempt?.housekeepingInstructions,
+        },
         instructions: cycle.instructions,
-        housekeepingInstructions: cycle.housekeepingInstructions,
         reason: `Resuming the ${cycle.step} session that the daemon restart interrupted.`,
       },
       'resume-after-restart',
@@ -73,20 +77,22 @@ export class CycleRestart {
       run,
       undefined,
       {
-        outputRepair: {
-          attempts: repair.attempt,
-          sourceRunId: run.id,
-          code: repair.code,
-          issues: repair.issues,
+        attempt: {
+          outputRepair: {
+            attempts: repair.attempt,
+            sourceRunId: run.id,
+            code: repair.code,
+            issues: repair.issues,
+          },
+          resultContinuations: cycle.attempt?.resultContinuations ?? 0,
+          stepGuidance: cycle.attempt?.stepGuidance,
+          housekeepingInstructions: cycle.attempt?.housekeepingInstructions,
         },
         runDeadlineAt:
           Date.parse(cycle.runDeadlineAt) >= floor
             ? cycle.runDeadlineAt
             : new Date(floor).toISOString(),
-        resultContinuations: cycle.resultContinuations ?? 0,
-        stepGuidance: cycle.stepGuidance,
         instructions: cycle.instructions,
-        housekeepingInstructions: cycle.housekeepingInstructions,
         reason: `The final report did not pass validation. Asking the same agent session to correct it (automatic repair ${repair.attempt} of ${OUTPUT_REPAIR_LIMIT}).`,
       },
       'repair-output',
@@ -119,14 +125,16 @@ export class CycleRestart {
         step: 'design',
         currentRunId: runId,
         parentRunId: investigation.id,
-        phaseWait: null,
-        designWait: null,
+        waits: { phase: null, design: null },
         designDependencyContinuations: 0,
-        resultContinuations: 0,
-        // A new step: the investigation's service retries, repairs and guidance end with it.
-        providerRecovery: null,
-        outputRepair: null,
-        stepGuidance: undefined,
+        // A new step (R-B4 decision 6): the investigation's service retries, repairs, guidance
+        // and housekeeping end with it.
+        attempt: {
+          housekeepingInstructions: '',
+          resultContinuations: 0,
+          providerRecovery: null,
+          outputRepair: null,
+        },
         runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
         designRecovery: {
           runId,

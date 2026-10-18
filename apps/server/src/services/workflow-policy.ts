@@ -9,10 +9,10 @@ import {
   openQuestionsSection,
   asAgentRunId,
   asCheckpointId,
-  effectiveCycleAttention,
   type AgentRun,
   type WorkCycle,
   type WorkflowQuestion,
+  heldStop,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { resolveScope } from './execution-scope.js';
@@ -195,7 +195,7 @@ export function unsettledMergeDecisions(tx: StorageRepositories, cycle: WorkCycl
  * stop's own controls say what is wrong, and every reader of this list keeps working.
  */
 export function unsettledDecisionsAt(tx: StorageRepositories, cycle: WorkCycle): string[] {
-  const stop = cycle.status === 'paused' ? cycle.attention : effectiveCycleAttention(cycle);
+  const stop = heldStop(cycle);
   if (stop?.code !== 'shared-decision-required') return [];
   try {
     return unsettledMergeDecisions(tx, cycle);

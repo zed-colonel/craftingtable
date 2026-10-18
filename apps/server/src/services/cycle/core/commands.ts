@@ -4,7 +4,6 @@ import {
   type CycleAction,
   type CycleStep,
   cycleAttention,
-  effectiveCycleAttention,
   isTerminalAgentRunStatus,
   ownsIntegrationResolution,
   remediationAllowance,
@@ -12,6 +11,10 @@ import {
   resumeRedirect,
   type SourceRepositoryId,
   type WorkCycle,
+  cycleEnd,
+  cycleStop,
+  heldStop,
+  required,
 } from '@craftingtable/domain';
 import type { CycleChanges } from './transitions.js';
 
@@ -167,6 +170,7 @@ export function decideCommand(
       kind: 'write',
       changes: {
         status: 'stopped',
+        end: 'operator-stopped',
         reason: 'Automation stopped by operator. Manual flow is available.',
       },
       endTurn: true,
@@ -174,7 +178,7 @@ export function decideCommand(
   if (action === 'pause') {
     // Pausing a stop holds it: the stop is kept so Resume returns to it rather than
     // relaunching a step the controller would stop again (R-A7, cycle d148f0a4).
-    const held = cycle.status === 'needs-attention' ? effectiveCycleAttention(cycle) : undefined;
+    const held = cycle.status === 'needs-attention' ? cycleStop(cycle) : undefined;
     // A review still in its adopted checks has no session to keep: its checks stop (R-G13).
     return {
       kind: 'write',
@@ -188,7 +192,7 @@ export function decideCommand(
     };
   }
   const now = facts.now.getTime();
-  const recovery = cycle.providerRecovery;
+  const recovery = cycle.attempt?.providerRecovery;
   if (
     action === 'retry-provider' ||
     (recovery?.nextRetryAt && now < Date.parse(cycle.runDeadlineAt))
@@ -214,7 +218,9 @@ export function decideCommand(
       return refuse('amendment-retired', 'This attempt was retired by a planning amendment.');
     // Guidance for a pending retry joins the guidance the retried step already carries.
     const offered = 'guidance' in command ? command.guidance : undefined;
-    const stepGuidance = [cycle.stepGuidance, offered?.trim()].filter(Boolean).join('\n\n');
+    const stepGuidance = [cycle.attempt?.stepGuidance, offered?.trim()]
+      .filter(Boolean)
+      .join('\n\n');
     if (!withinInstructionLimit(stepGuidance))
       return refuse(
         'guidance-too-long',
@@ -225,10 +231,13 @@ export function decideCommand(
       kind: 'write',
       changes: {
         status: 'running',
-        ...(stepGuidance ? { stepGuidance } : {}),
-        providerRecovery: {
-          ...recovery,
-          nextRetryAt: action === 'retry-provider' ? facts.now.toISOString() : recovery.nextRetryAt,
+        attempt: {
+          ...(stepGuidance ? { stepGuidance } : {}),
+          providerRecovery: {
+            ...recovery,
+            nextRetryAt:
+              action === 'retry-provider' ? facts.now.toISOString() : recovery.nextRetryAt,
+          },
         },
         reason:
           'Provider retry authorized; current phase gates, process cleanup and the original deadline still apply.',
@@ -258,12 +267,13 @@ export function decideResume(
   if (redirect) {
     // A paused stop that a plain resume would only reproduce returns to the stop, where its
     // own control resolves it.
-    if (cycle.status === 'paused' && cycle.attention)
+    const held = cycle.status === 'paused' ? heldStop(cycle) : undefined;
+    if (held)
       return {
         kind: 'write',
         changes: {
           status: 'needs-attention',
-          attention: cycle.attention,
+          attention: held,
           reason: `Pause lifted. ${redirect.message}`,
         },
       };
@@ -339,7 +349,10 @@ export function decideResumeStep(
       );
     // A step that failed or was interrupted (a service stop asks for guidance) never acted
     // on its guidance to completion, so the retry carries it forward with the new guidance.
-    const stepGuidance = [run.status === 'finished' ? undefined : cycle.stepGuidance, guidance]
+    const stepGuidance = [
+      run.status === 'finished' ? undefined : cycle.attempt?.stepGuidance,
+      guidance,
+    ]
       .map((text) => text?.trim())
       .filter(Boolean)
       .join('\n\n');
@@ -353,13 +366,13 @@ export function decideResumeStep(
       return { kind: 'remediate', grant: { additionalRounds: 0, instructions: stepGuidance } };
     // After two remediations that changed nothing, the guidance is for a fresh review of the
     // same commit: another remediation would change nothing again (LIVE-27 review).
-    const noChange = effectiveCycleAttention(cycle)?.code === 'remediation-no-change';
+    const noChange = cycleStop(cycle)?.code === 'remediation-no-change';
     return {
       kind: 'launch',
       step: noChange ? 'review' : cycle.step,
       parent: run,
       changes: {
-        stepGuidance,
+        attempt: { stepGuidance },
         stalledReviews: 0,
         reason: noChange
           ? 'A fresh review of the unchanged commit, with operator guidance; existing allowance retained.'
@@ -382,7 +395,7 @@ export function decideResumeStep(
       );
     // Reviewing the same integration snapshot again reproduces the same findings (CTRL-04,
     // cycle 10dbc912): a plain resume waits until the owning slice has changed it.
-    const stop = effectiveCycleAttention(cycle)?.code;
+    const stop = cycleStop(cycle)?.code;
     return {
       kind: 'review-scope',
       guidance: guidance?.trim() ?? '',
@@ -423,7 +436,9 @@ function decideRelaunch(
         currentRunId: run.id,
         runDeadlineAt: facts.deadline(),
         reason: 'Resumed with the latest manual run.',
-        designWait: null,
+        // The adopted run continues the step's attempt (R-B4 decision 6, as the design keeps it).
+        keepAttempt: true,
+        waits: { design: null },
       },
     };
   }
@@ -453,7 +468,7 @@ function decideRelaunch(
       status: 'running',
       runDeadlineAt: facts.deadline(),
       reason: 'Automation resumed by operator.',
-      phaseWait: null,
+      waits: { phase: null },
     },
   };
 }
@@ -497,11 +512,13 @@ export const NO_WRITE = { kind: 'none' } as const;
 
 /** Puts a cycle back in the status (and stop) it had before an undone reservation. */
 export function restoredStatus(cycle: WorkCycle): CycleChanges {
+  if (cycle.status === 'stopped' || cycle.status === 'completed')
+    return { status: cycle.status, end: required(cycleEnd(cycle), "the cycle's end record") };
   if (cycle.status !== 'needs-attention' && cycle.status !== 'awaiting-merge')
     return { status: cycle.status };
   return {
     status: cycle.status,
-    attention: effectiveCycleAttention(cycle) ?? cycleAttention('legacy-attention'),
+    attention: required(cycleStop(cycle), "the cycle's stop"),
   };
 }
 
@@ -520,7 +537,11 @@ export function decideWindDownStop(
     );
   return {
     kind: 'write',
-    changes: { status: 'stopped', reason: 'Roadmap stopped. Manual flow is available.' },
+    changes: {
+      status: 'stopped',
+      end: 'roadmap-wound-down',
+      reason: 'Roadmap stopped. Manual flow is available.',
+    },
     endTurn: true,
   };
 }
@@ -626,7 +647,7 @@ export function decideRestart(
         }
       : undefined;
   const stop: CommandWrite | undefined =
-    cycle.status === 'running' && !cycle.designWait && !cleanStop
+    cycle.status === 'running' && !cycle.waits?.design && !cleanStop
       ? {
           kind: 'write',
           changes: {

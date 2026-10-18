@@ -1,6 +1,12 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { cycleAttention, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import {
+  cycleAttention,
+  type CycleAttention,
+  DEFAULT_COMPLETION_POLICY,
+  heldStop,
+  stopRecord,
+} from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
 import { afterEach, expect, it } from 'vitest';
 
@@ -117,7 +123,7 @@ it('stops on the worktree’s state when a review with findings ends off its bra
   await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'off-branch stop');
   expect(currentCycle(state, cycle)).toMatchObject({
     step: 'review',
-    attention: { code: 'worktree-state' },
+    stop: { code: 'worktree-state' },
     reason: expect.stringContaining('Remediation requires the managed branch'),
   });
   expect(backend.launches.map((r) => r.model)).not.toContain('remediate-model');
@@ -140,7 +146,7 @@ it('stops on the worktree’s state when a passing review leaves its worktree of
   expect(currentCycle(state, cycle)).toMatchObject({
     status: 'needs-attention',
     step: 'review',
-    attention: { code: 'worktree-state' },
+    stop: { code: 'worktree-state' },
     reason: 'Review approval requires the managed branch without unresolved Git operations.',
   });
 });
@@ -351,7 +357,7 @@ it('relaunches the housekeeping remediation when more is authorized at its limit
   const stopped = currentCycle(state, cycle);
   expect(stopped).toMatchObject({
     step: 'implement',
-    attention: { code: 'remediation-exhausted' },
+    stop: { code: 'remediation-exhausted' },
   });
   // Reviews that stalled before the stop (R-B4 increment 4 re-check).
   state.context.storage.execution.cycles.replace(
@@ -423,7 +429,7 @@ it('relaunches the approval’s housekeeping when more is authorized at its limi
   const limit = currentCycle(state, cycle);
   expect(limit).toMatchObject({
     step: 'review',
-    attention: { code: 'remediation-exhausted' },
+    stop: { code: 'remediation-exhausted' },
     reason: expect.stringContaining('Verification changed the worktree.'),
   });
   const grant = () =>
@@ -439,10 +445,16 @@ it('relaunches the approval’s housekeeping when more is authorized at its limi
       },
     });
   // Only the limit stop: the same passing review at another stop asks for no remediation.
-  const replace = (fields: Record<string, unknown>) => {
+  // An `attention` given is stored as the cycle's stop (R-B4b).
+  const replace = ({ attention, ...fields }: Record<string, unknown>) => {
     const current = currentCycle(state, cycle);
     state.context.storage.execution.cycles.replace(
-      { ...current, ...fields, version: current.version + 1 },
+      {
+        ...current,
+        ...fields,
+        ...(attention ? { stop: stopRecord(attention as CycleAttention, current.updatedAt) } : {}),
+        version: current.version + 1,
+      },
       current.version,
     );
   };
@@ -450,7 +462,7 @@ it('relaunches the approval’s housekeeping when more is authorized at its limi
   const elsewhere = await grant();
   expect(elsewhere.statusCode).toBe(409);
   expect(elsewhere.body).toContain('A valid review requiring remediation is needed');
-  replace({ attention: limit.attention });
+  replace({ attention: heldStop(limit) });
   const granted = await grant();
   expect(granted.statusCode, granted.body).toBe(200);
   await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'remediated');
@@ -494,10 +506,16 @@ it('refuses the housekeeping grant at another stop, too few rounds, or an unsett
         instructions: 'Remove the generated artifact.',
       },
     });
-  const rewrite = (fields: Record<string, unknown>) => {
+  // An `attention` given is stored as the cycle's stop (R-B4b).
+  const rewrite = ({ attention, ...fields }: Record<string, unknown>) => {
     const current = currentCycle(state, cycle);
     state.context.storage.execution.cycles.replace(
-      { ...current, ...fields, version: current.version + 1 },
+      {
+        ...current,
+        ...fields,
+        ...(attention ? { stop: stopRecord(attention as CycleAttention, current.updatedAt) } : {}),
+        version: current.version + 1,
+      },
       current.version,
     );
   };

@@ -342,8 +342,9 @@ export function FinalizationPanel({
               {cycle && !f.stages && (
                 <>
                   {' '}
-                  · {cycle.polishPhase} · {Math.min((cycle.polishRound ?? 0) + 1, f.rounds.length)}{' '}
-                  of {f.rounds.length} improvement rounds
+                  · {cycle.polishPhase} ·{' '}
+                  {Math.min((cycle.retiredFinalization?.polishRound ?? 0) + 1, f.rounds.length)} of{' '}
+                  {f.rounds.length} improvement rounds
                 </>
               )}
             </p>
@@ -562,14 +563,14 @@ export function FinalizationPanel({
                 version={latest.version}
               />
             )}
-            {!!cycle?.deferredNits?.length && (
+            {!!cycle?.retiredFinalization?.deferredNits?.length && (
               <details>
-                <summary>Deferred nits ({cycle.deferredNits.length})</summary>
+                <summary>Deferred nits ({cycle.retiredFinalization.deferredNits.length})</summary>
                 <p>
                   Finding dispositions for the recorded commits. Findings remain open follow-up
                   work; changed commits or finding details invalidate an exemption.
                 </p>
-                {cycle.deferredNits.map((d) => (
+                {cycle.retiredFinalization.deferredNits.map((d) => (
                   <article key={d.finding.id}>
                     <strong>
                       {d.finding.id} · {d.finding.title}

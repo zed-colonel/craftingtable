@@ -235,6 +235,7 @@ function recordedAttention(
   const cycle = status === 'awaiting-merge' ? cycleOf() : undefined;
   const recovered = effectiveCycleAttention({
     status,
+    attention: undefined,
     reason: typeof metadata.reason === 'string' ? metadata.reason : '',
     ...(cycle?.executionScope ? { executionScope: cycle.executionScope } : {}),
     ...(cycle?.finalizationId ? { finalizationId: cycle.finalizationId } : {}),

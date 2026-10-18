@@ -81,12 +81,14 @@ import {
   type RoadmapEntryId,
   type WorkCycleId,
   type ConcurrencyDefinitionId,
+  cycleStop,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 /** A definition's save with each entry's profiles, as the daemon writes it (R-E5b). */
 export type RoadmapDefinitionInput = Omit<SaveRoadmapRequest, 'entries'> & {
   readonly entries: readonly RoadmapEntryFields[];
 };
+
 import {
   delegatedResolutionProfile,
   entryAgentSelections,
@@ -97,10 +99,12 @@ import {
   withPermissions,
 } from './agent-profile-policy.js';
 import { selectionSet } from './agent-resolution.js';
+import { type DecisionBrief, decisionBriefs } from './architecture-decision-inbox.js';
+import type { ControllerPasses } from './attention-gates.js';
+import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
-import { neededDecisions, slicesHeldBy, slicesWaitingOn } from './decision-demand.js';
-import { decisionSettlement, settlementLines } from './decision-settlement.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
+import { checkpointSubjectKey } from './checkpoint-subject.js';
 import {
   bindingIssues,
   crossProjectState,
@@ -110,23 +114,18 @@ import {
   mapActivity,
   milestoneSatisfied,
 } from './cross-project-service.js';
+import { neededDecisions, slicesHeldBy, slicesWaitingOn } from './decision-demand.js';
+import { decisionSettlement, settlementLines } from './decision-settlement.js';
 import {
-  ConcurrentModificationError,
-  DaemonDrainingError,
-  CheckAdoptionRequiredError,
-  DeclaredChecksMissingError,
-  ExecutionRequestError,
-  NotFoundError,
-  TypedRefusalError,
-  windDownRefused,
-} from './errors.js';
-import {
-  requireScopeOwnership,
-  resolveScope,
-  scopeBlockers,
-  scopePhaseBlockers,
-  unsupportedScopeCapabilities,
-} from './execution-scope.js';
+  cycleCarriesOn,
+  gatePhase,
+  holdCheck,
+  phaseGateClears,
+  type ReleaseCheck,
+  roadmapHeld,
+  selfReverification,
+  stopCheck,
+} from './entry-holds.js';
 import {
   blockerWait,
   cycleStep,
@@ -141,20 +140,38 @@ import {
   waiting,
 } from './entry-waits.js';
 import {
-  cycleCarriesOn,
-  gatePhase,
-  holdCheck,
-  selfReverification,
-  phaseGateClears,
-  type ReleaseCheck,
-  roadmapHeld,
-  stopCheck,
-} from './entry-holds.js';
+  CheckAdoptionRequiredError,
+  ConcurrentModificationError,
+  DaemonDrainingError,
+  DeclaredChecksMissingError,
+  ExecutionRequestError,
+  NotFoundError,
+  TypedRefusalError,
+  windDownRefused,
+} from './errors.js';
+import {
+  requireScopeOwnership,
+  resolveScope,
+  scopeBlockers,
+  scopePhaseBlockers,
+  unsupportedScopeCapabilities,
+} from './execution-scope.js';
 import type { ExecutionService } from './execution-service.js';
+import { carryPlanAcceptance } from './generated-plan-evidence.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
+import { operatorSetupItem } from './operator-setup-item.js';
+import { roadmapWaitAudit } from './operator-wait-service.js';
 import { PhaseGateError } from './phase-resources.js';
 import { planCheckpoint } from './plan-acceptance-policy.js';
-import { carryPlanAcceptance } from './generated-plan-evidence.js';
+import {
+  buildBoard,
+  type ItemSubject,
+  itemNodeKeys,
+  itemSubjectOf,
+  mapGraph,
+  type NodeEvaluation,
+  sequenceGraph,
+} from './roadmap-board.js';
 import { acceptedEvidence } from './runtime-evidence-policy.js';
 import {
   findingFingerprint,
@@ -170,24 +187,9 @@ import {
   unsettledSliceDecisions,
   workflowContext,
 } from './workflow-policy.js';
-import { type DecisionBrief, decisionBriefs } from './architecture-decision-inbox.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
-import type { ControllerPasses } from './attention-gates.js';
-import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
-import { checkpointSubjectKey } from './checkpoint-subject.js';
-import { operatorSetupItem } from './operator-setup-item.js';
-import { roadmapWaitAudit } from './operator-wait-service.js';
-import {
-  buildBoard,
-  type ItemSubject,
-  itemNodeKeys,
-  itemSubjectOf,
-  mapGraph,
-  type NodeEvaluation,
-  sequenceGraph,
-} from './roadmap-board.js';
 
 class SupersededRoadmapOperation extends Error {}
 /**
@@ -2443,7 +2445,7 @@ export class RoadmapService {
     const gated =
       hold?.attention?.code === 'entry-preparation-failed' &&
       cycle?.status === 'awaiting-merge' &&
-      cycle.attention?.code === 'record-scope-evidence';
+      cycleStop(cycle)?.code === 'record-scope-evidence';
     if (cycle && !['completed', 'stopped'].includes(cycle.status) && !gated)
       return refused('review-open', 'Its review cycle is still open; finish or stop it first.');
     if (this.complete(roadmap, entry, tx))
@@ -3092,7 +3094,7 @@ export class RoadmapService {
         // reserved merge is completed as reserved.
         if (
           automation.integrationMerge === 'automatic' &&
-          ((cycle.status === 'awaiting-merge' && !mergeAdoptsChecks(cycle.attention)) ||
+          ((cycle.status === 'awaiting-merge' && !mergeAdoptsChecks(cycleStop(cycle))) ||
             pending?.status === 'reserved')
         ) {
           check();

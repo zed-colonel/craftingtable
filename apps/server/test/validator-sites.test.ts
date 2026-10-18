@@ -5,6 +5,7 @@ import {
   type AgentRunId,
   DEFAULT_ROADMAP_SCHEDULING,
   type WorkCycle,
+  heldStop,
 } from '@craftingtable/domain';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -334,7 +335,7 @@ describe("the delegated user's authority in the cycle's effects", () => {
       const stopped = currentCycle(state, cycle);
       expect({
         status: stopped.status,
-        attention: stopped.attention,
+        attention: heldStop(stopped),
         reason: stopped.reason,
       }).toEqual({
         status: 'needs-attention',
@@ -381,7 +382,7 @@ describe("the delegated user's authority over integration", () => {
       const stopped = currentCycle(state, cycle);
       expect({
         status: stopped.status,
-        attention: stopped.attention,
+        attention: heldStop(stopped),
         reason: stopped.reason,
       }).toEqual({
         status: 'needs-attention',

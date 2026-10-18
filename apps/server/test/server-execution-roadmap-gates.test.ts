@@ -177,7 +177,7 @@ it('keeps the operator’s merge as the one stop when its item is completed by h
   // roadmap holds nothing beside it (the merge command does not read the item, review MEDIUM-1).
   expect(
     state.context.storage.execution.cycles.find(state.workspaceId, first.cycleId),
-  ).toMatchObject({ status: 'awaiting-merge', attention: { code: 'merge-approval' } });
+  ).toMatchObject({ status: 'awaiting-merge', stop: { code: 'merge-approval' } });
   expect(storedRoadmap(state)).toMatchObject({ status: 'running' });
   expect(storedRoadmap(state).attention).toBeUndefined();
   expect(storedRoadmap(state).entryHolds ?? {}).toEqual({});

@@ -85,7 +85,7 @@ it('records what one pass does to each cycle, and with its stop lifted, without 
           ...stop,
           cycle: expect.stringMatching(/^sha256:/),
           // The lifted cycle kept its reason, and the same report stops it with the same words.
-          fields: ['attention', 'status'],
+          fields: ['status', 'stop'],
         },
       },
     },
@@ -174,15 +174,11 @@ it('records each cycle’s own commands, ended turns, a reservation and the whol
       step: 'implement',
       reserved: true,
       fields: [
+        // A launch writes a fresh attempt (R-B4b): its fields as explicit nulls, zero and ''.
+        'attempt',
         'currentRunId',
-        // A launch writes these as explicit nulls.
-        'designWait',
-        'housekeepingInstructions',
-        'outputRepair',
         'parentRunId',
-        'providerRecovery',
         'reason',
-        'resultContinuations',
         'runDeadlineAt',
         'step',
       ],

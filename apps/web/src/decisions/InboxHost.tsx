@@ -41,6 +41,7 @@ import {
   RoadmapRuntime,
 } from './roadmap-runtime.js';
 import { UpstreamTransitions } from './upstream/UpstreamTransitions.js';
+import { heldStop } from '@craftingtable/domain';
 
 /** Where a roadmap part opens: the held entry, or the step's own form (LIVE-11). */
 function roadmapPartFocus(roadmapId: string, part: RoadmapItemPart): string | undefined {
@@ -179,8 +180,9 @@ export function InboxHost({
       case 'scope-evidence':
         return work.detail ? <ScopeControls item={work} attention={attention} inInbox /> : loading;
       case 'check-adoption': {
+        const held = workspaceCycles.find((c) => c.id === cycleId);
         const repositoryId =
-          workspaceCycles.find((c) => c.id === cycleId)?.attention?.refs?.repositoryId ??
+          (held && heldStop(held))?.refs?.repositoryId ??
           worktreeOf(item.refs.worktreeId)?.repositoryId;
         const repository = repositories.find((r) => r.id === repositoryId);
         const worktree = worktreeOf(item.refs.worktreeId);

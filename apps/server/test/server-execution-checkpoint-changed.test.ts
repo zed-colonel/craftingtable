@@ -9,6 +9,7 @@ import {
   supervisedMapFixture,
   waitFor,
 } from './execution-test-support.js';
+import { heldStop } from '@craftingtable/domain';
 
 /**
  * A delegated checkpoint whose assignment or prerequisites change while its review runs (R-B4
@@ -127,7 +128,7 @@ async function checkpointRoadmap(change: Record<string, unknown>) {
       scope: c.executionScope?.sourceId,
       status: c.status,
       step: c.step,
-      code: c.attention?.code,
+      code: heldStop(c)?.code,
       reason: c.reason?.slice(0, 160),
       active: c.workflow?.activeReview?.kind,
     }));
@@ -148,7 +149,7 @@ itNeedsCargo(
     );
     expect(reviews.checkpoint).toBe(1);
     expect(reviewed()).toMatchObject({
-      attention: { code: 'workflow-obligation', refs: { checkpointId: 'LOCAL-REVIEW' } },
+      stop: { code: 'workflow-obligation', refs: { checkpointId: 'LOCAL-REVIEW' } },
       reason: expect.stringContaining(
         'Saved reviewer responsibilities do not authorize this checkpoint review.',
       ),
@@ -167,7 +168,7 @@ itNeedsCargo(
       () =>
         reviews.checkpoint === 1 &&
         dropped(reviewed()) &&
-        reviewed()?.attention?.code === 'controller-wait',
+        heldStop(reviewed())?.code === 'controller-wait',
       'the prerequisite wait',
     );
     expect(reviewed()).toMatchObject({

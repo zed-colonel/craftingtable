@@ -37,7 +37,7 @@ export interface SessionResume {
  */
 export function sessionResumeSource(
   execution: Execution,
-  cycle: Pick<WorkCycle, 'parentRunId' | 'step' | 'worktreeId' | 'outputRepair'>,
+  cycle: Pick<WorkCycle, 'parentRunId' | 'step' | 'worktreeId' | 'attempt'>,
   parent: AgentRun | undefined,
 ): SessionResume | undefined {
   if (
@@ -50,7 +50,7 @@ export function sessionResumeSource(
     return undefined;
   if (drainInterrupted(execution, parent))
     return { run: parent, sessionId: parent.backendSessionId, kind: 'restart' };
-  if (cycle.outputRepair?.sourceRunId === parent.id && parent.status === 'finished')
+  if (cycle.attempt?.outputRepair?.sourceRunId === parent.id && parent.status === 'finished')
     return { run: parent, sessionId: parent.backendSessionId, kind: 'output-repair' };
   return undefined;
 }

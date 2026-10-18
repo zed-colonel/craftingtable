@@ -5,6 +5,8 @@ import {
   ENTRY_WAIT,
   type RoadmapEntryWait,
   type WorkCycle,
+  type CycleAttention,
+  stopRecord,
 } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
 import {
@@ -26,8 +28,13 @@ import { PhaseGateError } from '../../src/services/phase-resources.js';
  * not compile). These tables pin what each kind of path records (R-C12).
  */
 
-const cycle = (status: WorkCycle['status'], attention?: WorkCycle['attention']) =>
-  ({ id: 'cycle-1', status, reason: `Cycle is ${status}.`, attention }) as WorkCycle;
+const cycle = (status: WorkCycle['status'], attention?: CycleAttention) =>
+  ({
+    id: 'cycle-1',
+    status,
+    reason: `Cycle is ${status}.`,
+    ...(attention ? { stop: stopRecord(attention, '2026-01-01T00:00:00.000Z') } : {}),
+  }) as WorkCycle;
 
 describe('the wait a cycle the scheduler leaves alone implies', () => {
   it.each<[string, WorkCycle, EntryStep]>([

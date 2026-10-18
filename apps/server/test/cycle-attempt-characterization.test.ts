@@ -36,42 +36,44 @@ afterEach(async () => {
 
 const T = '2026-09-20T12:00:00.000Z';
 const seededFields = (source: string) => ({
-  stepGuidance: 'Seeded guidance.',
-  housekeepingInstructions: 'Seeded housekeeping.',
-  resultContinuations: 1,
-  outputRepair: {
-    attempts: 1,
-    sourceRunId: asAgentRunId(source),
-    code: 'step-incomplete' as const,
-    issues: ['Seeded.'],
+  attempt: {
+    stepGuidance: 'Seeded guidance.',
+    housekeepingInstructions: 'Seeded housekeeping.',
+    resultContinuations: 1,
+    outputRepair: {
+      attempts: 1,
+      sourceRunId: asAgentRunId(source),
+      code: 'step-incomplete' as const,
+      issues: ['Seeded.'],
+    },
+    providerRecovery: {
+      attempts: 1,
+      sourceRunId: asAgentRunId(source),
+      failure: { kind: 'capacity' as const, message: 'Seeded.', safeToRetry: true },
+      profile: { backend: 'claude-code' as const, permissionMode: 'auto' as const, model: 'm' },
+    },
   },
-  providerRecovery: {
-    attempts: 1,
-    sourceRunId: asAgentRunId(source),
-    failure: { kind: 'capacity' as const, message: 'Seeded.', safeToRetry: true },
-    profile: { backend: 'claude-code' as const, permissionMode: 'auto' as const, model: 'm' },
-  },
-  designWait: {
-    startedAt: T,
-    requirements: [{ kind: 'slice' as const, id: 'wi/WI-01/domain', state: 'merged' as const }],
-  },
-  phaseWait: {
-    startedAt: T,
-    blockers: [
-      { kind: 'dependency' as const, message: 'Seeded.', code: 'slice-requirement' as const },
-    ],
+  waits: {
+    design: {
+      since: T,
+      requirements: [{ kind: 'slice' as const, id: 'wi/WI-01/domain', state: 'merged' as const }],
+    },
+    phase: {
+      since: T,
+      blockers: [
+        { kind: 'dependency' as const, message: 'Seeded.', code: 'slice-requirement' as const },
+      ],
+    },
   },
 });
-const FIELDS = [
+const ATTEMPT = [
   'stepGuidance',
   'housekeepingInstructions',
   'resultContinuations',
   'outputRepair',
   'providerRecovery',
-  'designWait',
-  'phaseWait',
 ] as const;
-type Field = (typeof FIELDS)[number];
+type Field = (typeof ATTEMPT)[number] | 'designWait' | 'phaseWait';
 
 /** Seeds every per-step field and both waits on the stored cycle, as one write. */
 function seed(state: Ready, cycle: WorkCycle, extra: Partial<WorkCycle> = {}): WorkCycle {
@@ -86,20 +88,33 @@ function seed(state: Ready, cycle: WorkCycle, extra: Partial<WorkCycle> = {}): W
   return seeded;
 }
 
+/**
+ * Each per-step field of a record and its waits, under the names this table had before R-B4b
+ * grouped them: a wait's record is its `waits` entry, absent when cleared (it was `null`).
+ */
+function fieldsOf(cycle: WorkCycle): Record<Field, unknown> {
+  return {
+    ...(Object.fromEntries(ATTEMPT.map((field) => [field, cycle.attempt?.[field]])) as Record<
+      (typeof ATTEMPT)[number],
+      unknown
+    >),
+    designWait: cycle.waits?.design,
+    phaseWait: cycle.waits?.phase,
+  };
+}
+
 /** What a written record carries of each field, against the seeded one. */
 function perStep(seeded: WorkCycle, written: WorkCycle): Record<Field, unknown> {
+  const before = fieldsOf(seeded);
   return Object.fromEntries(
-    FIELDS.map((field) => {
-      const value = written[field];
-      return [
-        field,
-        !(field in written) || value === undefined
-          ? 'absent'
-          : JSON.stringify(value) === JSON.stringify(seeded[field])
-            ? 'kept'
-            : value,
-      ];
-    }),
+    Object.entries(fieldsOf(written)).map(([field, value]) => [
+      field,
+      value === undefined
+        ? 'absent'
+        : JSON.stringify(value) === JSON.stringify(before[field as Field])
+          ? 'kept'
+          : value,
+    ]),
   ) as Record<Field, unknown>;
 }
 
@@ -125,7 +140,7 @@ function writes(state: Ready, seedAt?: string) {
     return result;
   });
   const of = (action: string) => written.find((w) => w.action === action)?.cycle;
-  return Object.assign(of, { seeded: () => base, actions: () => written.map((w) => w.action) });
+  return Object.assign(of, { seeded: () => base });
 }
 
 /** A design question stop: the cycle at `design`, its run finished. */
@@ -176,7 +191,7 @@ describe("next(): the step's reservation", () => {
         resultContinuations: 0,
         outputRepair: null,
         providerRecovery: null,
-        designWait: null,
+        designWait: 'absent',
         phaseWait: 'kept',
       },
     ],
@@ -189,7 +204,7 @@ describe("next(): the step's reservation", () => {
         resultContinuations: 0,
         outputRepair: null,
         providerRecovery: null,
-        designWait: null,
+        designWait: 'absent',
         phaseWait: 'kept',
       },
     ],
@@ -207,16 +222,20 @@ describe("next(): the step's reservation", () => {
     const parent = run(state, currentCycle(state, cycle));
     const seeded = seed(state, cycle, { currentRunId: asAgentRunId(randomUUID()) });
     const written = await writerOf(state).next(seeded, 'design', parent);
-    expect(perStep(seeded, written)).toMatchObject({ stepGuidance: 'kept', designWait: null });
+    expect(perStep(seeded, written)).toMatchObject({ stepGuidance: 'kept', designWait: 'absent' });
   });
 });
 
 /** Seeds the per-step fields alone on the stored cycle: a wait would steer the pass elsewhere. */
-function seedAttempt(state: Ready, cycle: WorkCycle, keep: readonly Field[] = []): WorkCycle {
+function seedAttempt(
+  state: Ready,
+  cycle: WorkCycle,
+  keep: readonly (typeof ATTEMPT)[number][] = [],
+): WorkCycle {
   const current = currentCycle(state, cycle);
-  const { designWait: _design, phaseWait: _phase, ...fields } = seededFields(current.currentRunId);
-  for (const field of keep) delete (fields as Record<string, unknown>)[field];
-  const seeded = { ...current, ...fields, version: current.version + 1 } as WorkCycle;
+  const attempt: Record<string, unknown> = { ...seededFields(current.currentRunId).attempt };
+  for (const field of keep) attempt[field] = current.attempt?.[field];
+  const seeded = { ...current, attempt, version: current.version + 1 } as WorkCycle;
   expect(state.context.storage.execution.cycles.replace(seeded, current.version)).toBeTruthy();
   return seeded;
 }
@@ -229,7 +248,7 @@ const agentsOnly = (state: Ready) => ({
 describe('the same-step attempts, through the callers that take them (increment 1 review, MEDIUM-2)', () => {
   it('a service retry keeps the guidance, the housekeeping and the continuation count, and takes its retry', async () => {
     let now = new Date('2026-09-25T12:00:00Z');
-    const { state, worktree, backend } = await cycleFixture(
+    const { state, worktree } = await cycleFixture(
       [
         {
           resultText: 'At capacity.',
@@ -240,19 +259,15 @@ describe('the same-step attempts, through the callers that take them (increment 
       () => now,
     );
     const cycle = await startCycle(state, worktree.id);
-    await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'the retry');
+    await waitFor(
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
+      'the retry',
+    );
     // A seeded repair would make the retry resume the session for it: the retry keeps none.
     const seeded = seedAttempt(state, cycle, ['providerRecovery', 'outputRepair']);
     const written = writes(state);
     now = new Date('2026-09-25T12:30:00Z');
-    await waitFor(() => written('retry-provider') !== undefined, 'the service retry', {
-      steps: 20,
-    }).catch((error: Error) => {
-      const at = currentCycle(state, cycle);
-      throw new Error(
-        `${error.message}: ${at.status} ${at.attention?.code} ${at.reason} ${written.actions()} launches=${backend.launches.length} seeded-at=${seeded.providerRecovery?.attempts}/${seeded.providerRecovery?.nextRetryAt}`,
-      );
-    });
+    await waitFor(() => written('retry-provider') !== undefined, 'the service retry');
     const retried = written('retry-provider')!;
     expect(perStep(seeded, retried)).toEqual({
       stepGuidance: 'kept',
@@ -260,11 +275,11 @@ describe('the same-step attempts, through the callers that take them (increment 
       resultContinuations: 'kept',
       outputRepair: null,
       providerRecovery: {
-        ...seeded.providerRecovery,
-        attempts: seeded.providerRecovery!.attempts + 1,
+        ...seeded.attempt?.providerRecovery,
+        attempts: seeded.attempt!.providerRecovery!.attempts + 1,
         nextRetryAt: undefined,
       },
-      designWait: null,
+      designWait: 'absent',
       phaseWait: 'absent',
     });
   });
@@ -296,8 +311,7 @@ describe('the same-step attempts, through the callers that take them (increment 
       resultContinuations: 2,
       outputRepair: null,
       providerRecovery: 'kept',
-      // The stored design wait was already `null`, as `next()` leaves it.
-      designWait: 'kept',
+      designWait: 'absent',
       phaseWait: 'absent',
     });
   });
@@ -323,10 +337,13 @@ describe('the same-step attempts, through the callers that take them (increment 
       housekeepingInstructions: 'kept',
       resultContinuations: 'kept',
       providerRecovery: null,
-      designWait: null,
+      designWait: 'absent',
       phaseWait: 'absent',
     });
-    expect(repaired.outputRepair).toMatchObject({ attempts: 1, code: 'design-open-questions' });
+    expect(repaired.attempt?.outputRepair).toMatchObject({
+      attempts: 1,
+      code: 'design-open-questions',
+    });
   });
 
   it("a restart's resume keeps every per-step field", async () => {
@@ -345,7 +362,7 @@ describe('the same-step attempts, through the callers that take them (increment 
       resultContinuations: 'kept',
       outputRepair: 'kept',
       providerRecovery: 'kept',
-      designWait: null,
+      designWait: 'absent',
       phaseWait: 'kept',
     });
   });
@@ -359,10 +376,10 @@ describe('change(): leaving automation keeps the waits', () => {
       'advance',
     ],
     ['a pause', { status: 'paused' }, 'pause'],
-    ['an end', { status: 'stopped' }, 'stop'],
+    ['an end', { status: 'stopped', end: 'operator-stopped' }, 'stop'],
   ] as const)('%s keeps both waits and ends the output repair', async (_name, changes, action) => {
     const { state, cycle } = await designStop();
-    const seeded = seed(state, cycle, { status: 'running', attention: undefined });
+    const seeded = seed(state, cycle, { status: 'running', stop: undefined });
     const written = writerOf(state).change(seeded, changes as never, action);
     expect(perStep(seeded, written)).toEqual({
       stepGuidance: 'kept',
@@ -377,7 +394,9 @@ describe('change(): leaving automation keeps the waits', () => {
 });
 
 describe("the step changes that bypass next() (R-B7's note for R-B4b)", () => {
-  it('a design recovery keeps the guidance and the housekeeping, and clears the rest', async () => {
+  // R-B4b (decision 6): a new run that does not continue the attempt writes a fresh one. At
+  // a0dd0bb the recovery kept the stopped design's guidance and housekeeping.
+  it('a design recovery writes a fresh attempt, and clears both waits', async () => {
     const { state, cycle } = await designStop([designDone]);
     const seeded = seed(state, cycle);
     const url = `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/design-recovery`;
@@ -399,17 +418,18 @@ describe("the step changes that bypass next() (R-B7's note for R-B4b)", () => {
     });
     expect(response.statusCode, response.body).toBe(200);
     expect(perStep(seeded, written('design-recovery')!)).toEqual({
-      stepGuidance: 'kept',
-      housekeepingInstructions: 'kept',
+      stepGuidance: 'absent',
+      housekeepingInstructions: '',
       resultContinuations: 0,
       outputRepair: null,
       providerRecovery: null,
-      designWait: null,
-      phaseWait: null,
+      designWait: 'absent',
+      phaseWait: 'absent',
     });
   });
 
-  it('the automatic design continue keeps the housekeeping and clears the rest (R-C3a)', async () => {
+  // R-B4b (decision 6): at a0dd0bb the continue kept the housekeeping.
+  it('the automatic design continue writes a fresh attempt, and clears both waits (R-C3a)', async () => {
     const answered = `Investigated.\n\n\`\`\`craftingtable-design\n${JSON.stringify({
       version: 1,
       items: [
@@ -444,16 +464,18 @@ describe("the step changes that bypass next() (R-B7's note for R-B4b)", () => {
     await waitFor(() => written('design-continue') !== undefined, 'the design continue');
     expect(perStep(written.seeded()!, written('design-continue')!)).toEqual({
       stepGuidance: 'absent',
-      housekeepingInstructions: 'kept',
+      housekeepingInstructions: '',
       resultContinuations: 0,
       outputRepair: null,
       providerRecovery: null,
-      designWait: null,
-      phaseWait: null,
+      designWait: 'absent',
+      phaseWait: 'absent',
     });
   });
 
-  it("an integration resolution's start keeps every per-step field but the repair, and both waits", async () => {
+  // R-B4b (decision 6): at a0dd0bb the resolution's start kept every per-step field but the
+  // repair, so its brief repeated the stopped step's guidance.
+  it("an integration resolution's start writes a fresh attempt, and keeps both waits", async () => {
     const { state, backend, worktree, root } = await cycleFixture([
       designDone,
       implementationDone,
@@ -492,12 +514,11 @@ describe("the step changes that bypass next() (R-B7's note for R-B4b)", () => {
     });
     expect(started.statusCode, started.body).toBe(200);
     expect(perStep(seeded, written('resolution-started')!)).toEqual({
-      stepGuidance: 'kept',
-      housekeepingInstructions: 'kept',
-      resultContinuations: 'kept',
-      // An operator's command ends an output repair (`change()`, R-C2).
+      stepGuidance: 'absent',
+      housekeepingInstructions: '',
+      resultContinuations: 0,
       outputRepair: null,
-      providerRecovery: 'kept',
+      providerRecovery: null,
       designWait: 'kept',
       phaseWait: 'kept',
     });
@@ -520,7 +541,7 @@ describe("the step changes that bypass next() (R-B7's note for R-B4b)", () => {
       resultContinuations: 'kept',
       outputRepair: null,
       providerRecovery: 'kept',
-      designWait: null,
+      designWait: 'absent',
       phaseWait: 'kept',
     });
   });

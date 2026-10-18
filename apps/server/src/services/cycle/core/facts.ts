@@ -11,6 +11,7 @@ import {
   type WorkItemId,
   type WorkspaceId,
   type Worktree,
+  type DesignRequirement,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { CommandContext } from '../../auth-service.js';
@@ -75,9 +76,10 @@ export interface CycleFacts {
   readonly controllerReviewRunnable: () => boolean;
   /** The worktree scope's phase blockers, for a scoped worktree. */
   readonly phaseBlockers: () => readonly PhaseBlocker[];
-  readonly designDependencies: (
-    requirements: NonNullable<WorkCycle['designWait']>['requirements'],
-  ) => { readonly supported: boolean; readonly pending: readonly string[] };
+  readonly designDependencies: (requirements: readonly DesignRequirement[]) => {
+    readonly supported: boolean;
+    readonly pending: readonly string[];
+  };
   /** The owning roadmap is not running (its pauses hold service retries and design rechecks). */
   readonly roadmapPaused: () => boolean;
   /** The facts `decideStepOutcome` classifies the current run with (R-B2). */

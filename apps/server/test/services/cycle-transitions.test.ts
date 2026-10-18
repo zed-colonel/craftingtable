@@ -1,4 +1,4 @@
-import { cycleAttention, type WorkCycle } from '@craftingtable/domain';
+import { cycleAttention, stopRecord, type WorkCycle } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
 import {
   CYCLE_TRANSITIONS,
@@ -12,11 +12,20 @@ import {
  * server suite takes (recorded at e9e69ad, by action); the refused ones are outside the table.
  */
 
+const T = '2026-10-15T12:00:00.000Z';
+/** A cycle at a status: an ended one with its end record, any other with the stop `code` names. */
 const at = (status: WorkCycle['status'], code?: Parameters<typeof cycleAttention>[0]) =>
   ({
     status,
-    ...(code ? { attention: cycleAttention(code) } : {}),
+    ...(status === 'stopped' || status === 'completed'
+      ? { stop: { kind: 'ended', code: 'operator-stopped', at: T } }
+      : code
+        ? { stop: stopRecord(cycleAttention(code), T) }
+        : {}),
   }) as WorkCycle;
+/** A cycle at a status carrying exactly the stop record given. */
+const carrying = (status: WorkCycle['status'], stop?: WorkCycle['stop']) =>
+  ({ status, ...(stop ? { stop } : {}) }) as WorkCycle;
 
 describe('CYCLE_TRANSITIONS', () => {
   it.each([
@@ -56,17 +65,14 @@ describe('CYCLE_TRANSITIONS', () => {
     [at('completed'), at('running'), 'review-again'],
     // A write that keeps an ended cycle's status is not a status change.
     [at('completed'), at('completed'), 'advance'],
-    // A record written before codes (increment 6 review, LOW-1): its derived code is an
-    // operator's stop, kept by a pause, and one with no stored code keeps none until the first
-    // pass fills it in.
+    // A record written before codes (increment 6 review, LOW-1): its code, which migration 0047
+    // stored, is an operator's stop, kept by a pause.
     [at('needs-attention', 'legacy-attention'), at('paused', 'legacy-attention'), 'pause'],
     [
       at('needs-attention', 'legacy-attention'),
       at('needs-attention', 'legacy-attention'),
       'investigation-started',
     ],
-    [at('needs-attention'), at('needs-attention'), 'advance'],
-    [at('awaiting-merge'), at('awaiting-merge'), 'advance'],
   ] as const)('%#: %o to %o by %s', (from, to, action) =>
     expect(() => checkTransition(from, to, action)).not.toThrow(),
   );
@@ -110,7 +116,22 @@ describe('CYCLE_TRANSITIONS', () => {
       at('paused', 'merge-approval'),
       'pause',
     ],
-    ['an ended cycle carries no stop', at('running'), at('stopped', 'step-incomplete'), 'stop'],
+    [
+      'an ended cycle carries its end, not a stop',
+      at('running'),
+      carrying('stopped', stopRecord(cycleAttention('step-incomplete'), T)),
+      'stop',
+    ],
+    ['an ended cycle needs its end record', at('running'), carrying('completed'), 'advance'],
+    [
+      'a running cycle carries no end record',
+      at('completed'),
+      carrying('running', { kind: 'ended', code: 'integrated', at: T }),
+      'review-again',
+    ],
+    // Every stored stop has its code since migration 0047 (R-B4b): none is kept without one.
+    ['a stop needs its record', at('needs-attention'), at('needs-attention'), 'advance'],
+    ['a gate needs its record', at('awaiting-merge'), at('awaiting-merge'), 'advance'],
     [
       'the merge boundary carries no legacy stop',
       at('running'),

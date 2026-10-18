@@ -13,6 +13,8 @@ import {
   asRepositoryCheckDeclarationId,
   asRoadmapId,
   CHECK_DECLARATION_PATH,
+  heldStop,
+  stopRecord,
 } from '@craftingtable/domain';
 import { afterEach, expect, vi } from 'vitest';
 import {
@@ -199,7 +201,7 @@ itNeedsCargo(
     const x = await adoptionFixture({ 'scripts/check.sh': IMPROVED });
     const cycle = await runToMergeApproval(x);
     // Not a stop: a merge for a person, who sees the definitions with it.
-    expect(cycle.attention).toMatchObject({
+    expect(heldStop(cycle)).toMatchObject({
       code: 'merge-approval',
       owner: 'operator',
       refs: { repositoryId: x.tree.repositoryId },
@@ -284,7 +286,7 @@ itNeedsCargo(
 itNeedsCargo('a slice that changes only the checks file is adopted at its merge too', async () => {
   const x = await adoptionFixture({ [CHECK_DECLARATION_PATH]: checksFile(['script', 'again']) });
   const cycle = await runToMergeApproval(x);
-  expect(cycle.attention?.refs).toEqual({ repositoryId: x.tree.repositoryId });
+  expect(heldStop(cycle)?.refs).toEqual({ repositoryId: x.tree.repositoryId });
   const diagnosis = await x.definitions();
   expect(diagnosis.sliceChanged).toEqual([CHECK_DECLARATION_PATH]);
   expect(diagnosis.merge).toMatchObject({
@@ -308,7 +310,7 @@ itNeedsCargo(
       'definition stop',
     );
     const stopped = currentCycle(x.f.state, cycle);
-    expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
+    expect(heldStop(stopped)).toMatchObject({ code: 'check-definition-changed' });
     expect(stopped.reason).toContain(
       `This slice changes ${CHECK_DECLARATION_PATH}, and its merge cannot adopt the change:`,
     );
@@ -359,7 +361,7 @@ itNeedsCargo(
       'definition stop',
     );
     const stopped = currentCycle(x.f.state, cycle);
-    expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
+    expect(heldStop(stopped)).toMatchObject({ code: 'check-definition-changed' });
     expect(stopped.reason).toContain(
       `This slice did not change scripts/check.sh: adoption version 1 (from ${stale.slice(0, 12)}) differs from what it carries from ${x.integration}`,
     );
@@ -455,7 +457,7 @@ itNeedsCargo(
   async () => {
     const x = await adoptionFixture({});
     const cycle = await runToMergeApproval(x);
-    expect(cycle.attention?.refs).toBeUndefined();
+    expect(heldStop(cycle)?.refs).toBeUndefined();
     const refused = await x.merge({
       adoptChecks: { proposalDigest: '0'.repeat(64), rationale: 'Nothing to adopt.' },
     });
@@ -521,7 +523,11 @@ itNeedsCargo(
     for (let i = 0; i < 3; i += 1) await state.context.services.workCycleService.tick();
     await state.context.services.roadmapService.tick();
     expect(storage.execution.worktrees.find(ws, tree.id)?.mergedAt).toBeUndefined();
-    expect(storage.execution.cycles.activeForWorktree(ws, tree.id)?.attention).toEqual({
+    expect(
+      storage.execution.cycles.activeForWorktree(ws, tree.id) === undefined
+        ? undefined
+        : heldStop(storage.execution.cycles.activeForWorktree(ws, tree.id)),
+    ).toEqual({
       code: 'merge-approval',
       owner: 'operator',
       refs: { repositoryId: f.repository.id },
@@ -531,14 +537,22 @@ itNeedsCargo(
     const approved = storage.execution.cycles.activeForWorktree(ws, tree.id)!;
     expect(
       storage.execution.cycles.replace(
-        { ...approved, attention: { code: 'merge-approval', owner: 'operator' } },
+        {
+          ...approved,
+          stop: stopRecord({ code: 'merge-approval', owner: 'operator' }, approved.updatedAt),
+        },
         approved.version,
       ),
     ).toBeDefined();
     await state.context.services.roadmapService.tick();
     expect(storage.execution.worktrees.find(ws, tree.id)?.mergedAt).toBeUndefined();
     expect(storage.execution.merges.latest(ws, tree.id)).toBeUndefined();
-    expect(storage.execution.cycles.activeForWorktree(ws, tree.id)?.attention?.refs).toEqual({
+    expect(
+      (storage.execution.cycles.activeForWorktree(ws, tree.id) === undefined
+        ? undefined
+        : heldStop(storage.execution.cycles.activeForWorktree(ws, tree.id))
+      )?.refs,
+    ).toEqual({
       repositoryId: f.repository.id,
     });
     expect(
@@ -656,7 +670,7 @@ itNeedsCargo(
       'definition stop',
     );
     const stopped = currentCycle(x.f.state, cycle);
-    expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
+    expect(heldStop(stopped)).toMatchObject({ code: 'check-definition-changed' });
     expect(stopped.reason).toContain(
       'scripts/check.sh is not short UTF-8 text, so it cannot be shown in full',
     );
@@ -701,7 +715,7 @@ itNeedsCargo(
       'definition stop',
     );
     const stopped = currentCycle(x.f.state, cycle);
-    expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
+    expect(heldStop(stopped)).toMatchObject({ code: 'check-definition-changed' });
     expect(stopped.reason).toContain(
       `Adopt the checks from the slice's commit ${stopped.reviewHeadSha!.slice(0, 12)} on the Repositories page`,
     );
@@ -794,7 +808,7 @@ itNeedsCargo(
     const stopped = currentCycle(x.f.state, cycle);
     // The merge could adopt the change, but its checks did not pass as adopted: the stop says
     // so and names the exit (verification of the review fixes).
-    expect(stopped.attention).toMatchObject({ code: 'check-definition-changed' });
+    expect(heldStop(stopped)).toMatchObject({ code: 'check-definition-changed' });
     expect(stopped.reason).toContain('did not all pass on the reviewed commit');
     // The merge reports the unmet gate before asking for an approval.
     const bare = await x.merge();

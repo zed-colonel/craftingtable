@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { cycleAttention } from '../src/attention.js';
 import { cycleActions, resumeRedirect } from '../src/cycle-actions.js';
+import { stopRecord } from '../src/cycle-stop.js';
 import type { WorkCycle } from '../src/work-cycle.js';
 import { asAgentRunId } from '../src/ids.js';
 
 const cycle = (status: WorkCycle['status'], code?: Parameters<typeof cycleAttention>[0]) =>
-  ({ status, reason: '', ...(code ? { attention: cycleAttention(code) } : {}) }) as WorkCycle;
+  ({
+    status,
+    reason: '',
+    ...(code ? { stop: stopRecord(cycleAttention(code), '2026-01-01T00:00:00.000Z') } : {}),
+  }) as WorkCycle;
 
 describe('cycle actions (R-A7)', () => {
   it('offers resume only for stops a resume can move', () => {

@@ -190,10 +190,10 @@ export class RunSpawner {
       const previousRunDirectory = resume && join(this.config.runsRoot, resume.run.id);
       const prompt =
         (resume && cycle && previousRunDirectory
-          ? resume.kind === 'output-repair' && cycle.outputRepair
+          ? resume.kind === 'output-repair' && cycle.attempt?.outputRepair
             ? outputRepairPrompt({
-                issues: cycle.outputRepair.issues,
-                attempt: cycle.outputRepair.attempts,
+                issues: cycle.attempt?.outputRepair.issues,
+                attempt: cycle.attempt?.outputRepair.attempts,
                 limit: OUTPUT_REPAIR_LIMIT,
                 deadlineAt: cycle.runDeadlineAt,
                 previousRunDirectory,
@@ -203,7 +203,9 @@ export class RunSpawner {
                 deadlineAt: cycle.runDeadlineAt,
                 previousRunDirectory,
                 runDirectory,
-                ...(cycle.stepGuidance ? { stepGuidance: cycle.stepGuidance } : {}),
+                ...(cycle.attempt?.stepGuidance
+                  ? { stepGuidance: cycle.attempt?.stepGuidance }
+                  : {}),
               })
           : brief) + declared;
       // Each outside source's own variables and PATH directories (R-G17: `pypi` points uv at

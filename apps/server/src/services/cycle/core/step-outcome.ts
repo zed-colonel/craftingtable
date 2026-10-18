@@ -19,6 +19,8 @@ import {
   verificationFollowUps,
   type WorkCycle,
   type WorkflowQuestion,
+  type CycleWaits,
+  type StepAttempt,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { designDependencyState } from '../../design-dependency-policy.js';
@@ -27,6 +29,7 @@ import { finalizationForCycle } from '../../finalization-policy.js';
 import { cycleStepRole, drainInterrupted } from '../../restart-resume.js';
 import { latestReviewReport, runEvents } from '../../run-lineage.js';
 import { workflowQuestions } from '../../workflow-policy.js';
+import type { CycleFieldChanges } from './transitions.js';
 
 /**
  * What the cycle controller does once its current step has a run (R-B2).
@@ -110,7 +113,10 @@ export type StepOutcomeDecision = {
     }
   | {
       readonly kind: 'schedule-service-retry';
-      readonly providerRecovery: NonNullable<WorkCycle['providerRecovery']>;
+      /** The step attempt's retry (R-B4b: the attempt record's field). */
+      readonly attempt: {
+        readonly providerRecovery: NonNullable<StepAttempt['providerRecovery']>;
+      };
       /** Present for a quota wait: the step deadline moved by the time spent waiting (R-C8). */
       readonly runDeadlineAt?: string;
       readonly reason: string;
@@ -118,7 +124,7 @@ export type StepOutcomeDecision = {
   | {
       readonly kind: 'next-step';
       readonly step: WorkCycle['step'];
-      readonly changes: Omit<Partial<WorkCycle>, 'status' | 'attention'>;
+      readonly changes: CycleFieldChanges;
       readonly action: string;
     }
   | { readonly kind: 'advance-resolution' }
@@ -126,7 +132,7 @@ export type StepOutcomeDecision = {
   | { readonly kind: 'continue-design'; readonly reason: string }
   | {
       readonly kind: 'design-wait';
-      readonly designWait: NonNullable<WorkCycle['designWait']>;
+      readonly designWait: NonNullable<CycleWaits['design']>;
       readonly reason: string;
     }
   | { readonly kind: 'finalize-implementation' }
@@ -256,8 +262,8 @@ function serviceRecovery(
   stop?: Extract<StepOutcomeDecision, { kind: 'attention' }>,
 ): StepOutcomeDecision {
   const { run } = facts;
-  const attempts = cycle.providerRecovery?.attempts ?? 0;
-  const model = cycle.providerRecovery?.profile.model ?? run.model ?? run.resolvedModel;
+  const attempts = cycle.attempt?.providerRecovery?.attempts ?? 0;
+  const model = cycle.attempt?.providerRecovery?.profile.model ?? run.model ?? run.resolvedModel;
   const resetAt =
     failure.kind === 'quota' && failure.resetsAt ? Date.parse(failure.resetsAt) : Number.NaN;
   const quotaWait =
@@ -319,17 +325,19 @@ function serviceRecovery(
     ...(quotaWait || credentials
       ? { runDeadlineAt: new Date(Date.parse(cycle.runDeadlineAt) + delay).toISOString() }
       : {}),
-    providerRecovery: {
-      attempts,
-      sourceRunId: run.id,
-      failure,
-      profile: cycle.providerRecovery?.profile ?? {
-        backend: run.backend,
-        permissionMode: run.permissionMode,
-        ...(run.reasoningEffort ? { reasoningEffort: run.reasoningEffort } : {}),
-        model,
+    attempt: {
+      providerRecovery: {
+        attempts,
+        sourceRunId: run.id,
+        failure,
+        profile: cycle.attempt?.providerRecovery?.profile ?? {
+          backend: run.backend,
+          permissionMode: run.permissionMode,
+          ...(run.reasoningEffort ? { reasoningEffort: run.reasoningEffort } : {}),
+          model,
+        },
+        nextRetryAt,
       },
-      nextRetryAt,
     },
     reason: quotaWait
       ? `${failure.message} The allowance resets at ${failure.resetsAt}; retry ${attempts + 1} of 3 on the same agent is scheduled for ${nextRetryAt}, and the step time limit moves with the wait. Roadmap pauses hold retries.`
@@ -401,7 +409,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
     issues: readonly string[],
     fault: 'format' | 'content' = 'format',
   ): StepOutcomeDecision => {
-    const attempts = input.outputRepair?.attempts ?? 0;
+    const attempts = input.attempt?.outputRepair?.attempts ?? 0;
     // Only the report's structure is repaired automatically; missing content (checks,
     // dispositions, evidence) needs more work or the operator (operator decision 2026-09-24).
     if (fault === 'content')
@@ -476,7 +484,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
       ),
     );
   if (ended?.payload.reason) {
-    const attempts = cycle.resultContinuations ?? 0;
+    const attempts = cycle.attempt?.resultContinuations ?? 0;
     const explicitQuestions = turn !== undefined && raisesOpenQuestions(turn.payload.resultText);
     if (
       run.status !== 'failed' ||
@@ -510,11 +518,13 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
       step: cycle.step,
       action: 'continue-incomplete-result',
       changes: {
-        resultContinuations: attempts + 1,
-        providerRecovery: cycle.providerRecovery ?? null,
+        attempt: {
+          resultContinuations: attempts + 1,
+          providerRecovery: cycle.attempt?.providerRecovery ?? null,
+          housekeepingInstructions: cycle.attempt?.housekeepingInstructions,
+        },
         runDeadlineAt: cycle.runDeadlineAt,
         instructions: cycle.instructions,
-        housekeepingInstructions: cycle.housekeepingInstructions,
         reason: `Background work finished after the agent exited. Starting completion continuation ${attempts + 1} of 2 within the original step time limit.`,
       },
     };
@@ -654,7 +664,7 @@ function decideOwnOutcome(input: WorkCycle, facts: StepOutcomeFacts): StepOutcom
         if (state.supported && (cycle.designDependencyContinuations ?? 0) < 2)
           return withWorkflow({
             kind: 'design-wait',
-            designWait: { startedAt: facts.now.toISOString(), requirements },
+            designWait: { since: facts.now.toISOString(), requirements },
             reason: state.pending.length
               ? `Design waiting for mapped predecessors: ${state.pending.join(', ')}. It will recheck automatically when ready.`
               : 'Mapped predecessors are ready; scheduling a bounded design recheck.',
@@ -871,7 +881,12 @@ export function replayEveryRun(
           ? run.role
           : undefined;
       if (step === undefined) continue;
-      const replayed: WorkCycle = { ...cycle, step, currentRunId: run.id, outputRepair: null };
+      const replayed: WorkCycle = {
+        ...cycle,
+        step,
+        currentRunId: run.id,
+        attempt: { ...cycle.attempt, outputRepair: null },
+      };
       const base = {
         cycleId: cycle.id,
         status: cycle.status,

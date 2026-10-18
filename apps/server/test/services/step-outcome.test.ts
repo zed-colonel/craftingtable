@@ -206,11 +206,13 @@ const rows: readonly Row[] = [
   {
     name: 'service retries stop after three attempts',
     cycle: {
-      providerRecovery: {
-        attempts: 3,
-        sourceRunId: 'run-0',
-        failure: serviceFailure(),
-        profile: { backend: 'claude-code', permissionMode: 'auto', model: 'implement-model' },
+      attempt: {
+        providerRecovery: {
+          attempts: 3,
+          sourceRunId: 'run-0',
+          failure: serviceFailure(),
+          profile: { backend: 'claude-code', permissionMode: 'auto', model: 'implement-model' },
+        },
       },
     },
     facts: {
@@ -223,11 +225,13 @@ const rows: readonly Row[] = [
   {
     name: 'provider credential retries stop after three attempts, naming the outage (R-C11)',
     cycle: {
-      providerRecovery: {
-        attempts: 3,
-        sourceRunId: 'run-0',
-        failure: credentialFailure(),
-        profile: { backend: 'codex', permissionMode: 'auto', model: 'implement-model' },
+      attempt: {
+        providerRecovery: {
+          attempts: 3,
+          sourceRunId: 'run-0',
+          failure: credentialFailure(),
+          profile: { backend: 'codex', permissionMode: 'auto', model: 'implement-model' },
+        },
       },
     },
     facts: {
@@ -298,7 +302,7 @@ const rows: readonly Row[] = [
   },
   {
     name: 'completion continuations stop after two',
-    cycle: { resultContinuations: 2 },
+    cycle: { attempt: { resultContinuations: 2 } },
     facts: {
       run: failedRun,
       ended: endedOf({ status: 'failed', reason: 'background-work-incomplete' }),
@@ -906,11 +910,13 @@ const rows: readonly Row[] = [
     name: 'a repaired scoped report without its scope evidence stops for the operator',
     cycle: {
       step: 'review',
-      outputRepair: {
-        attempts: 1,
-        sourceRunId: 'run-0',
-        code: 'review-needs-attention',
-        issues: ['exitGate: Unrecognized key: "scopeEvidence"'],
+      attempt: {
+        outputRepair: {
+          attempts: 1,
+          sourceRunId: 'run-0',
+          code: 'review-needs-attention',
+          issues: ['exitGate: Unrecognized key: "scopeEvidence"'],
+        },
       },
     },
     facts: {
@@ -999,11 +1005,13 @@ describe('controller step classification (R-B2)', () => {
     const decide = (attempts: number) =>
       decideStepOutcome(
         cycleOf({
-          providerRecovery: {
-            attempts,
-            sourceRunId: 'run-0',
-            failure: credentialFailure(),
-            profile: { backend: 'codex', permissionMode: 'auto', model: 'implement-model' },
+          attempt: {
+            providerRecovery: {
+              attempts,
+              sourceRunId: 'run-0',
+              failure: credentialFailure(),
+              profile: { backend: 'codex', permissionMode: 'auto', model: 'implement-model' },
+            },
           },
         }),
         facts({
@@ -1018,7 +1026,7 @@ describe('controller step classification (R-B2)', () => {
     expect([0, 1, 2].map((attempts) => decide(attempts))).toMatchObject(
       ['12:05:00', '12:15:00', '12:30:00'].map((time, attempts) => ({
         kind: 'schedule-service-retry',
-        providerRecovery: { attempts, nextRetryAt: `2026-09-23T${time}.000Z` },
+        attempt: { providerRecovery: { attempts, nextRetryAt: `2026-09-23T${time}.000Z` } },
         reason: expect.stringContaining('Evidence: HTTP 401'),
       })),
     );
@@ -1048,11 +1056,17 @@ describe('controller step classification (R-B2)', () => {
           ...(attempts === undefined
             ? {}
             : {
-                providerRecovery: {
-                  attempts,
-                  sourceRunId: 'run-0',
-                  failure: outage,
-                  profile: { backend: 'codex', permissionMode: 'auto', model: 'implement-model' },
+                attempt: {
+                  providerRecovery: {
+                    attempts,
+                    sourceRunId: 'run-0',
+                    failure: outage,
+                    profile: {
+                      backend: 'codex',
+                      permissionMode: 'auto',
+                      model: 'implement-model',
+                    },
+                  },
                 },
               }),
         }),
@@ -1091,11 +1105,17 @@ describe('controller step classification (R-B2)', () => {
     const decide = (attempts: number) =>
       decideStepOutcome(
         cycleOf({
-          providerRecovery: {
-            attempts,
-            sourceRunId: 'run-0',
-            failure: serviceFailure(),
-            profile: { backend: 'claude-code', permissionMode: 'auto', model: 'implement-model' },
+          attempt: {
+            providerRecovery: {
+              attempts,
+              sourceRunId: 'run-0',
+              failure: serviceFailure(),
+              profile: {
+                backend: 'claude-code',
+                permissionMode: 'auto',
+                model: 'implement-model',
+              },
+            },
           },
         }),
         facts({
@@ -1107,7 +1127,7 @@ describe('controller step classification (R-B2)', () => {
     expect([0, 1, 2].map((attempts) => decide(attempts))).toMatchObject(
       ['12:01:00', '12:05:00', '12:15:00'].map((time, attempts) => ({
         kind: 'schedule-service-retry',
-        providerRecovery: { attempts, nextRetryAt: `2026-09-23T${time}.000Z` },
+        attempt: { providerRecovery: { attempts, nextRetryAt: `2026-09-23T${time}.000Z` } },
       })),
     );
   });
@@ -1124,14 +1144,16 @@ describe('controller step classification (R-B2)', () => {
         cycleOf(
           attempts
             ? {
-                providerRecovery: {
-                  attempts,
-                  sourceRunId: 'run-0',
-                  failure: quota(resetsAt),
-                  profile: {
-                    backend: 'claude-code',
-                    permissionMode: 'auto',
-                    model: 'implement-model',
+                attempt: {
+                  providerRecovery: {
+                    attempts,
+                    sourceRunId: 'run-0',
+                    failure: quota(resetsAt),
+                    profile: {
+                      backend: 'claude-code',
+                      permissionMode: 'auto',
+                      model: 'implement-model',
+                    },
                   },
                 },
               }
@@ -1145,18 +1167,18 @@ describe('controller step classification (R-B2)', () => {
       );
     expect(decide('2026-09-23T14:50:00.000Z')).toMatchObject({
       kind: 'schedule-service-retry',
-      providerRecovery: { attempts: 0, nextRetryAt: '2026-09-23T14:52:00.000Z' },
+      attempt: { providerRecovery: { attempts: 0, nextRetryAt: '2026-09-23T14:52:00.000Z' } },
       runDeadlineAt: '2026-09-23T15:52:00.000Z',
     });
     // An allowance that has already reset is retried after the shortest backoff.
     expect(decide('2026-09-23T11:00:00.000Z')).toMatchObject({
       kind: 'schedule-service-retry',
-      providerRecovery: { nextRetryAt: '2026-09-23T12:01:00.000Z' },
+      attempt: { providerRecovery: { nextRetryAt: '2026-09-23T12:01:00.000Z' } },
       runDeadlineAt: '2026-09-23T13:01:00.000Z',
     });
     // ADR-062's backoff stays the floor, so a stale reset cannot use up the retries at once.
     expect(decide('2026-09-23T11:00:00.000Z', 1)).toMatchObject({
-      providerRecovery: { attempts: 1, nextRetryAt: '2026-09-23T12:05:00.000Z' },
+      attempt: { providerRecovery: { attempts: 1, nextRetryAt: '2026-09-23T12:05:00.000Z' } },
     });
     // A weekly allowance is beyond the wait limit and stays with the operator.
     expect(decide('2026-09-28T00:00:00.000Z')).toMatchObject({
@@ -1206,11 +1228,13 @@ describe('automatic output-format repair (R-C2)', () => {
   const invalidDesign = '```craftingtable-design\n{';
   const repairing = (attempts: number) => ({
     step: 'design',
-    outputRepair: {
-      attempts,
-      sourceRunId: 'run-0',
-      code: 'design-report-invalid',
-      issues: ['x'],
+    attempt: {
+      outputRepair: {
+        attempts,
+        sourceRunId: 'run-0',
+        code: 'design-report-invalid',
+        issues: ['x'],
+      },
     },
   });
 

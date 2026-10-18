@@ -24,7 +24,6 @@ import {
   effectiveAgentsSchema,
   specialistSelectionsShape,
 } from './agent-profiles.js';
-import { cycleAttentionSchema } from './attention.js';
 import { designDependencySchema, designReportSchema } from './design-report.js';
 import { investigationFindingSchema } from './investigation-report.js';
 import { executionScopeSchema, phaseBlockerSchema } from './execution-scope.js';
@@ -46,6 +45,7 @@ import { reviewFindingSchema } from './review.js';
 import { architectureDecisionInboxSchema } from './runtime-evidence.js';
 import { equivalentSchema } from './type-equivalence.js';
 import { cycleWorkflowSchema, workflowQuestionSchema } from './workflow.js';
+import { cycleStopSchema } from './attention.js';
 
 export const completionPolicySchema = z.strictObject({
   maxNits: z.number().int().min(0).max(100),
@@ -351,7 +351,6 @@ export const workCycleSchema = z
     finalizationId: branded<FinalizationId>(z.string().uuid()).optional(),
     finalizationProgress: finalizationProgressSchema.optional(),
     planVersionId: planVersionIdSchema.optional(),
-    polishRound: z.number().int().min(0).max(10).optional(),
     polishPhase: z.enum(['assess', 'polish', 'verify', 'final-review']).optional(),
     workItemSourceId: z.string().min(1).max(64),
     workItemTitle: z.string().min(1).max(500),
@@ -369,37 +368,45 @@ export const workCycleSchema = z
     currentRunId: agentRunIdSchema,
     parentRunId: agentRunIdSchema.optional(),
     runDeadlineAt: z.iso.datetime(),
-    phaseWait: z
-      .strictObject({ startedAt: z.iso.datetime(), blockers: z.array(phaseBlockerSchema) })
-      .nullable()
-      .optional(),
-    designWait: z
-      .object({
-        startedAt: z.iso.datetime(),
-        requirements: z.array(designDependencySchema).min(1).max(40),
+    waits: z
+      .strictObject({
+        phase: z
+          .strictObject({ since: z.iso.datetime(), blockers: z.array(phaseBlockerSchema) })
+          .optional(),
+        design: z
+          .strictObject({
+            since: z.iso.datetime(),
+            requirements: z.array(designDependencySchema).min(1).max(40),
+          })
+          .optional(),
       })
-      .nullable()
       .optional(),
     designDependencyContinuations: z.number().int().min(0).max(2).optional(),
-    resultContinuations: z.number().int().min(0).max(2).optional(),
-    outputRepair: z
+    attempt: z
       .strictObject({
-        attempts: z.number().int().min(1).max(OUTPUT_REPAIR_LIMIT),
-        sourceRunId: agentRunIdSchema,
-        code: z.enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]]),
-        issues: z.array(z.string().max(1000)).min(1).max(20),
+        stepGuidance: z.string().max(16000).optional(),
+        housekeepingInstructions: z.string().max(16000).optional(),
+        resultContinuations: z.number().int().min(0).max(2).optional(),
+        outputRepair: z
+          .strictObject({
+            attempts: z.number().int().min(1).max(OUTPUT_REPAIR_LIMIT),
+            sourceRunId: agentRunIdSchema,
+            code: z.enum(CYCLE_ATTENTION_CODES as [CycleAttentionCode, ...CycleAttentionCode[]]),
+            issues: z.array(z.string().max(1000)).min(1).max(20),
+          })
+          .nullable()
+          .optional(),
+        providerRecovery: z
+          .strictObject({
+            attempts: z.number().int().min(0).max(3),
+            sourceRunId: agentRunIdSchema,
+            failure: providerFailureSchema,
+            profile: agentProfileSchema,
+            nextRetryAt: z.iso.datetime().optional(),
+          })
+          .nullable()
+          .optional(),
       })
-      .nullable()
-      .optional(),
-    providerRecovery: z
-      .strictObject({
-        attempts: z.number().int().min(0).max(3),
-        sourceRunId: agentRunIdSchema,
-        failure: providerFailureSchema,
-        profile: agentProfileSchema,
-        nextRetryAt: z.iso.datetime().optional(),
-      })
-      .nullable()
       .optional(),
     remediationRounds: z.number().int().nonnegative(),
     additionalRemediationRounds: z
@@ -408,19 +415,24 @@ export const workCycleSchema = z
       .nonnegative()
       .max(Number.MAX_SAFE_INTEGER - 20)
       .optional(),
-    deferredNits: z
-      .array(
-        z.strictObject({
-          finding: reviewFindingSchema,
-          sourceRunId: agentRunIdSchema,
-          headSha: commitShaSchema,
-          targetSha: commitShaSchema,
-          reason: z.string().trim().min(1).max(4000),
-          createdAt: z.iso.datetime(),
-          createdByUserId: userIdSchema,
-        }),
-      )
-      .max(100)
+    retiredFinalization: z
+      .strictObject({
+        polishRound: z.number().int().min(0).max(10).optional(),
+        deferredNits: z
+          .array(
+            z.strictObject({
+              finding: reviewFindingSchema,
+              sourceRunId: agentRunIdSchema,
+              headSha: commitShaSchema,
+              targetSha: commitShaSchema,
+              reason: z.string().trim().min(1).max(4000),
+              createdAt: z.iso.datetime(),
+              createdByUserId: userIdSchema,
+            }),
+          )
+          .max(100)
+          .optional(),
+      })
       .optional(),
     finalizationAgentOverride: agentSelectionSchema.nullable().optional(),
     findingFocus: z.array(z.string().min(1).max(64)).max(100).optional(),
@@ -430,8 +442,6 @@ export const workCycleSchema = z
       .string()
       .regex(/^[0-9a-f]{7,64}$/)
       .optional(),
-    housekeepingInstructions: z.string().max(16000).optional(),
-    stepGuidance: z.string().max(16000).optional(),
     checkpoint: z
       .strictObject({
         sourceRunId: agentRunIdSchema,
@@ -448,14 +458,14 @@ export const workCycleSchema = z
     integrationResolution: integrationResolutionSchema.optional(),
     integrationRefreshes: z.number().int().nonnegative().optional(),
     reason: z.string().max(4000),
-    attention: cycleAttentionSchema.optional(),
+    stop: cycleStopSchema.optional(),
   })
   .refine(
     (cycle) =>
       cycle.workItemId !== undefined
         ? cycle.planVersionId === undefined &&
           cycle.finalizationId === undefined &&
-          cycle.deferredNits === undefined &&
+          cycle.retiredFinalization === undefined &&
           cycle.findingFocus === undefined &&
           cycle.finalizationAgentOverride === undefined &&
           cycle.finalizationProgress === undefined

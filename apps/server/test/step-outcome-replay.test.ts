@@ -22,14 +22,16 @@ import { replayStepOutcomes } from '../src/services/cycle/core/step-outcome.js';
  * its cycle's current run reaches a characteristic outcome. The resulting database is the
  * fixture snapshot; `replayStepOutcomes` classifies every cycle in it and the result must
  * match the recorded golden file. A controller refactor that changes any decision fails
- * here. Record a deliberate change with `UPDATE_GOLDEN=1 pnpm vitest run <this file>`.
+ * here. Record a deliberate change with `UPDATE_GOLDEN=1 pnpm vitest run <this file>`, beside the
+ * earlier golden: R-B4b's (the service retry's payload under `attempt`, the operator's go-ahead,
+ * 2026-10-18) sits beside `step-outcome-replay.golden.json`.
  *
  * The same replay runs against a copy of a live database with `pnpm controller:replay`.
  */
 
 const GOLDEN = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../fixtures/controller/step-outcome-replay.golden.json',
+  '../../../fixtures/controller/step-outcome-replay.golden-rb4b.json',
 );
 // Far from the real clock, so times derived from it survive normalization.
 const NOW = new Date('2000-01-01T00:00:00.000Z');

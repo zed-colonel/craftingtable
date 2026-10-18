@@ -22,6 +22,7 @@ import {
   asRepositoryCheckDeclarationId,
   type AgentRunId,
   asAgentRunId,
+  heldStop,
 } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
@@ -1522,7 +1523,7 @@ itNeedsCargo(
     const f = await scopedRuntimeFixture(null);
     const cycle = await startCycle(f.state, f.tree.id);
     await waitFor(() => currentCycle(f.state, cycle).status === 'needs-attention', 'check stop');
-    expect(currentCycle(f.state, cycle).attention).toMatchObject({
+    expect(heldStop(currentCycle(f.state, cycle))).toMatchObject({
       code: 'repository-checks-undeclared',
       owner: 'operator',
       refs: { repositoryId: f.tree.repositoryId },
@@ -1667,7 +1668,7 @@ itNeedsCargo(
       'definition stop',
     );
     const stopped = currentCycle(f.state, cycle);
-    expect(stopped.attention).toMatchObject({
+    expect(heldStop(stopped)).toMatchObject({
       code: 'check-definition-changed',
       owner: 'operator',
       refs: { repositoryId: f.tree.repositoryId, checkId: 'script' },

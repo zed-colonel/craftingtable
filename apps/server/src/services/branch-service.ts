@@ -37,6 +37,7 @@ import {
 } from './errors.js';
 
 export { IntegrationUpdateConflict, RepositoryMutationBusyError } from './errors.js';
+
 import { retiredVersionIds } from './retired-versions.js';
 import type { StoppedWorktree } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';

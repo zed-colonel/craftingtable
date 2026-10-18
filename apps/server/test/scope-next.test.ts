@@ -4,6 +4,7 @@ import {
   asCheckpointId,
   asRoadmapId,
   asWorkCycleId,
+  stopRecord,
 } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import { scopeNext } from '../src/services/scope-next.js';
@@ -85,8 +86,11 @@ it('gives a stopped cycle with no item to whoever its own wait names', () => {
       phases: phases([]),
       cycles: [
         cycle('needs-attention', {
-          attention: { code: 'controller-wait', owner: 'controller' },
-        } as unknown as Partial<WorkCycle>),
+          stop: stopRecord(
+            { code: 'controller-wait', owner: 'controller' },
+            '2026-01-01T00:00:00.000Z',
+          ),
+        }),
       ],
       items: [],
     })?.actor,

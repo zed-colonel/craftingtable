@@ -1,4 +1,4 @@
-import type { WorkCycle } from '@craftingtable/domain';
+import type { WorkCycle, DesignRequirement } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { resolveScope } from './execution-scope.js';
 import {
@@ -8,7 +8,7 @@ import {
 } from './runtime-evidence-policy.js';
 import { integratedSlice } from './scope-lineage.js';
 
-type Requirements = NonNullable<WorkCycle['designWait']>['requirements'];
+type Requirements = readonly DesignRequirement[];
 /** Agent prose can request a wait, but cannot introduce or weaken a mapped dependency. */
 export function designDependencyState(
   tx: StorageRepositories,

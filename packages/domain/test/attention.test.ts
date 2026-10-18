@@ -12,13 +12,18 @@ import {
   effectiveRoadmapAttention,
   phaseBlockerCode,
   phaseBlockerResourceKey,
+  type LegacyCycleStop,
 } from '../src/attention-legacy.js';
 import { asFinalizationId } from '../src/ids.js';
 import type { PhaseBlocker } from '../src/phase-scheduling.js';
 import type { WorkCycle } from '../src/work-cycle.js';
 
-const stopped = (status: WorkCycle['status'], reason: string, extra: Partial<WorkCycle> = {}) =>
-  ({ status, reason, ...extra }) as WorkCycle;
+/** A stored record in the shape releases before R-B4b wrote, which the decoder reads. */
+const stopped = (
+  status: WorkCycle['status'],
+  reason: string,
+  extra: Partial<LegacyCycleStop> = {},
+): LegacyCycleStop => ({ status, reason, attention: undefined, ...extra });
 
 describe('typed attention (R-A3)', () => {
   it('derives the owner from the code, or the controller while automation claims the stop', () => {
@@ -91,8 +96,10 @@ describe('typed attention (R-A3)', () => {
   });
 
   it('recovers the awaiting-merge gate of an older record from its shape', () => {
-    const gate = (extra: Partial<WorkCycle>, reason = 'Review meets the completion policy.') =>
-      effectiveCycleAttention(stopped('awaiting-merge', reason, extra))?.code;
+    const gate = (
+      extra: Partial<LegacyCycleStop>,
+      reason = 'Review meets the completion policy.',
+    ) => effectiveCycleAttention(stopped('awaiting-merge', reason, extra))?.code;
     expect(gate({})).toBe('merge-approval');
     expect(gate({ finalizationId: asFinalizationId('final-1') })).toBe('final-promotion');
     expect(

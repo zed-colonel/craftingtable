@@ -4,9 +4,10 @@
  * review, leaving a merge to the operator, and a cycle's Authorize more remediation. Each
  * command's preconditions are R-B4's `decideCommand`.
  */
+
 import { validExtraRounds } from '../../command-bounds.js';
 import type { SourceRepositoryId, WorkCycleId, MapAmendmentId } from '@craftingtable/domain';
-import { required } from '@craftingtable/domain';
+import { required, heldStop } from '@craftingtable/domain';
 import type { AuthorizeWorkCycleRemediationRequest } from '@craftingtable/contracts';
 import {
   type AgentRun,
@@ -233,7 +234,7 @@ export class CycleControl {
           'review',
           run,
           context,
-          { stepGuidance: step.guidance },
+          { attempt: { stepGuidance: step.guidance } },
           'resume',
           reservation,
         );
@@ -318,7 +319,7 @@ export class CycleControl {
           this.storage.execution.runs.find(workspaceId, cycle.currentRunId),
           context,
           {
-            stepGuidance: guidance.trim(),
+            attempt: { stepGuidance: guidance.trim() },
             reason: 'Starting a fresh independent review with the existing reviewer assignment.',
           },
           'review-again',
@@ -369,6 +370,7 @@ export class CycleControl {
       cycle,
       {
         status: 'stopped',
+        end: 'amendment-retired',
         reason: `Retired by reviewed planning amendment ${amendmentId}. Worktree and original run context retained.`,
       },
       'amendment-retired',
@@ -419,7 +421,7 @@ export class CycleControl {
    * slice approved before the rule, or whose stored attention does not say so.
    */
   leaveMergeToOperator(cycle: WorkCycle, repositoryId: SourceRepositoryId): void {
-    const decided = decideLeaveMerge(cycle, repositoryId, mergeAdoptsChecks(cycle.attention));
+    const decided = decideLeaveMerge(cycle, repositoryId, mergeAdoptsChecks(heldStop(cycle)));
     if (decided.kind === 'write') this.writer.change(cycle, decided.changes);
   }
 

@@ -1,6 +1,6 @@
 import type { AgentLaunchRequest } from '@craftingtable/agents';
 import { workCycleResponseSchema } from '@craftingtable/contracts';
-import { DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import { DEFAULT_COMPLETION_POLICY, heldStop } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
 
@@ -224,7 +224,7 @@ describe('single work-item automation', () => {
       policy: { ...DEFAULT_COMPLETION_POLICY, maxRemediationRounds: 10 },
     });
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'no-change stop');
-    expect(currentCycle(state, cycle).attention).toMatchObject({
+    expect(heldStop(currentCycle(state, cycle))).toMatchObject({
       code: 'remediation-no-change',
       owner: 'operator',
     });
@@ -257,7 +257,7 @@ describe('single work-item automation', () => {
     });
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'no-change stop');
     const stopped = currentCycle(state, cycle);
-    expect(stopped.attention?.code).toBe('remediation-no-change');
+    expect(heldStop(stopped)?.code).toBe('remediation-no-change');
     const guidance = 'Judge only the findings this slice may fix.';
     const response = await state.context.app.inject({
       method: 'POST',

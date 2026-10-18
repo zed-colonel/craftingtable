@@ -4,12 +4,14 @@ import { join } from 'node:path';
 import type { AgentLaunchRequest, AgentSession } from '@craftingtable/agents';
 import {
   asAgentRunEventId,
-  cycleAttention,
   asPlanVersionId,
   asProjectId,
   asWorkItemDependencyId,
   asWorkItemId,
+  cycleAttention,
   DEFAULT_COMPLETION_POLICY,
+  heldStop,
+  stopRecord,
   type WorkCycle,
 } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
@@ -87,7 +89,7 @@ describe('single work-item automation', () => {
       expect(later).toContain('Keep the approved API.');
     }
     expect(currentCycle(state, cycle)).toMatchObject({ instructions: 'Keep the approved API.' });
-    expect(currentCycle(state, cycle).stepGuidance).toBeUndefined();
+    expect(currentCycle(state, cycle).attempt?.stepGuidance).toBeUndefined();
     // Controller-authored rules are labelled as such; the operator section holds only operator text.
     const operator = prompts[4]?.split('## Operator instructions\n\n')[1]?.split('\n## ')[0];
     expect(operator?.trim()).toBe('Keep the approved API.');
@@ -370,10 +372,10 @@ it('refuses a plain resume at the round limit toward Authorize more remediation'
   await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'policy stop');
   // A daemon restart stopped the cycle at the finished review instead (no redirect).
   const limit = currentCycle(state, cycle);
-  expect(limit).toMatchObject({ step: 'review', attention: { code: 'remediation-exhausted' } });
+  expect(limit).toMatchObject({ step: 'review', stop: { code: 'remediation-exhausted' } });
   const restarted = {
     ...limit,
-    attention: cycleAttention('restart-resume'),
+    stop: stopRecord(cycleAttention('restart-resume'), limit.updatedAt),
     reason: 'Daemon restarted. Inspect the interrupted step and resume explicitly.',
     version: limit.version + 1,
   };
@@ -400,7 +402,7 @@ it('refuses a plain resume at the round limit toward Authorize more remediation'
       .json()
       .cycles.find((v: { cycle: { id: string } }) => v.cycle.id === cycle.id)?.projection.actions;
   expect(await offered()).toEqual(['authorize-remediation', 'stop']);
-  const { attention: _stop, ...unstopped } = restarted;
+  const { stop: _stop, ...unstopped } = restarted;
   const paused = { ...unstopped, status: 'paused' as const, version: restarted.version + 1 };
   expect(state.context.storage.execution.cycles.replace(paused, restarted.version)).toBeTruthy();
   expect(await offered()).toEqual(['authorize-remediation', 'stop']);
@@ -449,7 +451,7 @@ it('offers Resume, not a grant it refuses, at the round limit when the review’
   });
   const incomplete = {
     ...limit,
-    attention: cycleAttention('step-incomplete'),
+    stop: stopRecord(cycleAttention('step-incomplete'), limit.updatedAt),
     reason:
       'The step did not finish with a complete successful result. Inspect it before resuming.',
     version: limit.version + 1,
@@ -491,7 +493,7 @@ it('offers Resume, not a grant it refuses, at the round limit when the review’
   expect(currentCycle(state, cycle)).toMatchObject({
     status: 'needs-attention',
     step: 'review',
-    attention: { code: 'remediation-exhausted' },
+    stop: { code: 'remediation-exhausted' },
   });
 });
 
@@ -527,7 +529,7 @@ it('restores the merge gate when a review asked again for adopted checks is refu
   ).rejects.toBe(refusal);
   expect(currentCycle(state, cycle)).toMatchObject({
     status: 'awaiting-merge',
-    attention: approved.attention,
+    stop: heldStop(approved),
     reason: approved.reason,
   });
 });
@@ -559,7 +561,7 @@ it('refreshes a phase wait when its blockers change and records nothing for a co
     throw new PhaseGateError(blockers);
   });
   await waitFor(
-    () => currentCycle(state, cycle).phaseWait?.blockers[0]?.kind === 'resource',
+    () => currentCycle(state, cycle).waits?.phase?.blockers[0]?.kind === 'resource',
     'wait',
   );
   const first = currentCycle(state, cycle);
@@ -567,18 +569,21 @@ it('refreshes a phase wait when its blockers change and records nothing for a co
   expect(currentCycle(state, cycle).version).toBe(first.version);
   blockers = [{ kind: 'dependency', message: 'Predecessor AQ-00 is not merged yet.' }];
   await waitFor(
-    () => currentCycle(state, cycle).phaseWait?.blockers[0]?.kind === 'dependency',
+    () => currentCycle(state, cycle).waits?.phase?.blockers[0]?.kind === 'dependency',
     'refreshed wait',
   );
   const refreshed = currentCycle(state, cycle);
   expect(refreshed).toMatchObject({
     status: 'awaiting-merge',
     reason: 'Predecessor AQ-00 is not merged yet.',
-    phaseWait: { startedAt: first.phaseWait?.startedAt, blockers },
+    waits: { phase: { since: first.waits?.phase?.since, blockers } },
   });
   const events = cycleEvents();
   expect(
-    service.writer.change(refreshed, { reason: refreshed.reason, phaseWait: refreshed.phaseWait }),
+    service.writer.change(refreshed, {
+      reason: refreshed.reason,
+      waits: { phase: refreshed.waits?.phase },
+    }),
   ).toBe(refreshed);
   expect(currentCycle(state, cycle).version).toBe(refreshed.version);
   expect(cycleEvents()).toBe(events);

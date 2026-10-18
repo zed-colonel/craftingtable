@@ -3,9 +3,9 @@ import {
   type CycleAttention,
   type CycleAttentionCode,
   cycleAttention,
-  effectiveCycleAttention,
   mergeAdoptsChecks,
   type WorkCycle,
+  cycleStop,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { mapReadSnapshot } from '../../map-read-snapshot.js';
@@ -29,7 +29,7 @@ export function currentCycleAttention(
   storage: StorageRepositories,
   cycle: WorkCycle,
 ): CycleAttention | undefined {
-  const declared = effectiveCycleAttention(cycle);
+  const declared = cycleStop(cycle);
   if (!declared) return undefined;
   const tx = mapReadSnapshot(storage);
   let code: CycleAttentionCode =
@@ -78,7 +78,7 @@ function roadmapClaim(tx: StorageRepositories, cycle: WorkCycle): AttentionClaim
     // A merge that adopts check definitions is a person's (R-G13 increment 5).
     if (
       delegation?.automation.integrationMerge === 'automatic' &&
-      !mergeAdoptsChecks(effectiveCycleAttention(cycle))
+      !mergeAdoptsChecks(cycleStop(cycle))
     )
       return 'roadmap-merge';
   }

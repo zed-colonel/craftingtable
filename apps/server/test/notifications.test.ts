@@ -26,13 +26,16 @@ import {
   asWorkspaceMembershipId,
   asWorktreeId,
   cycleAttention,
+  type CycleAttention,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_NOTIFICATION_PREFERENCES,
   effectiveCycleAttention,
   type Finalization,
+  heldStop,
   type Roadmap,
-  type RoadmapDefinition,
   roadmapAttention,
+  type RoadmapDefinition,
+  stopRecord,
   type WorkCycle,
 } from '@craftingtable/domain';
 import { openDatabase } from '@craftingtable/storage';
@@ -190,7 +193,7 @@ async function fixture(
     remediationRounds: 0,
     stalledReviews: 0,
     reason: 'Review meets policy. Operator merge approval required.',
-    attention: cycleAttention('merge-approval'),
+    stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
   };
   context.storage.execution.cycles.insert(cycle);
   const send = vi
@@ -248,9 +251,13 @@ async function fixture(
       context.services.roadmapService.syncAttention(true);
     },
     cycle: () => cycle,
-    setCycle: (status: WorkCycle['status'], changes: Partial<WorkCycle> = {}) => {
-      // Written like the controller writes it: a stop carries its typed attention (R-A3).
-      const { attention: _previous, ...rest } = cycle;
+    setCycle: (
+      status: WorkCycle['status'],
+      { attention, ...changes }: Partial<WorkCycle> & { readonly attention?: CycleAttention } = {},
+    ) => {
+      // Written like the controller writes it: a stop carries its typed attention (R-A3), as
+      // its stop record (R-B4b).
+      const { stop: _previous, ...rest } = cycle;
       const merged: WorkCycle = {
         ...rest,
         ...changes,
@@ -258,8 +265,13 @@ async function fixture(
         version: cycle.version + 1,
         updatedAt: now().toISOString(),
       };
-      const attention = changes.attention ?? effectiveCycleAttention(merged);
-      const next: WorkCycle = attention ? { ...merged, attention } : merged;
+      // A stop given neither its record nor attention takes the one its reason and shape declare.
+      const declared =
+        attention ??
+        (changes.stop ? undefined : effectiveCycleAttention({ ...merged, attention: undefined }));
+      const next: WorkCycle = declared
+        ? { ...merged, stop: stopRecord(declared, merged.updatedAt) }
+        : merged;
       context.storage.execution.cycles.replace(next, cycle.version);
       cycle = next;
     },
@@ -1089,7 +1101,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
     const recovery = cycleAttention('scope-review-recovery');
     f.setCycle('needs-attention', {
       reason: 'Scope review requires recovery: 1 major.',
-      attention: recovery,
+      stop: stopRecord(recovery, '2026-01-01T00:00:00.000Z'),
     });
     await f.service.tick();
     f.advance(1);
@@ -1099,7 +1111,7 @@ describe('notification noise controls (R-A1, R-A2)', () => {
       f.advance(1);
       f.setCycle('needs-attention', {
         reason: `Scope review requires recovery (round ${i}).`,
-        attention: recovery,
+        stop: stopRecord(recovery, '2026-01-01T00:00:00.000Z'),
       });
       await f.service.tick();
     }
@@ -1317,7 +1329,9 @@ describe('notification noise controls (R-A1, R-A2)', () => {
     const controllerSees = async () => f.context.services.workCycleService.declareAttention();
     await controllerSees();
     expect(
-      f.context.storage.execution.cycles.find(f.workspaceId, f.cycle().id)?.attention,
+      f.context.storage.execution.cycles.find(f.workspaceId, f.cycle().id) === undefined
+        ? undefined
+        : heldStop(f.context.storage.execution.cycles.find(f.workspaceId, f.cycle().id)),
     ).toMatchObject({ code: 'merge-approval', owner: 'controller', claim: 'roadmap-merge' });
     await f.service.tick();
     expect(f.send).not.toHaveBeenCalled(); // The roadmap merges this item itself.
@@ -1388,7 +1402,7 @@ describe('durable attention items (R-A4)', () => {
       refs: { cycleId: f.cycle().id, worktreeId: f.worktreeId, workItemId: f.workItemId },
     });
     const running = (cycle: WorkCycle): WorkCycle => {
-      const { attention: _stop, ...rest } = cycle;
+      const { stop: _stop, ...rest } = cycle;
       return { ...rest, status: 'running', version: cycle.version + 1 };
     };
     // A write that rolls back leaves the item as it was.
@@ -1956,7 +1970,7 @@ describe('durable attention items (R-A4)', () => {
     // wait; 0.5 s later the old worker pushed it; 1.6 s later the roadmap ran Review again.
     write('needs-attention', {
       reason: 'wi integration changed. Preview dependency refresh.',
-      attention: cycleAttention('review-baseline-changed'),
+      stop: stopRecord(cycleAttention('review-baseline-changed'), '2026-01-01T00:00:00.000Z'),
     });
     seconds(0.5);
     await f.service.tick();
@@ -1969,14 +1983,17 @@ describe('durable attention items (R-A4)', () => {
     // reserves scope recovery, which claims the stop.
     write('needs-attention', {
       reason: 'Scope review requires recovery: 1 major.',
-      attention: cycleAttention('scope-review-recovery'),
+      stop: stopRecord(cycleAttention('scope-review-recovery'), '2026-01-01T00:00:00.000Z'),
     });
     seconds(0.2);
     await f.service.tick();
     seconds(0.7);
     write('needs-attention', {
       reason: 'Scope review requires recovery: 1 major.',
-      attention: cycleAttention('scope-review-recovery', undefined, { claim: 'scope-recovery' }),
+      stop: stopRecord(
+        cycleAttention('scope-review-recovery', undefined, { claim: 'scope-recovery' }),
+        '2026-01-01T00:00:00.000Z',
+      ),
     });
     pass('roadmaps');
     pass('cycles');
@@ -2189,7 +2206,7 @@ describe('attention items: review fixes (R-A4)', () => {
     // A long push is logged within its bound too, so it is not re-sent after its lease.
     f.setCycle('needs-attention', {
       reason: `${emoji}${'b'.repeat(1100)}`,
-      attention: cycleAttention('implementation-open-questions'),
+      stop: stopRecord(cycleAttention('implementation-open-questions'), '2026-01-01T00:00:00.000Z'),
     });
     await f.service.tick();
     f.advance(2);
@@ -2209,13 +2226,13 @@ describe('attention items: review fixes (R-A4)', () => {
       });
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
-      const { attention: _stop, ...rest } = f.cycle();
+      const { stop: _stop, ...rest } = f.cycle();
       const stopped: WorkCycle = {
         ...rest,
         status: 'needs-attention',
         version: f.cycle().version + 1,
         reason: 'Review needs your input.',
-        attention: cycleAttention('review-open-questions'),
+        stop: stopRecord(cycleAttention('review-open-questions'), '2026-01-01T00:00:00.000Z'),
       };
       f.context.storage.transaction((tx) => {
         tx.execution.cycles.replace(stopped, f.cycle().version);
@@ -2355,7 +2372,7 @@ describe('attention items: review fixes (R-A4)', () => {
     };
     f.context.storage.roadmaps.save(roadmap, 0);
     f.setCycle('awaiting-merge', {
-      attention: cycleAttention('merge-approval'),
+      stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
       owner: {
         roadmapId: roadmap.id,
         attemptId: roadmap.attempts[0]!.id,
@@ -2414,7 +2431,7 @@ describe('attention items: review fixes (R-A4)', () => {
     };
     f.context.storage.roadmaps.save(roadmap, 0);
     f.setCycle('needs-attention', {
-      attention: cycleAttention('scope-review-recovery'),
+      stop: stopRecord(cycleAttention('scope-review-recovery'), '2026-01-01T00:00:00.000Z'),
       owner: {
         roadmapId: roadmap.id,
         attemptId: roadmap.attempts[0]!.id,

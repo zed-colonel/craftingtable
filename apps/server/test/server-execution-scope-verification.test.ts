@@ -136,7 +136,9 @@ it('recovers parent review with durable guidance only after current verification
   expect(result.statusCode, result.body).toBe(200);
   const continued = currentCycle(state, cycle);
   expect(continued.instructions).toBe('Keep the original parent gate.');
-  expect(continued.stepGuidance).toBe('Apply the adopted policy without waiving the source gate.');
+  expect(continued.attempt?.stepGuidance).toBe(
+    'Apply the adopted policy without waiving the source gate.',
+  );
   expect(continued.remediationRounds).toBe(0);
   await waitFor(() => currentCycle(state, cycle).status !== 'running', 'fresh parent review');
   const run = state.context.storage.execution.runs.find(

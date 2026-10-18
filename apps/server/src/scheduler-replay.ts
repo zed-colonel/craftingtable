@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   type CycleOwner,
-  effectiveCycleAttention,
   effectiveHoldAttention,
   effectiveRoadmapAttention,
   phaseBlockerCode,
@@ -13,6 +12,7 @@ import {
   type Roadmap,
   type RoadmapEntry,
   type RoadmapStatusList,
+  cycleStop,
 } from '@craftingtable/domain';
 import type { ServiceSet } from './composition.js';
 import { openDaemonStorage } from './persisted-records.js';
@@ -802,7 +802,7 @@ function checkpointReadiness(storage: ReturnType<typeof openDaemonStorage>): Che
     const scope = resolveScope(storage, cycle.workspaceId, cycle.workItemId, cycle.executionScope);
     const ledger = scopeEvidenceLedger(storage, scope);
     const active = cycle.workflow?.activeReview;
-    const attention = effectiveCycleAttention(cycle);
+    const attention = cycleStop(cycle);
     result.push({
       cycleId: cycle.id,
       sourceId: cycle.executionScope.sourceId,

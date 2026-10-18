@@ -2,6 +2,7 @@ import {
   type AgentRun,
   cycleAttention,
   DEFAULT_COMPLETION_POLICY,
+  stopRecord,
   type WorkCycle,
 } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
@@ -38,7 +39,7 @@ const cycleOf = (overrides: Record<string, unknown> = {}) =>
     worktreeId: 'tree-1',
     workItemId: 'item-1',
     status: 'needs-attention',
-    attention: cycleAttention('step-incomplete'),
+    stop: stopRecord(cycleAttention('step-incomplete'), '2026-01-01T00:00:00.000Z'),
     step: 'implement',
     currentRunId: 'run-1',
     runDeadlineAt: LATER,
@@ -108,14 +109,14 @@ const rows: readonly {
   {
     name: 'an ended cycle takes no command',
     stage: 'command',
-    cycle: { status: 'stopped', attention: undefined },
+    cycle: { status: 'stopped', stop: undefined },
     expected: { kind: 'refuse', code: 'cycle-ended' },
   },
   // Increment 6 review, LOW-3: the rows below pin a condition each.
   {
     name: 'a completed cycle takes no command either',
     stage: 'command',
-    cycle: { status: 'completed', attention: undefined },
+    cycle: { status: 'completed', stop: undefined },
     expected: { kind: 'refuse', code: 'cycle-ended' },
   },
   {
@@ -144,7 +145,7 @@ const rows: readonly {
     cycle: {
       integrationResolution: { status: 'preparing', runIds: [] },
       status: 'running',
-      attention: undefined,
+      stop: undefined,
     },
     expected: { kind: 'write', changes: { status: 'paused' }, endTurn: true },
   },
@@ -174,7 +175,7 @@ const rows: readonly {
     name: 'a provider retry is held while the roadmap pauses',
     stage: 'command',
     action: 'retry-provider',
-    cycle: { providerRecovery: recovery },
+    cycle: { attempt: { providerRecovery: recovery } },
     facts: { providerRoadmapPaused: () => true },
     expected: { kind: 'refuse', code: 'provider-retry-held' },
   },
@@ -182,14 +183,14 @@ const rows: readonly {
     name: 'a provider retry is bounded to three attempts',
     stage: 'command',
     action: 'retry-provider',
-    cycle: { providerRecovery: { ...recovery, attempts: 3 } },
+    cycle: { attempt: { providerRecovery: { ...recovery, attempts: 3 } } },
     expected: { kind: 'refuse', code: 'no-provider-retry' },
   },
   {
     name: 'a retired attempt takes no provider retry',
     stage: 'command',
     action: 'retry-provider',
-    cycle: { providerRecovery: recovery },
+    cycle: { attempt: { providerRecovery: recovery } },
     facts: { amendmentRetired: () => true },
     expected: { kind: 'refuse', code: 'amendment-retired' },
   },
@@ -197,7 +198,7 @@ const rows: readonly {
     name: 'a provider retry refuses a newer run',
     stage: 'command',
     action: 'retry-provider',
-    cycle: { providerRecovery: recovery },
+    cycle: { attempt: { providerRecovery: recovery } },
     facts: { newestRun: () => runOf({ id: 'run-2' }) },
     expected: { kind: 'refuse', code: 'newer-run' },
   },
@@ -205,7 +206,7 @@ const rows: readonly {
     name: 'guidance for a retry is bounded',
     stage: 'command',
     action: 'retry-provider',
-    cycle: { providerRecovery: recovery },
+    cycle: { attempt: { providerRecovery: recovery } },
     guidance: 'x'.repeat(16001),
     expected: {
       kind: 'refuse',
@@ -218,7 +219,7 @@ const rows: readonly {
     name: 'guidance for a retry of 16000 characters is not refused for its length',
     stage: 'command',
     action: 'retry-provider',
-    cycle: { providerRecovery: recovery },
+    cycle: { attempt: { providerRecovery: recovery } },
     guidance: 'x'.repeat(16000),
     expected: { kind: 'write' },
   },
@@ -226,10 +227,13 @@ const rows: readonly {
     name: 'a provider retry runs now, and a pending one keeps its time',
     stage: 'command',
     action: 'retry-provider',
-    cycle: { providerRecovery: recovery },
+    cycle: { attempt: { providerRecovery: recovery } },
     expected: {
       kind: 'write',
-      changes: { status: 'running', providerRecovery: { nextRetryAt: NOW.toISOString() } },
+      changes: {
+        status: 'running',
+        attempt: { providerRecovery: { nextRetryAt: NOW.toISOString() } },
+      },
     },
   },
   {
@@ -241,7 +245,7 @@ const rows: readonly {
   {
     name: 'a running cycle does not resume',
     stage: 'command',
-    cycle: { status: 'running', attention: undefined },
+    cycle: { status: 'running', stop: undefined },
     expected: { kind: 'refuse', code: 'not-stopped' },
   },
   { name: 'a stopped cycle goes on to resume', stage: 'command', expected: { kind: 'resume' } },
@@ -249,13 +253,18 @@ const rows: readonly {
   {
     name: 'a stop a resume would reproduce redirects to its control',
     stage: 'resume',
-    cycle: { attention: cycleAttention('design-open-questions') },
+    cycle: {
+      stop: stopRecord(cycleAttention('design-open-questions'), '2026-01-01T00:00:00.000Z'),
+    },
     expected: { kind: 'refuse', code: 'redirect', control: 'resolve-design' },
   },
   {
     name: 'a paused redirected stop returns to the stop',
     stage: 'resume',
-    cycle: { status: 'paused', attention: cycleAttention('design-open-questions') },
+    cycle: {
+      status: 'paused',
+      stop: stopRecord(cycleAttention('design-open-questions'), '2026-01-01T00:00:00.000Z'),
+    },
     expected: { kind: 'write', changes: { status: 'needs-attention' } },
   },
   {
@@ -311,7 +320,7 @@ const rows: readonly {
     name: 'combined guidance past 16000 characters is refused',
     stage: 'step',
     guidance: 'g'.repeat(7999),
-    cycle: { stepGuidance: 'e'.repeat(8000) },
+    cycle: { attempt: { stepGuidance: 'e'.repeat(8000) } },
     facts: { newestRun: () => runOf({ status: 'failed' }) },
     expected: {
       kind: 'refuse',
@@ -324,21 +333,21 @@ const rows: readonly {
     name: 'guidance replaces a finished step’s, and opens a new progress window',
     stage: 'step',
     guidance: 'Use the queue.',
-    cycle: { stepGuidance: 'Earlier guidance.', stalledReviews: 2 },
+    cycle: { attempt: { stepGuidance: 'Earlier guidance.' }, stalledReviews: 2 },
     expected: {
       kind: 'launch',
-      changes: { stepGuidance: 'Use the queue.', stalledReviews: 0 },
+      changes: { attempt: { stepGuidance: 'Use the queue.' }, stalledReviews: 0 },
     },
   },
   {
     name: 'guidance joins an unfinished step’s',
     stage: 'step',
     guidance: 'Use the queue.',
-    cycle: { stepGuidance: 'Earlier guidance.' },
+    cycle: { attempt: { stepGuidance: 'Earlier guidance.' } },
     facts: { newestRun: () => runOf({ status: 'failed' }) },
     expected: {
       kind: 'launch',
-      changes: { stepGuidance: 'Earlier guidance.\n\nUse the queue.' },
+      changes: { attempt: { stepGuidance: 'Earlier guidance.\n\nUse the queue.' } },
     },
   },
   {
@@ -365,7 +374,7 @@ const rows: readonly {
     cycle: {
       step: 'review',
       executionScope: reviewScope,
-      attention: cycleAttention('scope-review-recovery'),
+      stop: stopRecord(cycleAttention('scope-review-recovery'), '2026-01-01T00:00:00.000Z'),
     },
     expected: { kind: 'review-scope', snapshotCheck: true, guidance: '' },
   },
@@ -423,11 +432,11 @@ const rows: readonly {
   {
     name: 'an adopted implementation sets the step and clears the design wait',
     stage: 'step',
-    cycle: { step: 'design', designWait: { startedAt: EARLIER, requirements: [] } },
+    cycle: { step: 'design', waits: { design: { since: EARLIER, requirements: [] } } },
     facts: { newestRun: () => runOf({ id: 'run-2', role: 'implement' }) },
     expected: {
       kind: 'write',
-      changes: { step: 'implement', currentRunId: 'run-2', designWait: null },
+      changes: { step: 'implement', currentRunId: 'run-2', waits: { design: null } },
     },
   },
   {
@@ -480,10 +489,10 @@ const rows: readonly {
   {
     name: 'a finished step resumes its window, its phase wait cleared',
     stage: 'step',
-    cycle: { phaseWait: { startedAt: EARLIER, blockers: [] } },
+    cycle: { waits: { phase: { since: EARLIER, blockers: [] } } },
     expected: {
       kind: 'write',
-      changes: { status: 'running', runDeadlineAt: LATER, phaseWait: null },
+      changes: { status: 'running', runDeadlineAt: LATER, waits: { phase: null } },
     },
   },
 ];
@@ -520,7 +529,7 @@ const actorRows: readonly {
   },
   {
     name: 'a wind-down leaves an ended cycle',
-    run: () => decideWindDownStop(cycleOf({ status: 'completed', attention: undefined }), false),
+    run: () => decideWindDownStop(cycleOf({ status: 'completed', stop: undefined }), false),
     expected: { kind: 'none' },
   },
   {
@@ -541,7 +550,10 @@ const actorRows: readonly {
     name: 'a refused merge that adopts checks becomes the operator’s',
     run: () =>
       decideLeaveMerge(
-        cycleOf({ status: 'awaiting-merge', attention: cycleAttention('controller-wait') }),
+        cycleOf({
+          status: 'awaiting-merge',
+          stop: stopRecord(cycleAttention('controller-wait'), '2026-01-01T00:00:00.000Z'),
+        }),
         'repo-1' as never,
         false,
       ),
@@ -565,7 +577,7 @@ const actorRows: readonly {
         cycleOf({
           status: 'awaiting-merge',
           step: 'review',
-          attention: cycleAttention('merge-approval'),
+          stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
         }),
         {
           review: runOf({ role: 'review', reviewBranchContext: { headSha: 'h' } }),
@@ -599,7 +611,7 @@ const actorRows: readonly {
   },
   {
     name: 'an undone reservation restores a status without a stop',
-    run: () => restoredStatus(cycleOf({ status: 'running', attention: undefined })),
+    run: () => restoredStatus(cycleOf({ status: 'running', stop: undefined })),
     expected: { status: 'running' },
   },
   {
@@ -622,7 +634,7 @@ const actorRows: readonly {
           status: 'awaiting-merge',
           step: 'review',
           executionScope: reviewScope,
-          attention: cycleAttention('merge-approval'),
+          stop: stopRecord(cycleAttention('merge-approval'), '2026-01-01T00:00:00.000Z'),
         }),
         { unstarted: false, treeMatches: true },
       ),
@@ -643,7 +655,7 @@ const actorRows: readonly {
   },
   {
     name: 'a crash stops a running cycle for the operator',
-    run: () => decideRestart(cycleOf({ status: 'running', attention: undefined }), false),
+    run: () => decideRestart(cycleOf({ status: 'running', stop: undefined }), false),
     expected: {
       stop: {
         kind: 'write',
@@ -653,7 +665,7 @@ const actorRows: readonly {
   },
   {
     name: 'a clean stop leaves a running cycle running',
-    run: () => decideRestart(cycleOf({ status: 'running', attention: undefined }), true),
+    run: () => decideRestart(cycleOf({ status: 'running', stop: undefined }), true),
     expected: {},
   },
   {
@@ -662,8 +674,8 @@ const actorRows: readonly {
       decideRestart(
         cycleOf({
           status: 'running',
-          attention: undefined,
-          designWait: { startedAt: EARLIER, requirements: [] },
+          stop: undefined,
+          waits: { design: { since: EARLIER, requirements: [] } },
         }),
         false,
       ),

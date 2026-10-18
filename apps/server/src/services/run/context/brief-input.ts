@@ -220,7 +220,10 @@ export function briefFor(
     ...(scope ? { executionScope: scopeBrief(scope) } : {}),
     ...(prepared.worktree.planVersionId &&
     input.role === 'review' &&
-    !(cycle && ((cycle.resultContinuations ?? 0) > 0 || cycle.providerRecovery)) &&
+    !(
+      cycle &&
+      ((cycle.attempt?.resultContinuations ?? 0) > 0 || cycle.attempt?.providerRecovery)
+    ) &&
     parentAssessment?.status === 'invalid'
       ? {
           reviewReportRetry: {

@@ -14,6 +14,7 @@ import {
   type CycleProfiles,
   type Roadmap,
   type WorkCycle,
+  heldStop,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cycleLaunchInput } from '../src/services/run/context/launch-input.js';
@@ -278,16 +279,18 @@ describe('a cycle’s launch (startForCycle)', () => {
     const { launch, design } = await launchFixture();
     expect(
       await launch({
-        providerRecovery: {
-          attempts: 1,
-          sourceRunId: design.id,
-          failure: {
-            kind: 'capacity',
-            message: 'Overloaded.',
-            safeToRetry: true,
+        attempt: {
+          providerRecovery: {
+            attempts: 1,
+            sourceRunId: design.id,
+            failure: {
+              kind: 'capacity',
+              message: 'Overloaded.',
+              safeToRetry: true,
+            },
+            profile: { backend: 'claude-code', model: 'retry-model', permissionMode: 'edit-only' },
+            nextRetryAt: new Date().toISOString(),
           },
-          profile: { backend: 'claude-code', model: 'retry-model', permissionMode: 'edit-only' },
-          nextRetryAt: new Date().toISOString(),
         },
       } as unknown as Partial<WorkCycle>),
     ).toEqual({
@@ -302,11 +305,13 @@ describe('a cycle’s launch (startForCycle)', () => {
       await launch({
         step: 'design',
         parentRunId: design.id,
-        outputRepair: {
-          attempts: 1,
-          sourceRunId: design.id,
-          code: 'design-report-invalid',
-          issues: [],
+        attempt: {
+          outputRepair: {
+            attempts: 1,
+            sourceRunId: design.id,
+            code: 'design-report-invalid',
+            issues: [],
+          },
         },
         profiles: { ...stored.profiles, design: { ...stored.profiles.design, model: 'changed' } },
       } as unknown as Partial<WorkCycle>),
@@ -361,12 +366,14 @@ describe('a cycle’s launch (startForCycle)', () => {
     expect(
       await launch({
         owner,
-        providerRecovery: {
-          attempts: 1,
-          sourceRunId: design.id,
-          failure: { kind: 'capacity', message: 'Overloaded.', safeToRetry: true },
-          profile: { backend: 'claude-code', model: 'retry-model', permissionMode: 'edit-only' },
-          nextRetryAt: new Date().toISOString(),
+        attempt: {
+          providerRecovery: {
+            attempts: 1,
+            sourceRunId: design.id,
+            failure: { kind: 'capacity', message: 'Overloaded.', safeToRetry: true },
+            profile: { backend: 'claude-code', model: 'retry-model', permissionMode: 'edit-only' },
+            nextRetryAt: new Date().toISOString(),
+          },
         },
       } as unknown as Partial<WorkCycle>),
     ).toEqual({
@@ -416,11 +423,13 @@ describe('a cycle’s launch (startForCycle)', () => {
         owner,
         step: 'design',
         parentRunId: design.id,
-        outputRepair: {
-          attempts: 1,
-          sourceRunId: design.id,
-          code: 'design-report-invalid',
-          issues: [],
+        attempt: {
+          outputRepair: {
+            attempts: 1,
+            sourceRunId: design.id,
+            code: 'design-report-invalid',
+            issues: [],
+          },
         },
       } as unknown as Partial<WorkCycle>),
     ).toEqual({ agent: agent('design-model', 'auto'), provenance: { purpose: 'design' } });
@@ -467,11 +476,13 @@ describe('a cycle’s launch (startForCycle)', () => {
       },
       step: 'design',
       parentRunId: design.id,
-      outputRepair: {
-        attempts: 1,
-        sourceRunId: design.id,
-        code: 'design-report-invalid',
-        issues: [],
+      attempt: {
+        outputRepair: {
+          attempts: 1,
+          sourceRunId: design.id,
+          code: 'design-report-invalid',
+          issues: [],
+        },
       },
     } as unknown as Partial<WorkCycle>;
     expect(await launch(resume)).toEqual({
@@ -508,7 +519,7 @@ describe('a question stop’s investigation (R-C16)', () => {
       },
     });
     await waitFor(
-      () => currentCycle(f.state, cycle).attention?.code === 'implementation-open-questions',
+      () => heldStop(currentCycle(f.state, cycle))?.code === 'implementation-open-questions',
       'implementation question',
     );
     const response = await post(f.state, `/cycles/${cycle.id}/investigation`, {

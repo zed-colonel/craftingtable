@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
-import { type AgentRun, asAgentRunId } from '@craftingtable/domain';
+import { type AgentRun, asAgentRunId, heldStop } from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BranchService } from '../src/services/branch-service.js';
 import { CUT_OFF_BOUNDS, cutOffRecord, writeRunHandoff } from '../src/services/run-handoff.js';
@@ -94,7 +94,7 @@ it("hands a resumed step the cut-off run's last messages, head commit and uncomm
   const cutOff = currentCycle(state, cycle).currentRunId;
   now = new Date(Date.parse(currentCycle(state, cycle).runDeadlineAt) + 1);
   await waitFor(
-    () => currentCycle(state, cycle).attention?.code === 'step-time-limit',
+    () => heldStop(currentCycle(state, cycle))?.code === 'step-time-limit',
     'the step time limit',
   );
   await waitFor(
@@ -212,7 +212,10 @@ it("hands a service retry after a turn that ended in error the run's last messag
       writeFileSync(join(request.cwd, 'wip.txt'), 'half done\n');
   };
   const cycle = await startCycle(state, worktree.id);
-  await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'the backoff');
+  await waitFor(
+    () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
+    'the backoff',
+  );
   const failed = backend.launches.length === 2 && currentCycle(state, cycle).currentRunId;
   expect(failed).toBeTruthy();
   const head = git(['rev-parse', 'HEAD'], worktree.path).trim();

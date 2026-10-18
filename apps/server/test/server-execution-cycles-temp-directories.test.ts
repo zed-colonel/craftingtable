@@ -14,6 +14,7 @@ import {
 import { basename, dirname, join } from 'node:path';
 import { AgentLaunchError } from '@craftingtable/agents';
 import { afterEach, expect, it } from 'vitest';
+import { heldStop } from '@craftingtable/domain';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -298,7 +299,7 @@ it("stops a cycle as agent-environment-unavailable when the agent's tools cannot
   const cycle = await startCycle(state, worktree.id);
   await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'typed stop');
   const stopped = currentCycle(state, cycle);
-  expect(stopped.attention?.code).toBe('agent-environment-unavailable');
+  expect(heldStop(stopped)?.code).toBe('agent-environment-unavailable');
   expect(stopped.reason).toContain("socat is not on the agent's PATH");
   expect(existsSync(present(own))).toBe(false);
   // Not the agent's report: nothing ran, so no questions are asked of the operator.

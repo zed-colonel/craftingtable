@@ -1,4 +1,4 @@
-import { cycleAttention, type WorkCycle } from '@craftingtable/domain';
+import { cycleAttention, type WorkCycle, heldStop } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import type { CycleDecision } from '../src/services/cycle/core/machine.js';
 import { CycleTransitionError } from '../src/services/cycle/core/transitions.js';
@@ -36,7 +36,7 @@ it('leaves a cycle alone when its launch meets contention, and stops it on a ref
   await f.services.workCycleService.tick();
   expect(storedCycle(f, cycle.id)).toMatchObject({
     status: 'needs-attention',
-    attention: { code: 'launch-refused', owner: 'operator' },
+    stop: { code: 'launch-refused', owner: 'operator' },
     reason: 'The launch was refused.',
   });
 });
@@ -50,7 +50,7 @@ it('stops a launch with the code its typed refusal names', async () => {
   await f.services.workCycleService.tick();
   expect(storedCycle(f, cycle.id)).toMatchObject({
     status: 'needs-attention',
-    attention: { code: 'worktree-state', owner: 'operator' },
+    stop: { code: 'worktree-state', owner: 'operator' },
     reason: 'The worktree is not on its managed branch',
   });
 });
@@ -64,7 +64,7 @@ it('keeps controller-error for an unexpected exception', async () => {
   await f.services.workCycleService.tick();
   expect(storedCycle(f, cycle.id)).toMatchObject({
     status: 'needs-attention',
-    attention: { code: 'controller-error' },
+    stop: { code: 'controller-error' },
     reason: 'Controller could not advance this step. Inspect the run before resuming.',
   });
 });
@@ -87,7 +87,7 @@ it('writes nothing when the cycle changed while its reconciliation failed', asyn
     version: cycle.version + 1,
     reason: 'Changed elsewhere.',
   });
-  expect(storedCycle(f, cycle.id).attention).toBeUndefined();
+  expect(heldStop(storedCycle(f, cycle.id))).toBeUndefined();
 });
 
 it('refuses a write outside the cycle state machine as a programming error (R-B4 increment 6)', async () => {
@@ -101,7 +101,11 @@ it('refuses a write outside the cycle state machine as a programming error (R-B4
       };
     }
   ).writer;
-  const stopped = service.change(cycle, { status: 'stopped', reason: 'Stopped.' }, 'stop');
+  const stopped = service.change(
+    cycle,
+    { status: 'stopped', end: 'operator-stopped', reason: 'Stopped.' },
+    'stop',
+  );
   expect(() => service.change(stopped, { status: 'running', reason: 'Again.' }, 'resume')).toThrow(
     CycleTransitionError,
   );
@@ -120,7 +124,7 @@ it('stores a phase gate that does not wait with its blockers named (R-B4 increme
   await f.services.workCycleService.tick();
   expect(storedCycle(f, cycle.id)).toMatchObject({
     status: 'needs-attention',
-    attention: { code: 'phase-gate', owner: 'operator', refs: { blockers: ['binding-changed'] } },
+    stop: { code: 'phase-gate', owner: 'operator', refs: { blockers: ['binding-changed'] } },
     reason: 'The binding changed.',
   });
 });
@@ -168,7 +172,7 @@ it('writes a guard’s stop with the refs its decision carries', async () => {
   });
   expect(storedCycle(f, cycle.id)).toMatchObject({
     status: 'needs-attention',
-    attention: { code: 'phase-gate', refs: { blockers: ['binding-changed'] } },
+    stop: { code: 'phase-gate', refs: { blockers: ['binding-changed'] } },
     reason: 'The binding changed.',
   });
 });
@@ -208,25 +212,25 @@ it('keeps a cycle’s waits through a stop and a pause', async () => {
     }
   ).writer;
   const designWait = {
-    startedAt: '2026-10-16T00:00:00.000Z',
+    since: '2026-10-16T00:00:00.000Z',
     requirements: [{ kind: 'slice', id: 'wi/A', state: 'merged' }],
   };
   const stopped = service.change(cycle, {
     status: 'needs-attention',
     attention: cycleAttention('design-dependency-unsupported'),
     reason: 'Waits on its design’s dependencies.',
-    designWait,
+    waits: { design: designWait },
   });
-  expect(storedCycle(f, cycle.id).designWait).toEqual(designWait);
+  expect(storedCycle(f, cycle.id).waits?.design).toEqual(designWait);
   // As the pause command writes it: the stop it was taken at, kept.
   service.change(
     stopped,
-    { status: 'paused', attention: stopped.attention, reason: 'Paused.' },
+    { status: 'paused', attention: heldStop(stopped), reason: 'Paused.' },
     'pause',
   );
   expect(storedCycle(f, cycle.id)).toMatchObject({
     status: 'paused',
-    attention: { code: 'design-dependency-unsupported' },
-    designWait,
+    stop: { code: 'design-dependency-unsupported' },
+    waits: { design: designWait },
   });
 });

@@ -4,6 +4,7 @@ import { workCycleResponseSchema, workCyclesResponseSchema } from '@craftingtabl
 import type { WorkCycle } from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExecutionRequestError } from '../src/services/errors.js';
+import { heldStop } from '@craftingtable/domain';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */
@@ -508,7 +509,7 @@ describe('single work-item automation', () => {
       instructions: 'Check the benchmark report.',
       profile: { model: 'design-model' },
     });
-    expect(currentCycle(state, cycle).attention?.code).not.toBe('design-investigation-finished');
+    expect(heldStop(currentCycle(state, cycle))?.code).not.toBe('design-investigation-finished');
   });
 
   const answeredInvestigation = `Investigated.\n\n\`\`\`craftingtable-design\n${JSON.stringify({
@@ -560,7 +561,7 @@ describe('single work-item automation', () => {
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'design pause');
     await investigate(state, cycle);
     await waitFor(
-      () => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt,
+      () => !!currentCycle(state, cycle).attempt?.providerRecovery?.nextRetryAt,
       'investigation service retry',
     );
     now = new Date('2026-09-25T12:02:00Z');
@@ -585,7 +586,7 @@ describe('single work-item automation', () => {
     runs.hasBackend = () => false;
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'fallback stop');
     expect(currentCycle(state, cycle)).toMatchObject({
-      attention: { code: 'design-investigation-finished' },
+      stop: { code: 'design-investigation-finished' },
       designRecovery: { mode: 'investigate' },
       reason: expect.stringContaining('could not continue automatically'),
     });

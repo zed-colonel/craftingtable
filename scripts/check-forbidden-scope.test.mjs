@@ -1427,6 +1427,14 @@ describe('only the replay tool pins the host a replay runs as (rule 12, R-B4b)',
     ).toEqual([handsOn(workstation)]);
     expect(
       findingsWith({
+        [workstation]:
+          "import { replayHost } from './replay-host.js';\nexport const workstationDigest = () => replayHost() ?? 'live';\nexport default replayHost;\n",
+      }),
+    ).toEqual([
+      `${workstation}:3: re-exports the replay host pin's binding; it must not leave this module (R-B4b)`,
+    ]);
+    expect(
+      findingsWith({
         [tool]: "import * as host from './services/replay-host.js';\nhost.pinReplayHost('x');\n",
         [workstation]: "export const workstationDigest = () => 'live';\n",
       }),

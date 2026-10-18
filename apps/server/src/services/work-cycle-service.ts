@@ -808,7 +808,11 @@ export class WorkCycleService {
       case 'idle':
         return;
       case 'complete':
-        this.writer.change(cycle, { status: 'completed', reason: decision.reason });
+        this.writer.change(cycle, {
+          status: 'completed',
+          end: decision.code,
+          reason: decision.reason,
+        });
         return;
       case 'attention':
         if (decision.endTurn) this.runs.finishCycleTurn(cycle, true);
@@ -819,7 +823,7 @@ export class WorkCycleService {
           this.writer.waitForPhase(cycle, decision.wait.blockers, decision.wait.reason);
         else
           this.writer.change(cycle, {
-            phaseWait: null,
+            waits: { phase: null },
             runDeadlineAt: decision.wait.runDeadlineAt,
             reason: decision.wait.reason,
           });
@@ -916,7 +920,7 @@ export class WorkCycleService {
         this.writer.change(
           cycle,
           {
-            providerRecovery: decision.providerRecovery,
+            attempt: decision.attempt,
             ...(decision.runDeadlineAt ? { runDeadlineAt: decision.runDeadlineAt } : {}),
             reason: decision.reason,
           },
@@ -946,7 +950,10 @@ export class WorkCycleService {
         }
         return;
       case 'design-wait':
-        this.writer.change(cycle, { designWait: decision.designWait, reason: decision.reason });
+        this.writer.change(cycle, {
+          waits: { design: decision.designWait },
+          reason: decision.reason,
+        });
         return;
       case 'finalize-implementation': {
         const finalized = await this.remediation.finalizeImplementation(cycle, run);

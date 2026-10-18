@@ -78,7 +78,7 @@ export function ScopeReviewRecovery({
       }}
     >
       <h3>
-        {cycle.providerRecovery?.nextRetryAt
+        {cycle.attempt?.providerRecovery?.nextRetryAt
           ? 'Resume interrupted review'
           : repeat
             ? 'Review again'
@@ -92,7 +92,7 @@ export function ScopeReviewRecovery({
           : 'Merge source fixes first. Resuming does not delegate implementation or accept this scope.'}
       </p>
       <About label="About review recovery">
-        {cycle.providerRecovery?.nextRetryAt && (
+        {cycle.attempt?.providerRecovery?.nextRetryAt && (
           <p>
             Resume preserves the interrupted review snapshot, service-retry allowance and original
             deadline, with your additional guidance. Roadmap pauses hold dispatch; current branch

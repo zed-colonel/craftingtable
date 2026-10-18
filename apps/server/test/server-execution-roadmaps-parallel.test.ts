@@ -430,7 +430,7 @@ it('parallel scheduling cannot release successors from a manual completion of it
   const stopped = state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId)!;
   expect(stopped).toMatchObject({
     status: 'needs-attention',
-    attention: { code: 'item-completed-unmerged' },
+    stop: { code: 'item-completed-unmerged' },
   });
   expect(state.context.services.workCycleService.present(stopped).projection.actions).toEqual([
     'stop',

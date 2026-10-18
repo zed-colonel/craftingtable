@@ -13,6 +13,7 @@ import {
   stepDaemon,
 } from './execution-test-support.js';
 import { replayEveryRun } from '../src/services/cycle/core/step-outcome.js';
+import { heldStop } from '@craftingtable/domain';
 
 /**
  * R-C2: a final report that fails a structural check is sent back to the same agent
@@ -50,15 +51,17 @@ describe('automatic output-format repair (R-C2)', () => {
       status: 'running',
       step: 'design',
       parentRunId: designRunId,
-      outputRepair: { attempts: 1, sourceRunId: designRunId, code: 'design-open-questions' },
+      attempt: {
+        outputRepair: { attempts: 1, sourceRunId: designRunId, code: 'design-open-questions' },
+      },
     });
-    expect(repairing.attention).toBeUndefined();
+    expect(heldStop(repairing)).toBeUndefined();
 
     f.backend.latest.release(designDone);
     await stepDaemon(f.services, 3);
     const advanced = storedCycle(f, started.id);
     expect(advanced.step).toBe('implement');
-    expect(advanced.outputRepair ?? null).toBeNull();
+    expect(advanced.attempt?.outputRepair ?? null).toBeNull();
     expect(f.backend.launches[2]?.resumeSessionId).toBeUndefined();
 
     // Replaying every recorded run, not only the current one, shows the repair decision for
@@ -81,7 +84,7 @@ describe('automatic output-format repair (R-C2)', () => {
     const stopped = storedCycle(f, started.id);
     expect(stopped).toMatchObject({
       status: 'needs-attention',
-      attention: { code: 'design-report-invalid', owner: 'operator', repairAttempts: 2 },
+      stop: { code: 'design-report-invalid', owner: 'operator', repairAttempts: 2 },
     });
     expect(stopped.reason).toContain('2 automatic format repairs did not produce a valid report.');
   });
@@ -92,22 +95,22 @@ describe('automatic output-format repair (R-C2)', () => {
     await stepDaemon(f.services, 3);
     expect(f.backend.sessions).toHaveLength(1);
     const stopped = storedCycle(f, started.id);
-    expect(stopped.attention).toMatchObject({ code: 'design-open-questions' });
-    expect(stopped.attention?.repairAttempts).toBeUndefined();
+    expect(heldStop(stopped)).toMatchObject({ code: 'design-open-questions' });
+    expect(heldStop(stopped)?.repairAttempts).toBeUndefined();
   });
 
   it('does not carry spent repairs past the stop they ended in', async () => {
     const { f, started } = await liveDesign();
     f.backend.latest.release({ resultText: 'Design settled; nothing to ask.' });
     await stepDaemon(f.services, 3);
-    expect(storedCycle(f, started.id).outputRepair?.attempts).toBe(1);
+    expect(storedCycle(f, started.id).attempt?.outputRepair?.attempts).toBe(1);
     // The repaired report lists real questions: the step stops, and the budget ends with it,
     // so the run the operator's answer starts gets its own two repairs.
     f.backend.latest.release(openQuestions);
     await stepDaemon(f.services, 3);
     const stopped = storedCycle(f, started.id);
-    expect(stopped.attention).toMatchObject({ code: 'design-open-questions' });
-    expect(stopped.outputRepair ?? null).toBeNull();
+    expect(heldStop(stopped)).toMatchObject({ code: 'design-open-questions' });
+    expect(stopped.attempt?.outputRepair ?? null).toBeNull();
   });
 
   it('repairs a review report on its pinned review baseline', async () => {

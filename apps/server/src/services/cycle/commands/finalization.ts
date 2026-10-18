@@ -2,6 +2,7 @@
  * A staged finalization's commands (R-B7): its start, the operator's guidance, the checkpoint's
  * findings and their decision, a stage's decision, and its remediation grant.
  */
+
 import { validExtraRounds, withinInstructionLimit } from '../../command-bounds.js';
 import { randomUUID } from 'node:crypto';
 import type { ControlFinalizationRequest } from '@craftingtable/contracts';
@@ -158,7 +159,7 @@ export class CycleFinalizationCommands {
         'End the current session before resuming with guidance.',
       );
     return this.writer.next(cycle, cycle.step, runs[0], context, {
-      stepGuidance: instructions,
+      attempt: { stepGuidance: instructions },
       ...(agentOverride === undefined ? {} : { finalizationAgentOverride: agentOverride }),
     });
   }
@@ -299,8 +300,10 @@ export class CycleFinalizationCommands {
               },
             }
           : {}),
-        stepGuidance: instructions,
-        housekeepingInstructions: this.remediation.housekeepingGuidance(),
+        attempt: {
+          stepGuidance: instructions,
+          housekeepingInstructions: this.remediation.housekeepingGuidance(),
+        },
         reason: `Authorized focused remediation for ${input.findingIds.join(', ')}.`,
       },
       'remediate-findings',
@@ -426,7 +429,7 @@ export class CycleFinalizationCommands {
         {
           ...agent,
           finalizationProgress: updated,
-          stepGuidance: instructions,
+          attempt: { stepGuidance: instructions },
           reason: 'Plan adjustment recorded; reassessing conformance before further changes.',
         },
         'approve-plan-change',
@@ -527,7 +530,7 @@ export class CycleFinalizationCommands {
         ...(extra
           ? { additionalRemediationRounds: (cycle.additionalRemediationRounds ?? 0) + extra }
           : {}),
-        stepGuidance: instructions,
+        attempt: { stepGuidance: instructions },
         reason: selected.length
           ? 'Implementing the selected stage batch, followed by focused verification.'
           : 'Recording optional follow-ups and verifying the stage without new improvement discovery.',

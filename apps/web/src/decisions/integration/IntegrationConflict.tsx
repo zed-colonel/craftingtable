@@ -5,9 +5,9 @@ import type {
 import {
   type AgentRunId,
   type EffectiveAgent,
-  effectiveCycleAttention,
   ownsIntegrationResolution,
   type WorkCycle,
+  heldStop,
 } from '@craftingtable/domain';
 import { useState } from 'react';
 import { About } from '../../components/About.js';
@@ -74,9 +74,8 @@ export function IntegrationConflict({
   const idle = ['paused', 'needs-attention'].includes(cycle.status);
   const owned = ownsIntegrationResolution(cycle);
   // The panel shows only with a resolution on record or an integration stop (R-E6, UI-10).
-  // Paused cycles keep their code in `attention`; older records map through
-  // `effectiveCycleAttention`.
-  const code = (cycle.attention ?? effectiveCycleAttention(cycle))?.code ?? '';
+  // A pause keeps its stop's code.
+  const code = heldStop(cycle)?.code ?? '';
   if (!resolution && !(idle && INTEGRATION_STOPS.includes(code))) {
     // Any other idle cycle keeps the one action: a manual update from integration can
     // conflict without recording a stop, and inspection is how that conflict reaches an agent.

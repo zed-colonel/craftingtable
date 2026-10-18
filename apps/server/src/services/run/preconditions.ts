@@ -46,7 +46,7 @@ export class RunPreconditions {
         'Controller review is held by paused scheduling or an entry hold.',
       );
     if (
-      cycle.providerRecovery &&
+      cycle.attempt?.providerRecovery &&
       (cycleOwnership(this.storage, cycle)?.roadmap.status ?? 'running') !== 'running'
     )
       throw new ExecutionRequestError(

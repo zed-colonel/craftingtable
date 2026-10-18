@@ -52,6 +52,7 @@ import {
 } from './execution-test-support.js';
 import { resolveExecutable } from '../src/services/executables.js';
 import { testDataRoot } from './test-support.js';
+import { heldStop } from '@craftingtable/domain';
 
 /**
  * R-B7's launch characterization (increment 1; program rule 3, characterize before refactoring).
@@ -64,13 +65,15 @@ import { testDataRoot } from './test-support.js';
  * are normalized before hashing, as the replays' `(minted)` ids are, so the record is the same on
  * every machine and every run.
  *
- * The record is `fixtures/launch-characterization.json`. `UPDATE_LAUNCH_CHARACTERIZATION=1`
+ * The record is `fixtures/launch-characterization-rb4b.json`, recorded beside the earlier
+ * `launch-characterization.json` when R-B4b moved the phase wait under `waits` (the operator's
+ * go-ahead, 2026-10-18). `UPDATE_LAUNCH_CHARACTERIZATION=1`
  * rewrites the entries of the cases that run; a difference fails with each case's normalized
  * texts written under `$TMPDIR/launch-characterization/` for comparison.
  */
 
 const SOURCE = join(import.meta.dirname, '../../..');
-const RECORD = join(SOURCE, 'fixtures/launch-characterization.json');
+const RECORD = join(SOURCE, 'fixtures/launch-characterization-rb4b.json');
 const UPDATE = process.env.UPDATE_LAUNCH_CHARACTERIZATION === '1';
 const DUMP = join(tmpdir(), 'launch-characterization');
 
@@ -565,7 +568,7 @@ it("pins a question stop's investigation launch (R-B7 increment 1)", async () =>
           : implementationDone;
   const cycle = await startCycle(state, worktree.id);
   await waitFor(
-    () => currentCycle(state, cycle).attention?.code === 'implementation-open-questions',
+    () => heldStop(currentCycle(state, cycle))?.code === 'implementation-open-questions',
     'the question stop',
   );
   let captured: Json | undefined;
@@ -803,7 +806,7 @@ it.each([false, true])(
     const refused = {
       cycle: normalizer.value({
         status: currentCycle(state, cycle).status,
-        attention: currentCycle(state, cycle).attention ?? null,
+        attention: heldStop(currentCycle(state, cycle)) ?? null,
         reason: currentCycle(state, cycle).reason,
       }),
       leftovers: leftovers(state, normalizer),
@@ -895,7 +898,7 @@ it("pins a design recovery refused because its inputs changed, and that refusal 
   expectRecorded('refused: design recovery inputs and policy', {
     cycle: normalizer.value({
       status: stopped.status,
-      attention: stopped.attention ?? null,
+      attention: heldStop(stopped) ?? null,
       reason: stopped.reason,
     }),
     leftovers: leftovers(state, normalizer),
@@ -912,7 +915,7 @@ it("pins what a cycle's launch refused by a phase gate in its record leaves, and
   const held = holdCapacityDuringPolicy(state, other.id);
   const cycle = await startCycle({ ...state, workItemId: present(tree.workItemId) }, tree.id);
   await waitFor(
-    () => held.calls() >= 1 && !!currentCycle(state, cycle).phaseWait,
+    () => held.calls() >= 1 && !!currentCycle(state, cycle).waits?.phase,
     'the phase wait',
   );
   expect(backend.launches).toHaveLength(0);
@@ -921,8 +924,8 @@ it("pins what a cycle's launch refused by a phase gate in its record leaves, and
   const refused = {
     cycle: normalizer.value({
       status: waiting.status,
-      attention: waiting.attention ?? null,
-      phaseWait: waiting.phaseWait ?? null,
+      attention: heldStop(waiting) ?? null,
+      waits: { phase: waiting.waits?.phase ?? null },
       reason: waiting.reason,
     }),
     leftovers: leftovers(state, normalizer),
@@ -1030,7 +1033,7 @@ it("pins the launch after a cut-off run, with its parent's where-stopped record 
   }, 'the implementation reports progress');
   now = new Date(Date.parse(currentCycle(state, cycle).runDeadlineAt) + 1);
   await waitFor(
-    () => currentCycle(state, cycle).attention?.code === 'step-time-limit',
+    () => heldStop(currentCycle(state, cycle))?.code === 'step-time-limit',
     'the step time limit',
   );
   await controlCycle(state, currentCycle(state, cycle), 'resume');

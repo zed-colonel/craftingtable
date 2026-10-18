@@ -12,6 +12,7 @@ import {
   asNativeVerificationApprovalId,
   asQualificationEnvironmentId,
   asAgentRunId,
+  heldStop,
 } from '@craftingtable/domain';
 
 /* -------------------------------------------------------------------------- */
@@ -362,7 +363,7 @@ itNeedsCargo(
     const f = await checkpointCandidateFixture(undefined, false, false);
     const cycle = await startCycle(f.state, f.tree.id);
     await waitFor(() => currentCycle(f.state, cycle).status === 'needs-attention', 'check stop');
-    expect(currentCycle(f.state, cycle).attention).toMatchObject({
+    expect(heldStop(currentCycle(f.state, cycle))).toMatchObject({
       code: 'repository-checks-undeclared',
       refs: { repositoryId: f.tree.repositoryId },
     });

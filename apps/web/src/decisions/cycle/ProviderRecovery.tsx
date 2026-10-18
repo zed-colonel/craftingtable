@@ -1,5 +1,5 @@
 import type { WorkCycle } from '@craftingtable/domain';
-import { AGENT_BACKEND_LABELS, effectiveCycleAttention } from '@craftingtable/domain';
+import { AGENT_BACKEND_LABELS, heldStop } from '@craftingtable/domain';
 import { About } from '../../components/About.js';
 
 /** Stops that leave a service failure for the operator to inspect (R-A3 codes). */
@@ -20,15 +20,14 @@ export function ProviderRecovery({
   onRetry: () => void;
   onPause: () => void;
 }) {
-  const recovery = cycle.providerRecovery;
+  const recovery = cycle.attempt?.providerRecovery;
   if (!recovery || ['completed', 'stopped'].includes(cycle.status)) return null;
   const pending = !!recovery.nextRetryAt;
   // The server clears the record when a step succeeds. While it exists, the panel shows a
   // retry that is waiting or running, and a service stop (waiting or paused) the operator
   // must inspect. A record left behind under an unrelated stop has nothing to recover (R-E6,
-  // UI-10). Codes, never reason text, decide; older records map through
-  // `effectiveCycleAttention`.
-  const code = (cycle.attention ?? effectiveCycleAttention(cycle))?.code ?? '';
+  // UI-10). Codes, never reason text, decide; a pause keeps its stop's.
+  const code = heldStop(cycle)?.code ?? '';
   const serviceStop =
     ['needs-attention', 'paused'].includes(cycle.status) && SERVICE_STOPS.includes(code);
   if (!pending && cycle.status !== 'running' && !serviceStop) return null;

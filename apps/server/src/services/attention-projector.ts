@@ -11,7 +11,6 @@ import {
   type CycleOwner,
   DEFAULT_NOTIFICATION_PREFERENCES,
   designHasNoOpenQuestions,
-  effectiveCycleAttention,
   effectiveRoadmapAttention,
   nextReminderAt,
   notificationText,
@@ -26,6 +25,7 @@ import {
   type FinalizationId,
   type SourceRepositoryId,
   asFinalizationId,
+  cycleStop,
 } from '@craftingtable/domain';
 import type {
   CraftingTableStorage,
@@ -790,7 +790,7 @@ export class AttentionProjector implements WriteObserver {
     if (cycle && cycle.status !== 'stopped' && cycle.status !== 'completed') {
       // The controller declares each stop and whether automation claims it (R-A3); only
       // operator-owned stops become items.
-      const attention = effectiveCycleAttention(cycle);
+      const attention = cycleStop(cycle);
       if (attention?.owner !== 'operator') return items;
       const requirements = attention.code === 'merge-requirements';
       // Automatic recovery for this review stopped converging: the review's own item, which

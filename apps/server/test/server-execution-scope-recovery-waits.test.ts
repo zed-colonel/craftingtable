@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { asWorktreeId, type ExecutionScope } from '@craftingtable/domain';
+import { asWorktreeId, type ExecutionScope, heldStop } from '@craftingtable/domain';
 import { afterEach, expect, vi } from 'vitest';
 import {
   adoptSupervisedMap,
@@ -231,7 +231,11 @@ itNeedsCargo(
     });
     await roadmapControl(state, 'resume');
     await waitFor(
-      () => tx.execution.cycles.find(ws, review.id)?.attention?.claim === 'prerequisite-work',
+      () =>
+        (tx.execution.cycles.find(ws, review.id) === undefined
+          ? undefined
+          : heldStop(tx.execution.cycles.find(ws, review.id))
+        )?.claim === 'prerequisite-work',
       'the controller claims the review’s stop',
     );
     await waitFor(() => !!storedRoadmap(state).entryHolds?.[sourceEntryId], 'the decline holds');

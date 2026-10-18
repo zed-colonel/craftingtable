@@ -2,6 +2,7 @@
  * The cycle's integration effects (R-B7): a refresh from the integration branch, and a conflict
  * resolution's steps and command, each under its guard.
  */
+
 import { activeEditor } from '../../authority-policy.js';
 import { operatorResolutionProfile } from '../../agent-profile-policy.js';
 import type { WorkCycleId } from '@craftingtable/domain';
@@ -383,6 +384,13 @@ export class CycleIntegration {
             step: 'remediate',
             parentRunId: source.id,
             currentRunId: runId,
+            // A new step (R-B4 decision 6): nothing of the stopped step's attempt carries on.
+            attempt: {
+              housekeepingInstructions: '',
+              resultContinuations: 0,
+              providerRecovery: null,
+              outputRepair: null,
+            },
             runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
             reason: 'Preparing the pinned integration merge for agent resolution.',
           },
@@ -441,6 +449,8 @@ export class CycleIntegration {
             status: 'running',
             parentRunId: run.id,
             currentRunId: runId,
+            // The same resolution goes on, with its edits: its attempt carries on.
+            keepAttempt: true,
             runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
             reason: 'Resuming conflict resolution with the existing edits and handoff.',
           },

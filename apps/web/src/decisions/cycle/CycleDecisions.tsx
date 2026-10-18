@@ -2,9 +2,9 @@ import { useState } from 'react';
 import {
   type CycleAction,
   type CycleProjection,
-  effectiveCycleAttention,
   remediationAllowance,
   type WorkCycle,
+  cycleStop,
 } from '@craftingtable/domain';
 import { controlCycle } from './cycle-api.js';
 import { CycleGuidanceRecovery } from './CycleGuidanceRecovery.js';
@@ -79,7 +79,7 @@ export function continuationOf(
     actions.includes('authorize-remediation') &&
     (cycle.step === 'review' ||
       ((cycle.step === 'implement' || cycle.step === 'remediate') &&
-        effectiveCycleAttention(cycle)?.code === 'remediation-exhausted')) &&
+        cycleStop(cycle)?.code === 'remediation-exhausted')) &&
     cycle.remediationRounds >= remediationAllowance(cycle) &&
     (!cycle.integrationResolution ||
       ['completed', 'abandoned'].includes(cycle.integrationResolution.status))
@@ -90,7 +90,7 @@ export function continuationOf(
     ['paused', 'needs-attention'].includes(cycle.status) &&
     (actions.includes('continue-with-guidance') ||
       !!(projection.questionRoutes ?? cycle.workflow?.questions)?.length ||
-      effectiveCycleAttention(cycle)?.code === 'remediation-stalled')
+      cycleStop(cycle)?.code === 'remediation-stalled')
   )
     return 'guidance';
   if (cycle.status === 'needs-attention' && actions.includes('resume')) return 'resume';

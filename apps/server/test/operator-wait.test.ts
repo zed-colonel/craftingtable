@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { operatorWaitReportSchema } from '@craftingtable/contracts';
 import type { Roadmap, WorkCycle } from '@craftingtable/domain';
-import { asRoadmapEntryId, asRoadmapId, asWorkCycleId } from '@craftingtable/domain';
+import { asRoadmapEntryId, asRoadmapId, asWorkCycleId, heldStop } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCycleFixture, storedCycle } from './cycle-test-support.js';
@@ -40,7 +40,7 @@ describe('operator wait (R-C1)', () => {
     await stepDaemon(f.services);
     f.backend.latest.release(openQuestions);
     await stepDaemon(f.services, 3);
-    expect(storedCycle(f, started.id).attention?.code).toBe('design-open-questions');
+    expect(heldStop(storedCycle(f, started.id))?.code).toBe('design-open-questions');
 
     const recorded = f.context.storage.audit
       .listCycleTransitions(

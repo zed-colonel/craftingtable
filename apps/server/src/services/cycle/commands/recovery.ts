@@ -2,6 +2,7 @@
  * The cycle's recovery commands (R-B7): design recovery and its historical baseline, and a scope
  * repair and its roadmap rounds.
  */
+
 import type { WorkCycleId } from '@craftingtable/domain';
 import { required } from '@craftingtable/domain';
 import { randomUUID } from 'node:crypto';
@@ -210,12 +211,16 @@ export class CycleRecovery {
         step: 'design',
         currentRunId: runId,
         parentRunId: preview.sourceRunId,
-        phaseWait: null,
-        designWait: null,
+        waits: { phase: null, design: null },
         designDependencyContinuations: 0,
-        resultContinuations: 0,
-        providerRecovery: null,
-        outputRepair: null,
+        // A new run of the stopped design (R-B4 decision 6): a fresh attempt, as `next()` gives
+        // the same step after its run finished; its instructions are its guidance.
+        attempt: {
+          housekeepingInstructions: '',
+          resultContinuations: 0,
+          providerRecovery: null,
+          outputRepair: null,
+        },
         runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
         designRecovery: {
           runId,

@@ -14,8 +14,11 @@ import {
   asRoadmapId,
   asRuntimeGenerationId,
   cycleAttention,
+  type CycleAttention,
   DEFAULT_COMPLETION_POLICY,
+  heldStop,
   PLAN_ACCEPTANCE_INPUTS,
+  stopRecord,
 } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
@@ -926,7 +929,7 @@ it('a scoped review whose report is malformed is repaired and stops naming the f
   await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'review stop');
   const stopped = currentCycle(state, cycle);
   expect(backend.repairs).toBe(2);
-  expect(stopped.attention?.code).toBe('review-needs-attention');
+  expect(heldStop(stopped)?.code).toBe('review-needs-attention');
   expect(stopped.reason).toContain('Unrecognized key');
   expect(stopped.reason).not.toContain('scope in scopeEvidence');
   const response = await state.context.app.inject({
@@ -1039,7 +1042,7 @@ it("investigates the stop run's own question, not one an earlier report routed",
   });
   expect(answered.statusCode, answered.body).toBe(200);
   await waitFor(
-    () => currentCycle(state, cycle).attention?.code === 'implementation-open-questions',
+    () => heldStop(currentCycle(state, cycle))?.code === 'implementation-open-questions',
     'the remediation question',
   );
   // The stored routing still holds the earlier question.
@@ -1110,7 +1113,7 @@ it('a slice review question at the remediation limit keeps the question and the 
   });
   await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'review question');
   const stopped = currentCycle(state, cycle);
-  expect(stopped.attention?.code).toBe('review-open-questions-at-limit');
+  expect(heldStop(stopped)?.code).toBe('review-open-questions-at-limit');
   expect(stopped.reason).toContain('Remediation limit reached.');
   expect(stopped.workflow?.questions).toEqual([{ question, destination: 'work-item' }]);
   // The browser offers what the daemon returns with the cycle.
@@ -1126,10 +1129,16 @@ it('a slice review question at the remediation limit keeps the question and the 
   };
   // Each of these stops still asks its question, so each also offers Investigate (R-C16).
   expect(await offered()).toEqual(['authorize-remediation', 'investigate', 'stop']);
-  const rewrite = (changes: Record<string, unknown>) => {
+  // An `attention` given is stored as the cycle's stop (R-B4b).
+  const rewrite = ({ attention, ...changes }: Record<string, unknown>) => {
     const current = currentCycle(state, cycle);
     return state.context.storage.execution.cycles.replace(
-      { ...current, ...changes, version: current.version + 1 } as typeof current,
+      {
+        ...current,
+        ...changes,
+        ...(attention ? { stop: stopRecord(attention as CycleAttention, current.updatedAt) } : {}),
+        version: current.version + 1,
+      } as typeof current,
       current.version,
     )!;
   };

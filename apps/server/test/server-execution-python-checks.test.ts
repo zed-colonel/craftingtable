@@ -173,7 +173,7 @@ itPython(
     }, 'the review is decided');
     expect(currentCycle(state, cycle)).toMatchObject({
       status: 'needs-attention',
-      attention: { code: 'check-definition-changed', refs: { repositoryId: repository.id } },
+      stop: { code: 'check-definition-changed', refs: { repositoryId: repository.id } },
     });
   },
 );

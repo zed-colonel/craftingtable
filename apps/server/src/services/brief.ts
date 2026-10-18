@@ -2,6 +2,8 @@ import type { AgentRunRole, JsonValue, ReviewBranchContext, WorkItem } from '@cr
 import { required } from '@craftingtable/domain';
 import { designInstructions, investigationInstructions } from './brief-design.js';
 export { citedRunPaths } from './brief-handoff.js';
+
+import { type BriefParentRun, handoffParagraphs, parentSections } from './brief-handoff.js';
 import {
   ACCEPTED_DESIGN_INSTRUCTIONS,
   implementInstructions,
@@ -11,12 +13,11 @@ import {
 import {
   finalMessageSection,
   type OutputContext,
-  workflowContract,
   type RoleInstructions,
   type WorkflowOutput,
+  workflowContract,
 } from './brief-output.js';
 import { reviewInstructions } from './brief-review.js';
-import { type BriefParentRun, handoffParagraphs, parentSections } from './brief-handoff.js';
 
 /**
  * Composes the prompt handed to an agent as its first message.

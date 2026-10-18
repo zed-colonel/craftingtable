@@ -8,7 +8,7 @@ import {
 } from '@craftingtable/contracts';
 import type { PinnedCargoManifest } from '@craftingtable/agents';
 import type { ExecutionScope } from '@craftingtable/domain';
-import { asQualificationEnvironmentId, asAgentRunId } from '@craftingtable/domain';
+import { asQualificationEnvironmentId, asAgentRunId, heldStop } from '@craftingtable/domain';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect } from 'vitest';
 import {
@@ -214,7 +214,7 @@ itNeedsCargo(
       () => currentCycle(f.state, cycle).status === 'needs-attention',
       'undeclared transition',
     );
-    expect(currentCycle(f.state, cycle).attention?.code).toBe('upstream-transition-undeclared');
+    expect(heldStop(currentCycle(f.state, cycle))?.code).toBe('upstream-transition-undeclared');
     expect(f.backend.launches).toHaveLength(0);
     await controlCycle(f.state, currentCycle(f.state, cycle), 'stop');
 
@@ -455,7 +455,7 @@ itNeedsCargo(
     // The cycle stops with its own code and the pins as structured refs, not controller-error.
     const cycle = await startCycle(f.state, treeA.id);
     await waitFor(() => currentCycle(f.state, cycle).status === 'needs-attention', 'pin stop');
-    expect(currentCycle(f.state, cycle).attention).toMatchObject({
+    expect(heldStop(currentCycle(f.state, cycle))).toMatchObject({
       code: 'upstream-pin-moved',
       owner: 'operator',
       refs: { definitionId: scope('slice', A).definitionId, pins: moved },

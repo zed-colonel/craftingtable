@@ -414,7 +414,9 @@ it("offers a check adoption that names no work item, with the workspace's reposi
         refs: { cycleId: 'c1' } as never,
       })}
       attention={[]}
-      workspaceCycles={[{ id: 'c1', attention: { refs: { repositoryId: 'repo' } } } as never]}
+      workspaceCycles={[
+        { id: 'c1', stop: { kind: 'gate', refs: { repositoryId: 'repo' } } } as never,
+      ]}
     />,
   );
   await waitFor(() => expect(props.checks).toBeDefined());

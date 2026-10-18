@@ -31,9 +31,10 @@ import { useQuery, useQueryStore } from '../../lib/query-store.js';
 
 /** The dependency environment's setup as this form drafts and sends it. */
 type RuntimeConfiguration = RequestInput<typeof configureRuntimeSchema>;
+
+import type { AgentRunId } from '@craftingtable/domain';
 import { distinct } from '../../lib/distinct.js';
 import { Link } from '../../lib/navigation.js';
-import type { AgentRunId } from '@craftingtable/domain';
 export function RuntimeEvidencePanel({
   workspaceId,
   definitionId,

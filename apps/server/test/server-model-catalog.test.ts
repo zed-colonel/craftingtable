@@ -3,7 +3,12 @@ import {
   executionStatusResponseSchema,
   startAgentRunResponseSchema,
 } from '@craftingtable/contracts';
-import { agentSelections, asRoadmapId, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import {
+  agentSelections,
+  asRoadmapId,
+  DEFAULT_COMPLETION_POLICY,
+  heldStop,
+} from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MODEL_CATALOG_REFRESH_MS,
@@ -55,7 +60,7 @@ it("stops a cycle before launch when its saved model became a catalog entry's di
   });
   await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'typed stop');
   const stopped = currentCycle(state, cycle);
-  expect(stopped.attention?.code).toBe('agent-model-misnamed');
+  expect(heldStop(stopped)?.code).toBe('agent-model-misnamed');
   expect(stopped.step).toBe('implement');
   // The stop names the id to choose; only the design reached the agent.
   expect(stopped.reason).toContain('gpt-6.1-sol');
@@ -287,7 +292,7 @@ it("stops a roadmap's cycle, not its scheduler, on a saved display name, and the
   const attempt = present(storedRoadmap(state).attempts[0]);
   const cycle = () =>
     present(state.context.storage.execution.cycles.find(state.workspaceId, attempt.cycleId));
-  await waitFor(() => cycle().attention?.code === 'agent-model-misnamed', 'typed stop');
+  await waitFor(() => heldStop(cycle())?.code === 'agent-model-misnamed', 'typed stop');
   expect(backend.launches).toHaveLength(0);
   // The roadmap waits on its cycle's stop, running (R-C10's follow-up, decision 1); the fix the
   // stop names: the id in the roadmap's agent profiles, which a paused roadmap takes, then resume.

@@ -6,6 +6,7 @@ import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   type WorkCycle,
   asRoadmapId,
+  heldStop,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createCycleFixture, type CycleFixture, storedCycle } from './cycle-test-support.js';
@@ -87,7 +88,7 @@ describe('typed attention (R-A3)', () => {
     await stepDaemon(f.services, 2);
     expect(storedCycle(f, started.id)).toMatchObject({
       status: 'needs-attention',
-      attention: { code: 'design-open-questions', owner: 'operator' },
+      stop: { code: 'design-open-questions', owner: 'operator' },
     });
     // Leaving the stop clears it.
     const resumed = await f.context.app.inject({
@@ -97,7 +98,7 @@ describe('typed attention (R-A3)', () => {
       payload: { action: 'stop', expectedVersion: storedCycle(f, started.id).version },
     });
     expect(resumed.statusCode, resumed.body).toBe(200);
-    expect(storedCycle(f, started.id).attention).toBeUndefined();
+    expect(heldStop(storedCycle(f, started.id))).toBeUndefined();
   });
 
   it('marks a merge the roadmap will make itself as controller-owned until the roadmap pauses', async () => {
@@ -132,7 +133,7 @@ describe('typed attention (R-A3)', () => {
     )[0] as WorkCycle;
     expect(storedCycle(f, cycle.id)).toMatchObject({
       status: 'awaiting-merge',
-      attention: { code: 'merge-approval', owner: 'controller', claim: 'roadmap-merge' },
+      stop: { code: 'merge-approval', owner: 'controller', claim: 'roadmap-merge' },
     });
     enableNotifications(f);
     await f.services.notificationService.tick();
@@ -144,7 +145,7 @@ describe('typed attention (R-A3)', () => {
       expectedVersion: roadmap()?.version,
     });
     await stepDaemon(f.services);
-    expect(storedCycle(f, cycle.id).attention).toEqual({
+    expect(heldStop(storedCycle(f, cycle.id))).toEqual({
       code: 'merge-approval',
       owner: 'operator',
     });

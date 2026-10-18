@@ -15,8 +15,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-728fa16.json",
-          "goldenSha256": "03bcd6479e77dcf8667e198dc75fccaedd233e34e650399f8461dc488c0ee809"
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "3ebc3d07c526a602f231dcd807b179290f6e3c35fff7c6fb4c6f074af88bf4a7"
         },
         {
           "mode": "scheduler",
@@ -25,15 +25,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "705daea8f5dfbbba8f531c545f724e2e93382201aee92a79de08f9dd211bad11",
-          "expected": [
-            {
-              "key": "cycle:2f1ab211-fe99-44bf-b8a9-ff07cebd6d02",
-              "nowSha256": "eedac5ea15edece9f53c3da2bcab4b19d39915dbfaad603cc41c4212c141c067",
-              "reason": "R-B4 increment 4 (decision 3): the wi/WI-04/domain slice awaits merge after review run d26282e7-7a17-49d4-8d07-cb894405c8be, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            }
-          ]
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "7fc19187b402afe484026acb416c52e92f3dd0cb07ac4e75a4a1b70ba115bdbb"
         }
       ]
     },
@@ -49,15 +42,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-d81db74.json",
-          "goldenSha256": "b5db0405be9da726e2581e89664ae3ce45004ca2587467b362395c233d4b9ecd",
-          "expected": [
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "e33ad09b9f57052191d4ddb1f98096884b68544e20592ea9d282b7f7ea2b12f8"
         },
         {
           "mode": "scheduler",
@@ -66,15 +52,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "246bb9e4747d3360608a7f81738cb1eedec3bf3ddff808f8dde79242406e6d9d",
-          "expected": [
-            {
-              "key": "cycle:b0de849a-13f1-499b-989f-8f6a8b5fb44a",
-              "nowSha256": "cf6319d973a50a685dd733c28211817604c7699378d8d4733fa100588cbdd60f",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-04/domain slice awaits merge after review run b3ad55d0-e3ab-4737-bafb-3112b640c894, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            }
-          ]
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "3d19daa0f7e1ca33045afbfafa46ab03e0a1efe53cdea7fba55b93ef0e239705"
         }
       ]
     },
@@ -90,15 +69,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-ac08291.json",
-          "goldenSha256": "b6d05857aec80ff3d2e021f94509f7873566121b63701089a465983c2d39250a",
-          "expected": [
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "cba9d2cd52358fab8d710fe0784a580b463fd7be2b4d94879da5a3a4732e3769"
         },
         {
           "mode": "scheduler",
@@ -107,8 +79,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "1cbdd1105ec37ee3d0d55ab52483d03ccef3bfaaf979ebb259daa8c1c4b4a10b"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "ed8a8f4a6358831b1a48775f0fb7dfd26b0161c510baf84ce274101939403cf7"
         }
       ]
     },
@@ -124,15 +96,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-8146974.json",
-          "goldenSha256": "701cbdd0aeb2cf9a93668c7a66bd1029995b642f237026159032d357ffc07a3b",
-          "expected": [
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "6e73c97dd9fe6435f8a9a6500d4a7b979a8aaf46bdb85d4ead87e2bcab3833e9"
         },
         {
           "mode": "scheduler",
@@ -141,15 +106,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "e1bbbbf00ae2cc84da2346262c5a8d8ab298a0038485c39c993502975be1d89b",
-          "expected": [
-            {
-              "key": "cycle:b0de849a-13f1-499b-989f-8f6a8b5fb44a",
-              "nowSha256": "cf6319d973a50a685dd733c28211817604c7699378d8d4733fa100588cbdd60f",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-04/domain slice awaits merge after review run b3ad55d0-e3ab-4737-bafb-3112b640c894, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            }
-          ]
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "9f066eb882b4aa6e063bcc8c35957ce38264464e4450a0b6e7c90bcb7fb256e2"
         }
       ]
     },
@@ -165,15 +123,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-c547ede.json",
-          "goldenSha256": "a4deb0d405dc74d70b5207fbc1031c376d6cc92413418268b3e3c8783afdc7a0",
-          "expected": [
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "2d67864347881a4b9049f8e6a0ee6e8b935faf1688effdde4649389a9fdef408"
         },
         {
           "mode": "scheduler",
@@ -182,8 +133,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "5897a750eddaf8214528df9bba1e0a5f3d9d70fd832bf8b4dbbbe5312683090e"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "20363d6e185427c612e072c02118a7236e012e822d5259225639d6e18ac62ea9"
         }
       ]
     },
@@ -199,15 +150,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-fccce06.json",
-          "goldenSha256": "2681726829b172be4acdc9081d3281d9381bbccfd76b9867568df5dba4c0775f",
-          "expected": [
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "b5af8cb14b738685515b9f502234422df256c5c12c00fe62537b5c281c95ae43"
         },
         {
           "mode": "scheduler",
@@ -216,8 +160,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "83b6d2e423c7cf6d70074458f48f0f46839d2ec9cd5524a379f0e15c4b62e11c"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "cf7cb81990d461ece458ee646ad8b577f07aa29a318d861c5ea1e916f26786b0"
         }
       ]
     },
@@ -233,15 +177,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-79937d4.json",
-          "goldenSha256": "77357a4c28a9ab683f71f50746289ad8020e79b55a8e546119a84a8e08dd8a7a",
-          "expected": [
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "1beb333d11928c7a8420ad26937b8e464145da42e76ff2da7153743a13eb4d2b"
         },
         {
           "mode": "scheduler",
@@ -250,8 +187,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "9f2ccf30b2d8c7dbcf667a8c66785f639e72e6fe0dbd7322522d5c4c6e4df480"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "097fa098bf9057b78b37c935007e5cbff212839297094f657469de273aee08a6"
         }
       ]
     },
@@ -267,15 +204,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-3a290e2.json",
-          "goldenSha256": "2c1ce7f67d720c29ba693e62967718c3de268ad4943b3b087118b3ccd7f0affa",
-          "expected": [
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "a0768e484cba8163da8bb3bf07f90c389a00f4d0c090af0610f35e3bca85e6af"
         },
         {
           "mode": "scheduler",
@@ -284,8 +214,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "95a08c6f81fa17cb589b076f9d6a38aa5e219e841ad0a764863537438a519df4"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "fbbf05ae636eac26a044635f590238088ce574ff95544ccfbf61469fb1803a38"
         }
       ]
     },
@@ -301,15 +231,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-9f4da08.json",
-          "goldenSha256": "57349fff140ad0267cac7860cdb67e283faf3a969cc574bdf6cb0db00fbecb6d",
-          "expected": [
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "23e518d107dcafb82829dea0e4fe8e2a34012492f13b3048117f83dc31c30e83"
         },
         {
           "mode": "scheduler",
@@ -318,25 +241,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "ea1b118896b7405b70b364abba8302da250c4482dd864f0aeac92fa669c97b7f",
-          "expected": [
-            {
-              "key": "cycle:2c9ead5d-e07d-4aef-9db2-71564b77d01a",
-              "nowSha256": "9851a58e137a0346b13727747da962cbe4a307e88041e86ba4158bb81396bd11",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-18/instance-design slice awaits merge after review run bfd67980-edeb-4d04-aa69-81e43ec6be10, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            },
-            {
-              "key": "cycle:b0de849a-13f1-499b-989f-8f6a8b5fb44a",
-              "nowSha256": "cf6319d973a50a685dd733c28211817604c7699378d8d4733fa100588cbdd60f",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-04/domain slice awaits merge after review run 27d0548c-10f2-419c-b70d-987ce1f9537e, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            },
-            {
-              "key": "cycle:bc191724-6b1b-49dc-b72c-7bbda5b9a0db",
-              "nowSha256": "eea2ca85aab84db89fdeec6bdea276f697282bd13472c4979d144250138a4b67",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-03/domain slice awaits merge after review run 3e106c50-0ffd-4877-b477-919051b2777b, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            }
-          ]
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "0e2c0eab6e08a5541fc0459bb5210ecac8cc3ad8db0b44004fd9ec353e9edbe8"
         },
         {
           "mode": "evidence-view",
@@ -369,15 +275,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-baca24e.json",
-          "goldenSha256": "152c07a7915c9a276c154c5f6f757cd5af141ed719c306092206f4600806365c",
-          "expected": [
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "05fb3ffafe5c09cf8283530970547a9ff03b24e0e6a013f4a1ade6ea28ea6f11"
         },
         {
           "mode": "scheduler",
@@ -386,25 +285,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "e2b439edae5e1efb0b252121a1e72e6573902d18a024db52037536dfe814f6a2",
-          "expected": [
-            {
-              "key": "cycle:2c9ead5d-e07d-4aef-9db2-71564b77d01a",
-              "nowSha256": "9851a58e137a0346b13727747da962cbe4a307e88041e86ba4158bb81396bd11",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-18/instance-design slice awaits merge after review run bfd67980-edeb-4d04-aa69-81e43ec6be10, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            },
-            {
-              "key": "cycle:b0de849a-13f1-499b-989f-8f6a8b5fb44a",
-              "nowSha256": "cf6319d973a50a685dd733c28211817604c7699378d8d4733fa100588cbdd60f",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-04/domain slice awaits merge after review run 27d0548c-10f2-419c-b70d-987ce1f9537e, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            },
-            {
-              "key": "cycle:bc191724-6b1b-49dc-b72c-7bbda5b9a0db",
-              "nowSha256": "eea2ca85aab84db89fdeec6bdea276f697282bd13472c4979d144250138a4b67",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-03/domain slice awaits merge after review run 3e106c50-0ffd-4877-b477-919051b2777b, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            }
-          ]
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "45d270babfabddcf2f9965f1fe4307e79614fc2a9ee962a4ccda1f6a61c1c9cc"
         },
         {
           "mode": "evidence-view",
@@ -444,20 +326,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-baca24e.json",
-          "goldenSha256": "0db6104336775072e069742c8b207c8f369feddd6adf06f088a9778e3fe03007",
-          "expected": [
-            {
-              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
-              "nowSha256": "0b981d1c6f97244e2fb472db03ef9a19f4509dea32317f9126adbe46ba110499",
-              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            },
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "82f110c94854828c270e5e7705fddb8b62dd4f605a1704ac69c814669c1ae11c"
         },
         {
           "mode": "scheduler",
@@ -466,25 +336,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "a2ac0dc0a23735843a139879e0f33352c5bd07ebc939d13ec0cdf1d97c217667",
-          "expected": [
-            {
-              "key": "cycle:2c9ead5d-e07d-4aef-9db2-71564b77d01a",
-              "nowSha256": "9851a58e137a0346b13727747da962cbe4a307e88041e86ba4158bb81396bd11",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-18/instance-design slice awaits merge after review run bfd67980-edeb-4d04-aa69-81e43ec6be10, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            },
-            {
-              "key": "cycle:b0de849a-13f1-499b-989f-8f6a8b5fb44a",
-              "nowSha256": "cf6319d973a50a685dd733c28211817604c7699378d8d4733fa100588cbdd60f",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-04/domain slice awaits merge after review run 27d0548c-10f2-419c-b70d-987ce1f9537e, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            },
-            {
-              "key": "cycle:bc191724-6b1b-49dc-b72c-7bbda5b9a0db",
-              "nowSha256": "eea2ca85aab84db89fdeec6bdea276f697282bd13472c4979d144250138a4b67",
-              "reason": "R-B4 increment 4 (decision 3): the exo/EXO-03/domain slice awaits merge after review run 3e106c50-0ffd-4877-b477-919051b2777b, and its item gate waits on its scope phase (slice-requirement). The gate threw a waiting PhaseGateError, recorded as an error at item-ready; the core now decides it as the phase wait (wait, record-phase). The stored cycle, the calls and the digest are unchanged."
-            }
-          ]
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "68c9f739cd10909fa73cef68993cb7169df895b85a927ed9341bac19061214d2"
         },
         {
           "mode": "evidence-view",
@@ -518,36 +371,14 @@
             {
               "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/86d9061f-8441-4698-a8e9-5a8aa353ad9a",
               "nowSha256": "16ba53155ee51f3a53a419e51fc4e1e4fd84f9551adf540ee1c61df97fe486a5",
-              "reason": "LIVE-32 (0b09307): the review stop now names the report issue, \"The review omitted evidence for this execution scope\u2019s exit gate.\""
+              "reason": "LIVE-32 (0b09307): the review stop now names the report issue, \"The review omitted evidence for this execution scope’s exit gate.\""
             }
           ]
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-baca24e.json",
-          "goldenSha256": "a20eebaf6701cdfeb80232c11ed4fbd8e85e850a0ebada59513a87c932ed9c8b",
-          "expected": [
-            {
-              "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/53fd4990-d550-4b42-810b-f39e7050bb76",
-              "nowSha256": "a3cbb50846231a38bf035b2124fc5f3fb2477eac4f22c83616e58a7475b63b81",
-              "reason": "LIVE-32 (0b09307): a scoped review\u2019s schema-invalid report gets its format repair (repair-output) instead of a scope stop."
-            },
-            {
-              "key": "bc191724-6b1b-49dc-b72c-7bbda5b9a0db/86d9061f-8441-4698-a8e9-5a8aa353ad9a",
-              "nowSha256": "16ba53155ee51f3a53a419e51fc4e1e4fd84f9551adf540ee1c61df97fe486a5",
-              "reason": "LIVE-32 (0b09307): the review stop now names the report issue, \"The review omitted evidence for this execution scope\u2019s exit gate.\""
-            },
-            {
-              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
-              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
-              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            },
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "ac8fd25714df58f95cdef32f399899c258275c2b1874f34d290d1233c31ec148"
         },
         {
           "mode": "scheduler",
@@ -556,8 +387,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "bb595d010daab0c379e4ef5dea28ce8fd94123407434486591d68e530caebe98"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "c584b0ff867d364a20e4ac07eaf336d0d5f04db11fe444d56fbebd4ba036ccba"
         }
       ]
     },
@@ -573,20 +404,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-3c9d430.json",
-          "goldenSha256": "97ce01338630185297c830aa3c6291cbf2b49daf7f3d9a33f72c1c9e43c47308",
-          "expected": [
-            {
-              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
-              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
-              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            },
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "cc2b81b4549c1b76169e9846a291501a7a7431730f2c73f7320b1f598c5fe96c"
         },
         {
           "mode": "scheduler",
@@ -595,8 +414,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "3183a39e6498275bde19145c0365455d3fe294c6b5e6a40c5734dd27d2f088ff"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "b70e0d20fa79a8ac9ae166aebe5c8f4ad13d3817a7ccebb1bb608ee4f2b9901c"
         }
       ]
     },
@@ -612,20 +431,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-3c9d430.json",
-          "goldenSha256": "207f393fe0644439ecbd49a9c2c8204cce448beb33e5ce4b8d1de9420b7677c0",
-          "expected": [
-            {
-              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
-              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
-              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            },
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "4d2852a6997a2aa4d921e785f7c89f269a0859167f9c945ac2a34ca95490a9f3"
         },
         {
           "mode": "scheduler",
@@ -634,8 +441,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "2aa847228806889403bad045750eba5012bc8550655c469675bb2b0cd2b6049c"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "4402f8e6763bd66ef3876125978390c48bcb8f907e193950b495a38b81fb8a59"
         }
       ]
     },
@@ -651,20 +458,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-0b09307.json",
-          "goldenSha256": "aee3502d20f8c8a023edc61f6bf1710b1bc4d286347df5e4a9d8f007ff1e4a45",
-          "expected": [
-            {
-              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
-              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
-              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            },
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "f8db2aaa16467e44fbda705dcc9ce8ecc5538932b5b582ef17e570627169e57a",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "72a392d1d88d2209f5b677bc15c4fb51d005a40438077563c252f9356cf7f2a1"
         },
         {
           "mode": "scheduler",
@@ -673,8 +468,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "f8799acb7b15a309dbf0cb56f58c314caa04ce231962c14a56873ec94401f855"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "67e1dea494d2360807200fcb41d34c7063bd80a6b2e0630204a49b057723d81f"
         }
       ]
     },
@@ -697,25 +492,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-55d47fc.json",
-          "goldenSha256": "0de7bd6a563de97fc5cba83a3aeba9e649e0540dbfa6fbc0e20c2e406804dd48",
-          "expected": [
-            {
-              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
-              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
-              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            },
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "1fc6e2894996475bc676559ebe11c8b6f04f8e61dae9d278a4703dad5586e7cd",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            },
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/c9c79f61-7ad4-415b-a2dd-63dffe66f8af",
-              "nowSha256": "03a52792cee2202beb0a813f2e7e0f9dc9a802fff0c62d0decae791f67843fd4",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "9beb4fd01135ed13feda16e5943f52632aefa51f3d41eb34f51de971bb84d24d"
         },
         {
           "mode": "scheduler",
@@ -724,8 +502,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "693fd22c69be1f1c45023948a047fd09f4b44555eff5c203aaa5fbdf2a5f8dcf"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "89cf5df813e1f0df7ea7cdb5a6a4e163cb24c88a2fa39e12b5323ec1720c4c2f"
         }
       ]
     },
@@ -748,25 +526,8 @@
         },
         {
           "mode": "every-run",
-          "golden": "every-run-golden-2d265a5.json",
-          "goldenSha256": "0f209f5fb3eafb032858812f3876d509ed3995f8d5a2f9cd70c17899f2c7560d",
-          "expected": [
-            {
-              "key": "556d0bca-3807-492b-a039-39d6ab766267/cdcd2bdc-05c8-4381-a95f-0f0411d1bcdb",
-              "nowSha256": "cd11be2d0ace6afad8610636bd26fa8eee47cfd77e7736698af76cb571cbc3d7",
-              "reason": "R-C7 D7: this EXO-02/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            },
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/9ff2a3ea-e2a9-4125-92b2-0f4ba16393ba",
-              "nowSha256": "1fc6e2894996475bc676559ebe11c8b6f04f8e61dae9d278a4703dad5586e7cd",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            },
-            {
-              "key": "b0514f6d-1c96-48a6-b9f7-0936153bb3fb/c9c79f61-7ad4-415b-a2dd-63dffe66f8af",
-              "nowSha256": "03a52792cee2202beb0a813f2e7e0f9dc9a802fff0c62d0decae791f67843fd4",
-              "reason": "R-C7 D7: this EXO-01/domain slice verification had one minor finding open on a met gate with a mergeable verdict; it is now recorded (approve-review) with the finding kept as a follow-up on its scope evidence, instead of stopping for scope recovery."
-            }
-          ]
+          "golden": "every-run-golden-rb4b-2.json",
+          "goldenSha256": "530bc25810330b214e1ae01e871399e1c08adc03c8fb9396bbe2a21dd5dfdce4"
         },
         {
           "mode": "scheduler",
@@ -775,8 +536,8 @@
         },
         {
           "mode": "cycles",
-          "golden": "cycles-golden-e05e357.json",
-          "goldenSha256": "4b5ba562864c3629c047b2e16d71dabf978dc71692bad1b0405b8993f91993bd"
+          "golden": "cycles-golden-rb4b-2.json",
+          "goldenSha256": "d67751a2d9e3ef8bea91c67999decb6f342de3461b65dee9b964b704007a5ccf"
         },
         {
           "mode": "evidence-view",

@@ -1,11 +1,11 @@
 import {
   type EntryWaitCode,
-  effectiveCycleAttention,
   phaseBlockerCode,
   type RoadmapEntryId,
   type RoadmapEntryWait,
   type WorkCycle,
   type WorkCycleId,
+  cycleStop,
 } from '@craftingtable/domain';
 import type { PhaseGateError } from './phase-resources.js';
 import type { ItemRefusal } from './transition-gate.js';
@@ -63,7 +63,7 @@ export function cycleStep(cycle: WorkCycle): EntryStep {
   if (cycle.status === 'paused') return waiting('cycle-paused', cycle.reason, refs);
   if (cycle.status === 'stopped' || cycle.status === 'completed')
     return waiting('cycle-ended', cycle.reason, refs);
-  const attention = effectiveCycleAttention(cycle);
+  const attention = cycleStop(cycle);
   return waiting(
     attention?.owner === 'controller' ? 'cycle-waiting' : 'cycle-attention',
     cycle.reason,

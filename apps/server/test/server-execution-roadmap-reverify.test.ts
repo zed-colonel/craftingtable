@@ -13,6 +13,7 @@ import {
   supervisedMapFixture,
   waitFor,
 } from './execution-test-support.js';
+import { heldStop, stopRecord } from '@craftingtable/domain';
 
 afterEach(cleanupExecutionFixtures);
 
@@ -308,7 +309,7 @@ async function heldAtGate() {
       await services.agentRunService.quiesce();
     },
   });
-  expect(cycle(entry.id)?.attention?.code).toBe('record-scope-evidence');
+  expect(heldStop(cycle(entry.id))?.code).toBe('record-scope-evidence');
   const plan = `/api/workspaces/${ws}/plan-versions/version-1/repository-policy`;
   const preview = await state.context.app.inject({
     method: 'GET',
@@ -354,7 +355,7 @@ async function heldAtGate() {
     refs: { cause: 'worktree-state' },
   });
   expect(gated.status).toBe('awaiting-merge');
-  expect(gated.attention?.code).toBe('record-scope-evidence');
+  expect(heldStop(gated)?.code).toBe('record-scope-evidence');
   const reverifiable = async () => {
     const listed = await state.context.app.inject({
       method: 'GET',
@@ -428,14 +429,14 @@ itNeedsCargo(
       {
         ...awaiting,
         version: awaiting.version + 1,
-        attention: { code: 'merge-approval', owner: 'operator' },
+        stop: stopRecord({ code: 'merge-approval', owner: 'operator' }, '2026-01-01T00:00:00.000Z'),
       },
       awaiting.version,
     );
     expect((await reverify()).body).toContain('still open');
     const back = tx.execution.cycles.find(ws, gated.id)!;
     tx.execution.cycles.replace(
-      { ...back, version: back.version + 1, attention: gated.attention },
+      { ...back, version: back.version + 1, stop: gated.stop },
       back.version,
     );
     expect(await reverifiable()).toBe(true);

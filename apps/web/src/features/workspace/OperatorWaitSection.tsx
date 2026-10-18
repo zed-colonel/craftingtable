@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { loadOperatorWait } from '../../lib/workspace-api.js';
+import { heldStop } from '@craftingtable/domain';
 
 /** Display text for a stop kind; the code itself is what the daemon routes on. */
 function kindLabel(kind: string): string {
@@ -19,13 +20,13 @@ const hours = (value: number) => `${value.toFixed(1)} h`;
  * hold shows (R-C10's follow-up).
  */
 export function operatorWaitRefreshKey(
-  cycles: readonly Pick<WorkCycle, 'id' | 'status' | 'attention'>[],
+  cycles: readonly Pick<WorkCycle, 'id' | 'status' | 'stop'>[],
   items: readonly Pick<AttentionItemView, 'id' | 'code'>[],
 ): string {
-  const stops = cycles.map(
-    (cycle) =>
-      `${cycle.id}:${cycle.status}:${cycle.attention?.code ?? ''}:${cycle.attention?.owner ?? ''}`,
-  );
+  const stops = cycles.map((cycle) => {
+    const stop = heldStop(cycle);
+    return `${cycle.id}:${cycle.status}:${stop?.code ?? ''}:${stop?.owner ?? ''}`;
+  });
   return [...stops, ...items.map((item) => `${item.id}:${item.code}`)].join(',');
 }
 

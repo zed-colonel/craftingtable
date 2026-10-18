@@ -12,6 +12,7 @@ import {
   type FindingSeverity,
   optionalFinding,
   type ReviewFinding,
+  heldStop,
 } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import {
@@ -398,17 +399,17 @@ it('replays the AQ finalization stop sequence against the staged controller (R-C
     await waitFor(
       () =>
         ['needs-attention', 'awaiting-merge'].includes(cycle().status) ||
-        !!cycle().providerRecovery?.nextRetryAt,
+        !!cycle().attempt?.providerRecovery?.nextRetryAt,
       `the stop after ${current}`,
     );
-    const retry = cycle().providerRecovery?.nextRetryAt;
+    const retry = cycle().attempt?.providerRecovery?.nextRetryAt;
     if (retry && cycle().status === 'running') {
       note('service-retry');
       offset = Date.parse(retry) + 1000 - Date.now();
-      await waitFor(() => !cycle().providerRecovery?.nextRetryAt, 'the scheduled retry');
+      await waitFor(() => !cycle().attempt?.providerRecovery?.nextRetryAt, 'the scheduled retry');
       continue;
     }
-    const code = present(cycle().attention).code;
+    const code = present(heldStop(cycle())).code;
     const stage = stageOf();
     const label =
       code === 'final-promotion'

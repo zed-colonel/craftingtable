@@ -16,47 +16,31 @@ interface CheckAdoptionAtMerge {
   /** The adoption the definitions were compared with; a later one refuses this adoption. */
   readonly declarationId: string;
 }
-import { securityReviewCurrent } from './workflow-policy.js';
-import {
-  asAgentRunId,
-  asMergeOperationId,
-  asRepositoryCheckDeclarationId,
-  type DecisionPreparationId,
-  type FinalizationId,
-  type RoadmapId,
-} from '@craftingtable/domain';
-import { needsNativeVerification } from './native-verification-policy.js';
-import { scopeReviewerRoles } from './map-adoption-policy.js';
-import { acceptedEvidence } from './runtime-evidence-policy.js';
-import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
-import { resourceBlockers, withPhaseReservation, PhaseGateError } from './phase-resources.js';
-import { executionScopeKey } from '@craftingtable/domain';
-import {
-  requireScope,
-  resolveScope,
-  requireScopeOwnership,
-  requireTreeScope,
-  scopeChoices,
-  scopedReviewIssue,
-  scopeEvidenceIssues,
-  latestSliceMerge,
-} from './execution-scope.js';
+
 import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import {
   type AgentRun,
   type AgentRunId,
+  asAgentRunId,
   asAuditEventId,
   asEventId,
+  asMergeOperationId,
+  asRepositoryCheckDeclarationId,
   asSourceRepositoryId,
   asWorktreeId,
+  type DecisionPreparationId,
   evaluateCycleCompletion,
+  executionScopeKey,
+  type FinalizationId,
+  heldStop,
   isInvestigationRun,
   isTerminalAgentRunStatus,
-  mergeAdoptsChecks,
   type MergeOperation,
+  mergeAdoptsChecks,
   type RepositoryCheckDeclaration,
+  type RoadmapId,
   type SourceRepository,
   type SourceRepositoryId,
   verificationFollowUps,
@@ -70,6 +54,7 @@ import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/s
 import type { ExecutionConfig } from '../config.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { BranchService } from './branch-service.js';
+import { checkedOutBranches } from './checkout-fact.js';
 import {
   CheckAdoptionRequiredError,
   CheckDefinitionChangedError,
@@ -77,14 +62,29 @@ import {
   gitRefusalDetail,
   NotFoundError,
 } from './errors.js';
+import {
+  latestSliceMerge,
+  requireScope,
+  requireScopeOwnership,
+  requireTreeScope,
+  resolveScope,
+  scopeChoices,
+  scopedReviewIssue,
+  scopeEvidenceIssues,
+} from './execution-scope.js';
 import { stagedPromotionIssue } from './finalization-stage-policy.js';
+import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
+import { needsNativeVerification } from './native-verification-policy.js';
+import { PhaseGateError, resourceBlockers, withPhaseReservation } from './phase-resources.js';
 import { latestReviewReport } from './run-lineage.js';
+import { acceptedEvidence } from './runtime-evidence-policy.js';
+import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import type { WorkItemService } from './work-item-service.js';
+import { securityReviewCurrent } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
-import { checkedOutBranches } from './checkout-fact.js';
 
 export type MergeGateReason =
   | 'ready'
@@ -716,9 +716,8 @@ export class ExecutionService {
       if (worktree.executionScope && gate?.mergeable) {
         // A slice whose merge adopts changed check definitions is a person's to merge with
         // them (R-G13 increment 5); the merge itself reads the definitions again.
-        const adopts = mergeAdoptsChecks(
-          tx.execution.cycles.activeForWorktree(workspaceId, worktree.id)?.attention,
-        );
+        const active = tx.execution.cycles.activeForWorktree(workspaceId, worktree.id);
+        const adopts = mergeAdoptsChecks(active && heldStop(active));
         try {
           requireTreeScope(tx, worktree, 'merge');
           const run = runs.find((r) => r.id === gate.reviewRunId);

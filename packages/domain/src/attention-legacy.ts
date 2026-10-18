@@ -42,13 +42,24 @@ const LEGACY_CYCLE_REASONS: readonly (readonly [string, CycleAttentionCode])[] =
   ['Integration refresh limit reached.', 'integration-refresh-limit'],
 ];
 
-/** The stop a cycle is at: its declared attention, or one recovered for an older record. */
-export function effectiveCycleAttention(
-  cycle: Pick<
-    WorkCycle,
-    'status' | 'reason' | 'attention' | 'workflow' | 'executionScope' | 'finalizationId'
-  >,
-): CycleAttention | undefined {
+/**
+ * A cycle record in the shape releases before R-B4b stored, as far as its stop goes: what the
+ * audit trail's rows and migration 0047's preservation test read (R-B4b).
+ */
+export type LegacyCycleStop = Pick<
+  WorkCycle,
+  'status' | 'reason' | 'workflow' | 'executionScope' | 'finalizationId'
+> & {
+  /** Named even when absent, so a reshaped `WorkCycle` cannot be passed for a stored row. */
+  readonly attention: CycleAttention | undefined;
+};
+
+/**
+ * The stop a record of that shape was at: its declared attention, or one recovered for a record
+ * from before codes. Migration 0047 stored every cycle's (`cycleStop` reads it since); this stays
+ * for audit rows written before codes (R-C1's operator-wait measure).
+ */
+export function effectiveCycleAttention(cycle: LegacyCycleStop): CycleAttention | undefined {
   if (cycle.status !== 'needs-attention' && cycle.status !== 'awaiting-merge') return undefined;
   if (cycle.attention) return cycle.attention;
   if (cycle.status === 'awaiting-merge') {

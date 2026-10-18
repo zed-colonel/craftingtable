@@ -12,10 +12,12 @@ import {
   asAgentRunEventId,
   asAgentRunId,
   asCycleInvestigationId,
+  asMapAmendmentId,
   asMergeOperationId,
   cycleAttention,
+  heldStop,
+  stopRecord,
   type WorkCycle,
-  asMapAmendmentId,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -86,7 +88,7 @@ async function atQuestionStop(now?: () => Date, gitOperations?: GitOperations) {
           : implementationDone;
   const cycle = await startCycle(f.state, f.worktree.id);
   await waitFor(
-    () => currentCycle(f.state, cycle).attention?.code === 'implementation-open-questions',
+    () => heldStop(currentCycle(f.state, cycle))?.code === 'implementation-open-questions',
     'implementation question',
   );
   return {
@@ -300,7 +302,7 @@ describe('question stop investigations (R-C16)', () => {
       step: 'implement',
       currentRunId: stopped.currentRunId,
       remediationRounds: stopped.remediationRounds,
-      attention: { code: 'implementation-open-questions' },
+      stop: { code: 'implementation-open-questions' },
     });
     expect((await presented(state, cycle)).actions).toEqual([
       'continue-with-guidance',
@@ -391,7 +393,7 @@ describe('question stop investigations (R-C16)', () => {
     ]);
     const other = await startCycle(g.state, g.worktree.id);
     await waitFor(
-      () => currentCycle(g.state, other).attention?.code === 'design-open-questions',
+      () => heldStop(currentCycle(g.state, other))?.code === 'design-open-questions',
       'design stop',
     );
     expect((await presented(g.state, other)).actions).not.toContain('investigate');
@@ -411,7 +413,7 @@ describe('question stop investigations (R-C16)', () => {
       {
         ...stored,
         version: stored.version + 1,
-        attention: cycleAttention('remediation-exhausted'),
+        stop: stopRecord(cycleAttention('remediation-exhausted'), '2026-01-01T00:00:00.000Z'),
       },
       stored.version,
     );
@@ -488,7 +490,7 @@ describe('question stop investigations (R-C16)', () => {
       return attempt && state.context.storage.execution.cycles.find(ws, attempt.cycleId);
     };
     await waitFor(
-      () => cycleOf()?.attention?.code === 'implementation-open-questions',
+      () => heldStop(cycleOf())?.code === 'implementation-open-questions',
       'implementation question',
     );
     const cycle = cycleOf()!;
@@ -705,7 +707,7 @@ describe('question stop investigations (R-C16)', () => {
     expect(currentCycle(state, cycle)).toMatchObject({
       status: 'needs-attention',
       currentRunId: stopped.currentRunId,
-      attention: { code: 'implementation-open-questions' },
+      stop: { code: 'implementation-open-questions' },
     });
   });
 
@@ -780,7 +782,7 @@ describe('question stop investigations (R-C16)', () => {
     expect(currentCycle(state, cycle)).toMatchObject({
       status: 'needs-attention',
       currentRunId: stopped.currentRunId,
-      attention: { code: 'implementation-open-questions' },
+      stop: { code: 'implementation-open-questions' },
     });
   });
 });
@@ -1130,7 +1132,7 @@ describe('the investigated worktree (R-C16)', () => {
       return attempt && state.context.storage.execution.cycles.find(ws, attempt.cycleId);
     };
     await waitFor(
-      () => cycleOf()?.attention?.code === 'implementation-open-questions',
+      () => heldStop(cycleOf())?.code === 'implementation-open-questions',
       'implementation question',
     );
     const cycle = cycleOf()!;

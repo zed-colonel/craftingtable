@@ -23,6 +23,7 @@ import {
   type EffectiveAgent,
   type WorkCycle,
   type WorkspaceId,
+  stopRecord,
 } from '@craftingtable/domain';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1437,7 +1438,10 @@ describe('automated cycle controls', () => {
       remediationRounds: 0,
       stalledReviews: 0,
       reason: 'Workflow report needs correction.',
-      attention: { code: 'workflow-report-invalid', owner: 'operator' },
+      stop: stopRecord(
+        { code: 'workflow-report-invalid', owner: 'operator' },
+        '2026-09-20T12:00:00.000Z',
+      ),
     } as unknown as WorkCycle;
     const props = {
       cycles: daemon([cycle]),
@@ -1489,7 +1493,10 @@ describe('automated cycle controls', () => {
       remediationRounds: 0,
       stalledReviews: 0,
       reason: 'Operator approval required for EXO-ADR-022, EXO-ADR-030.',
-      attention: { code: 'shared-decision-required', owner: 'operator' },
+      stop: stopRecord(
+        { code: 'shared-decision-required', owner: 'operator' },
+        '2026-09-20T12:00:00.000Z',
+      ),
       executionScope: {
         kind: 'slice',
         definitionId: 'd0000000-0000-4000-8000-000000000001',
@@ -1635,6 +1642,7 @@ describe('automated cycle controls', () => {
       remediationRounds: 1,
       stalledReviews: 0,
       reason: 'Operator merge approval required.',
+      stop: stopRecord({ code: 'merge-approval', owner: 'operator' }, worktree.createdAt),
     };
     const view = render(
       <CyclePanel
@@ -1667,6 +1675,7 @@ describe('automated cycle controls', () => {
       remediationRounds: 4,
       additionalRemediationRounds: 1,
       reason: 'Remediation limit reached. One major finding remains.',
+      stop: stopRecord({ code: 'remediation-exhausted', owner: 'operator' }, worktree.createdAt),
     };
     const recoveryProps = {
       cycles: daemon([exhausted]),
@@ -1720,6 +1729,8 @@ describe('automated cycle controls', () => {
           {
             ...exhausted,
             status: 'paused',
+            // A plain pause: no stop kept.
+            stop: undefined,
             reason:
               'Automation paused by operator. The current session remains available for manual work.',
           },
@@ -1741,6 +1752,7 @@ describe('automated cycle controls', () => {
       additionalRemediationRounds: 4,
       reason:
         'Two remediation rounds left the same open findings and gate result. Operator attention is required.',
+      stop: stopRecord({ code: 'remediation-stalled', owner: 'operator' }, worktree.createdAt),
     };
     view.rerender(
       <CyclePanel
@@ -1789,7 +1801,10 @@ describe('automated cycle controls', () => {
             status: 'needs-attention' as const,
             step: 'implement' as const,
             reason: 'Workflow report needs correction.',
-            attention: { code: 'workflow-report-invalid', owner: 'operator' },
+            stop: stopRecord(
+              { code: 'workflow-report-invalid', owner: 'operator' },
+              '2026-09-20T12:00:00.000Z',
+            ),
           },
         ])}
         runs={[run({ status: 'finished', role: 'implement' })]}

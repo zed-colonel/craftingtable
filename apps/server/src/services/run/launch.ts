@@ -24,6 +24,7 @@ import {
   type WorkItemId,
   type WorkspaceId,
   truncateUtf8Bytes,
+  type StepAttempt,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../../config.js';
@@ -75,7 +76,7 @@ export function reviewContinuable(
   parent: Pick<AgentRun, 'id' | 'status' | 'startedAt'> | undefined,
   /** The parent's `run-finished` payload, when it has one. */
   finished: { readonly reason?: string } | undefined,
-  providerRecovery: WorkCycle['providerRecovery'] | undefined,
+  providerRecovery: StepAttempt['providerRecovery'] | undefined,
 ): boolean {
   return (
     resumed ||
@@ -471,14 +472,14 @@ export class RunLauncher {
       // retried because the provider refused an approval review during it (R-C11), starts
       // afresh like any other review.
       const retriesFinishedReview =
-        !!cycle?.providerRecovery &&
-        prepared.parentRun?.id === cycle.providerRecovery.sourceRunId &&
+        !!cycle?.attempt?.providerRecovery &&
+        prepared.parentRun?.id === cycle.attempt?.providerRecovery.sourceRunId &&
         prepared.parentRun.status === 'finished';
       if (
         input.role === 'review' &&
         (resume !== undefined ||
-          (cycle?.resultContinuations ?? 0) > 0 ||
-          (!!cycle?.providerRecovery && !retriesFinishedReview))
+          (cycle?.attempt?.resultContinuations ?? 0) > 0 ||
+          (!!cycle?.attempt?.providerRecovery && !retriesFinishedReview))
       ) {
         const baseline = prepared.parentRun?.reviewBranchContext;
         const ended =
@@ -493,7 +494,7 @@ export class RunLauncher {
           resume !== undefined,
           prepared.parentRun,
           ended?.kind === 'run-finished' ? ended.payload : undefined,
-          cycle?.providerRecovery,
+          cycle?.attempt?.providerRecovery,
         );
         if (!baseline || !continuable)
           throw new TypedRefusalError(

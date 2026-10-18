@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createWorktreeResponseSchema, workCycleResponseSchema } from '@craftingtable/contracts';
-import { asWorkItemId, cycleActions, DEFAULT_COMPLETION_POLICY } from '@craftingtable/domain';
+import {
+  asWorkItemId,
+  cycleActions,
+  DEFAULT_COMPLETION_POLICY,
+  heldStop,
+} from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCycleFixture, type CycleFixture, storedCycle } from './cycle-test-support.js';
 import {
@@ -50,7 +55,7 @@ describe('offer only actions that can make progress (R-A7)', () => {
       await stepDaemon(f.services, 3);
     }
     const stopped = storedCycle(f, started.id);
-    expect(stopped.attention).toMatchObject({ code: 'design-report-invalid', repairAttempts: 2 });
+    expect(heldStop(stopped)).toMatchObject({ code: 'design-report-invalid', repairAttempts: 2 });
     expect(cycleActions(stopped)).toEqual(['resolve-design', 'stop']);
 
     const resumed = await control(f, started.id, 'resume');
@@ -64,14 +69,14 @@ describe('offer only actions that can make progress (R-A7)', () => {
     expect((await control(f, started.id, 'pause')).statusCode).toBe(200);
     expect(storedCycle(f, started.id)).toMatchObject({
       status: 'paused',
-      attention: { code: 'design-report-invalid' },
+      stop: { code: 'design-report-invalid' },
     });
     expect(cycleActions(storedCycle(f, started.id))).toEqual(['resume', 'stop']);
     const lifted = await control(f, started.id, 'resume');
     expect(lifted.statusCode, lifted.body).toBe(200);
     expect(storedCycle(f, started.id)).toMatchObject({
       status: 'needs-attention',
-      attention: { code: 'design-report-invalid' },
+      stop: { code: 'design-report-invalid' },
       reason: expect.stringContaining('Use Resolve design questions'),
     });
     await stepDaemon(f.services, 2);
@@ -169,7 +174,7 @@ describe('offer only actions that can make progress (R-A7)', () => {
     await stepDaemon(f.services);
     f.backend.latest.crash();
     await stepDaemon(f.services, 2);
-    expect(storedCycle(f, cycle.id).attention?.code).toBe('step-incomplete');
+    expect(heldStop(storedCycle(f, cycle.id))?.code).toBe('step-incomplete');
 
     // The predecessor's merge leaves the integration branch.
     git(['reset', '--hard', 'HEAD~1'], root);

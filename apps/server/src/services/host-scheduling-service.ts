@@ -73,7 +73,7 @@ export class HostSchedulingService {
       // Durable waits only: avoid recomputing the entire dependency graph on a settings read.
       waiting: cycles.flatMap((c) =>
         (['local-development', 'local-verification'] as const).flatMap((resourceKey) => {
-          if (!c.phaseWait?.blockers.some((b) => phaseBlockerResourceKey(b) === resourceKey))
+          if (!c.waits?.phase?.blockers.some((b) => phaseBlockerResourceKey(b) === resourceKey))
             return [];
           const used = reservations.filter((r) => r.resourceKey === resourceKey).length;
           const capacity =

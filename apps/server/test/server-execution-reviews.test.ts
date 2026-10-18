@@ -9,6 +9,7 @@ import {
   asQualificationEnvironmentId,
   asSliceId,
   asWorktreeId,
+  heldStop,
 } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
@@ -414,7 +415,7 @@ it('waits for an exact mapped slice merge, survives recovery, then bounds automa
     '\n```\n## Open questions\nWaiting for local/AQ-01/a merge.';
   f.backend.replyForRequest = () => ({ resultText: report });
   const cycle = await startCycle(f.state, b.id);
-  await waitFor(() => !!currentCycle(f.state, cycle).designWait, 'dependency wait');
+  await waitFor(() => !!currentCycle(f.state, cycle).waits?.design, 'dependency wait');
   expect(currentCycle(f.state, cycle).status).toBe('running');
   const initial = f.backend.launches.length;
   f.state.context.services.workCycleService.recoverInterrupted();
@@ -525,7 +526,7 @@ itNeedsCargo.each([true, false])(
     expect(reviewed.workflow?.securityReceipt?.runId).toBe(reviewed.currentRunId);
     if (!configured) {
       // A receipt that cannot become current stops instead of repeating the review.
-      expect(reviewed.attention?.code).toBe('workflow-obligation');
+      expect(heldStop(reviewed)?.code).toBe('workflow-obligation');
       await stepDaemons(3);
       expect(security).toHaveLength(1);
       expect((await merge(f.state, tree.id)).statusCode).toBe(409);
@@ -684,7 +685,7 @@ itNeedsCargo(
       .find((c) => c.executionScope?.kind === 'slice')!;
     expect(cycle.owner).toBeTruthy();
     expect(security).toHaveLength(0);
-    expect(cycle.attention?.code, cycle.reason).toBe('security-reviewer-unassigned');
+    expect(heldStop(cycle)?.code, cycle.reason).toBe('security-reviewer-unassigned');
   },
 );
 
@@ -841,14 +842,14 @@ itNeedsCargo.each([
         .find((c) => c.executionScope?.kind === 'slice' && c.status === 'needs-attention');
     await waitFor(() => !!stopped(), 'moved-pin stop').catch((error) => {
       throw new Error(
-        `${error.message}: ${JSON.stringify(f.state.context.storage.execution.cycles.listForWorkspace(f.state.workspaceId).map((c) => ({ status: c.status, reason: c.reason, attention: c.attention, active: c.workflow?.activeReview })))}`,
+        `${error.message}: ${JSON.stringify(f.state.context.storage.execution.cycles.listForWorkspace(f.state.workspaceId).map((c) => ({ status: c.status, reason: c.reason, attention: heldStop(c), active: c.workflow?.activeReview })))}`,
       );
     });
     const cycle = stopped()!;
     if (!typed) {
       // The refresh would not clear it, so it is not offered as the exit: the checkpoint could
       // not attest with the evidence it has (R-B4, decision 3), not controller-error.
-      expect(cycle.attention).toMatchObject({
+      expect(heldStop(cycle)).toMatchObject({
         code: 'checkpoint-attestation-failed',
         owner: 'operator',
         refs: { checkpointId: 'LOCAL-REVIEW' },
@@ -857,7 +858,7 @@ itNeedsCargo.each([
       return;
     }
     // Typed, with the pins that moved, not controller-error.
-    expect(cycle.attention).toMatchObject({
+    expect(heldStop(cycle)).toMatchObject({
       code: 'upstream-pin-moved',
       owner: 'operator',
       refs: { pins: [moved] },
@@ -968,7 +969,7 @@ itNeedsCargo.each([
       expect(cycle.reason).toContain('attestation');
       // The checkpoint's own stop (R-C13, LIVE-07): a plain Resume would repeat the same
       // review with the same inputs, so it is refused and redirected to guidance.
-      expect(cycle.attention).toMatchObject({
+      expect(heldStop(cycle)).toMatchObject({
         code: 'checkpoint-attestation-failed',
         owner: 'operator',
         refs: { checkpointId: 'LOCAL-REVIEW' },
@@ -1193,7 +1194,7 @@ itNeedsCargo.each(['another run’s', 'incomplete'] as const)(
         .listForWorkspace(f.state.workspaceId)
         .find((c) => c.executionScope?.kind === 'slice' && c.status === 'needs-attention');
     await waitFor(() => stopped() !== undefined, 'the checkpoint acceptance stop');
-    expect(stopped()!.attention).toMatchObject({
+    expect(heldStop(stopped()!)).toMatchObject({
       code: 'checkpoint-attestation-failed',
       refs: { checkpointId: 'LOCAL-REVIEW' },
     });
@@ -1454,7 +1455,7 @@ itNeedsCargo(
         .find((c) => c.executionScope?.kind === 'slice');
     await waitFor(() => slice()?.status === 'needs-attention', 'remediation limit');
     const stopped = slice()!;
-    expect(stopped.attention?.code).toBe('remediation-exhausted');
+    expect(heldStop(stopped)?.code).toBe('remediation-exhausted');
     expect(reviews).toEqual(['controller', 'security']);
     // The security review ended with its run, so the stop does not keep it active.
     expect(stopped.workflow?.activeReview ?? null).toBeNull();
@@ -2245,7 +2246,7 @@ itNeedsCargo(
     const cycle = f.state.context.storage.execution.cycles
       .listForWorkspace(f.state.workspaceId)
       .find((c) => c.executionScope?.kind === 'slice')!;
-    expect(cycle.attention?.code, cycle.reason).toBe('security-reviewer-unassigned');
+    expect(heldStop(cycle)?.code, cycle.reason).toBe('security-reviewer-unassigned');
     expect(security).toHaveLength(0);
   },
 );

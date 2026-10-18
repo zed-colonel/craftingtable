@@ -3,6 +3,7 @@ import {
   type AgentRunStatus,
   cycleAttention,
   type CycleAttentionCode,
+  stopRecord,
   type WorkCycle,
 } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
@@ -31,7 +32,7 @@ const cycle = (
     workspaceId: 'ws',
     status,
     currentRunId: 'run-1',
-    attention: cycleAttention(code),
+    stop: stopRecord(cycleAttention(code), '2026-01-01T00:00:00.000Z'),
     reason: '',
     ...extra,
   }) as unknown as WorkCycle;

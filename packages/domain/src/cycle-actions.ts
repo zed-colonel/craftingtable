@@ -1,7 +1,7 @@
 import type { CycleAttentionCode } from './attention.js';
-import { effectiveCycleAttention } from './attention-legacy.js';
 import type { WorkCycle } from './work-cycle.js';
 import type { AgentRunId } from './ids.js';
+import { cycleStop, heldStop } from './cycle-stop.js';
 
 /**
  * The operator actions that can make progress on a cycle (R-A7, CTRL-04).
@@ -94,15 +94,15 @@ const RESOLUTION: Partial<Record<CycleAttentionCode, readonly [CycleAction, stri
 
 /** The action and message that replace a plain Resume for this stop, if any. */
 export function resumeRedirect(
-  cycle: Parameters<typeof effectiveCycleAttention>[0] & Pick<WorkCycle, 'currentRunId'>,
+  cycle: Pick<WorkCycle, 'status' | 'stop' | 'currentRunId'>,
   latestRunId?: AgentRunId,
 ): { readonly action: CycleAction; readonly message: string } | undefined {
   // A pause taken at a stop keeps that stop's attention; resuming it faces the same stop.
   const code =
     cycle.status === 'paused'
-      ? cycle.attention?.code
+      ? heldStop(cycle)?.code
       : cycle.status === 'needs-attention'
-        ? effectiveCycleAttention(cycle)?.code
+        ? cycleStop(cycle)?.code
         : undefined;
   if (code === undefined) return undefined;
   // A newer manual run in the worktree is new input: resume adopts it.
@@ -138,17 +138,16 @@ export const INVESTIGATION_STOPS: ReadonlySet<CycleAttentionCode> = new Set<Cycl
 
 /** The stop's code as its actions read it: a pause taken at a stop keeps that stop's. */
 export function stopCode(
-  cycle: Parameters<typeof effectiveCycleAttention>[0],
+  cycle: Pick<WorkCycle, 'status' | 'stop'>,
 ): CycleAttentionCode | undefined {
-  return cycle.status === 'paused' ? cycle.attention?.code : effectiveCycleAttention(cycle)?.code;
+  return cycle.status === 'paused' ? heldStop(cycle)?.code : cycleStop(cycle)?.code;
 }
 
 export function cycleActions(
-  cycle: Parameters<typeof effectiveCycleAttention>[0] &
-    Pick<WorkCycle, 'status' | 'currentRunId'> & {
-      /** The shared decisions the stop still waits on (the projection's, LIVE-18). */
-      readonly unsettledDecisions?: readonly string[];
-    },
+  cycle: Pick<WorkCycle, 'status' | 'stop' | 'currentRunId'> & {
+    /** The shared decisions the stop still waits on (the projection's, LIVE-18). */
+    readonly unsettledDecisions?: readonly string[];
+  },
   latestRunId?: AgentRunId,
   /**
    * The current review asks for remediation and the allowance is spent. Guidance alone cannot

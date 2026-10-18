@@ -185,7 +185,7 @@ export function RunRoute({
             (c) =>
               c.worktreeId === run.worktree.id &&
               c.currentRunId === run.run.id &&
-              c.providerRecovery,
+              c.attempt?.providerRecovery,
           )
           .map((cycle) => (
             <ProviderRetry

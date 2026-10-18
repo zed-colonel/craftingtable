@@ -6,6 +6,7 @@ import {
   WORKFLOW_PART,
   workflowFormat,
 } from './brief-output.js';
+import { required } from '@craftingtable/domain';
 
 /**
  * The review role (R-G6, AGT-54): what a reviewer does and the one final message it returns,
@@ -76,7 +77,9 @@ function reviewFormat(context: OutputContext): BlockFormat {
         location: { path: 'src/a.ts', line: 10 },
         explanation: 'What is wrong and why.',
         recommendation: 'What resolves it.',
-        ...(scope?.owningSlices?.length ? { owningSlice: scope.owningSlices[0]!.id } : {}),
+        ...(scope?.owningSlices?.length
+          ? { owningSlice: required(scope.owningSlices[0], 'the first owning slice').id }
+          : {}),
       },
     ],
     // A staged finalization review's stage object, with this stage's id (R-G6 review M1).

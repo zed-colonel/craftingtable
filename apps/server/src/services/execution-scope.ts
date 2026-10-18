@@ -26,6 +26,7 @@ import {
   type Worktree,
   type WorktreeId,
 } from '@craftingtable/domain';
+import { required } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { scopeNext } from './scope-next.js';
 import { mapReadSnapshot, snapshotCalculation } from './map-read-snapshot.js';
@@ -68,7 +69,7 @@ export function scopeCases(r: ResolvedScope): readonly AcceptanceCaseId[] {
     ? [
         ...r.slice.aq_baseline_case_ids,
         ...r.definition.source.acceptance_coverage
-          .filter((c) => c.producing_slices.includes(r.slice!.id))
+          .filter((c) => c.producing_slices.includes(required(r.slice, 'the resolved slice').id))
           .map((c) => c.id),
       ]
     : [...r.parent.source_profile_case_ids, ...r.parent.aq_baseline_case_ids];
@@ -349,7 +350,9 @@ function ownerFreePhaseBlockers(
     phase === 'verify' &&
     r.slice &&
     r.definition.source.acceptance_coverage.some(
-      (c) => c.requires_kata_host && c.producing_slices.includes(r.slice!.id),
+      (c) =>
+        c.requires_kata_host &&
+        c.producing_slices.includes(required(r.slice, 'the resolved slice').id),
     ) &&
     !acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
       kind: 'slice',
@@ -949,7 +952,10 @@ export function scopeEvidenceIndex(ledger: ReturnType<typeof scopeEvidenceLedger
       ...head,
       artifacts: head.artifacts.map((artifact, index) => {
         const file = `scope-evidence/${fileNamePart(submission.id)}/${index + 1}-${fileNamePart(artifact.name)}`;
-        bodies.push({ file, content: submission.artifacts[index]!.content });
+        bodies.push({
+          file,
+          content: required(submission.artifacts[index], "the submission's artifact").content,
+        });
         return { ...artifact, file };
       }),
     };

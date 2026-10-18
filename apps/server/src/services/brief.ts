@@ -1,4 +1,5 @@
 import type { AgentRunRole, JsonValue, ReviewBranchContext, WorkItem } from '@craftingtable/domain';
+import { required } from '@craftingtable/domain';
 import { designInstructions, investigationInstructions } from './brief-design.js';
 export { citedRunPaths } from './brief-handoff.js';
 import {
@@ -371,7 +372,7 @@ function filesSection(input: BriefInput): string {
       ...(supporting ? [`${supporting} supporting documents (list the directory)`] : []),
     ];
     lines.push(
-      `The plan bundle, read-only in \`${at(input.planDirectory ?? documents[0]!.path.replace(/\/[^/]*$/, ''))}/\`: ${listed.join(', ')}. ${
+      `The plan bundle, read-only in \`${at(input.planDirectory ?? required(documents[0], 'the first plan document').path.replace(/\/[^/]*$/, ''))}/\`: ${listed.join(', ')}. ${
         input.planFinalization
           ? 'Read the entire plan and work-item inventory before starting.'
           : 'Read the parts that concern this work item before starting.'

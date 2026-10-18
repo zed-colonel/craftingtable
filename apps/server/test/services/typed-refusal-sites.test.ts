@@ -68,6 +68,15 @@ describe('the item gate (requireReady)', () => {
     expect(await stopOf(ready(item, pending))).toBe(stop),
   );
 
+  // A cycle with no work item (R-B7 increment 12): the sites pass its absent id on as they did
+  // with `!`, and it is the same stop as an unknown item, never a lookup.
+  it('a cycle with no work item', async () =>
+    expect(
+      await stopOf(() =>
+        requireReady(tx({ status: 'admitted', planVersionId: 'p' }), 'ws' as never, undefined),
+      ),
+    ).toBe('item-unavailable'));
+
   it('says how to leave the stop of an item marked complete (increment 5 review)', () =>
     expect(ready({ status: 'completed', planVersionId: 'p' })).toThrow(
       'This work item was marked complete without merging its worktree. Merge the worktree by hand, after stopping its cycle if one runs, or reconcile the queue.',

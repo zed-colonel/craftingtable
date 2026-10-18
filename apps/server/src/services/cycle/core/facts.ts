@@ -225,12 +225,14 @@ export function cycleFacts(
 export function requireReady(
   tx: StorageRepositories,
   workspaceId: WorkspaceId,
-  workItemId: WorkItemId,
+  /** Absent for a cycle with no work item: no item, so the same refusal as an unknown one. */
+  workItemId: WorkItemId | undefined,
   scope?: ExecutionScope,
 ) {
   // The item's own status first: a completed or withdrawn item is the stop, whatever its scope's
   // phase says (R-B4, decision 2).
-  const item = tx.planning.workItems.find(workspaceId, workItemId);
+  const item =
+    workItemId === undefined ? undefined : tx.planning.workItems.find(workspaceId, workItemId);
   const refused = itemGate(item, scope, { admits: false });
   if (refused || !item)
     throw new TypedRefusalError(
@@ -241,11 +243,12 @@ export function requireReady(
         ? 'This work item was marked complete without merging its worktree. Merge the worktree by hand, after stopping its cycle if one runs, or reconcile the queue.'
         : 'Automation requires an admitted, incomplete work item',
     );
+  // Found by its id, so the item's id is the one asked for.
   if (scope)
     requireScope(
       tx,
       workspaceId,
-      workItemId,
+      item.id,
       scope,
       scope.kind === 'parent-acceptance'
         ? 'accept'
@@ -253,7 +256,7 @@ export function requireReady(
           ? 'verify'
           : 'start',
     );
-  const predecessors = predecessorGate(tx, workspaceId, workItemId, scope);
+  const predecessors = predecessorGate(tx, workspaceId, item.id, scope);
   if (predecessors.blocked)
     throw new TypedRefusalError(
       'predecessors-incomplete',

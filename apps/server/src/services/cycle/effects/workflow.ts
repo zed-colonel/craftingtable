@@ -8,6 +8,7 @@ import {
   definitionChangeReason,
 } from '../../repository-checks-service.js';
 import { type CheckpointId, mapCapabilities, V03_VOCABULARY } from '@craftingtable/domain';
+import { required } from '@craftingtable/domain';
 import {
   type AgentRun,
   cycleAttention,
@@ -210,7 +211,7 @@ export class CycleWorkflow {
       (!delegation && kind !== 'security')
     )
       return;
-    this.gates.requireReady(cycle.workspaceId, cycle.workItemId!, cycle.executionScope);
+    this.gates.requireReady(cycle.workspaceId, cycle.workItemId, cycle.executionScope);
     const checkpoint = context.checkpoints.find((c) => c.id === checkpointId);
     if (
       kind === 'checkpoint' &&
@@ -319,7 +320,9 @@ export class CycleWorkflow {
     // anything was fixed (R-B4 increment 4 re-check, NEW-LOW-2).
     const reviewed =
       active?.kind === 'checkpoint'
-        ? context.checkpoints.find((c) => c.id === active!.checkpointId)
+        ? context.checkpoints.find(
+            (c) => c.id === required(active, 'the active review').checkpointId,
+          )
         : undefined;
     if (
       active?.kind === 'checkpoint' &&
@@ -339,7 +342,7 @@ export class CycleWorkflow {
         cycle,
         {
           workflow: {
-            ...cycle.workflow!,
+            ...required(cycle.workflow, "the cycle's workflow"),
             activeReview: null,
             ...(active.kind === 'security'
               ? {
@@ -355,7 +358,10 @@ export class CycleWorkflow {
         'workflow-review-completed',
       );
     }
-    if (cycle.workflow!.securityRequired && !securityReviewCurrent(this.storage, cycle, run)) {
+    if (
+      required(cycle.workflow, "the cycle's workflow").securityRequired &&
+      !securityReviewCurrent(this.storage, cycle, run)
+    ) {
       // A security review that just passed this candidate and still is not current would
       // only be repeated without end; its inputs need the operator.
       if (active?.kind === 'security') {
@@ -368,9 +374,11 @@ export class CycleWorkflow {
     }
     if (!delegation) return cycle.version !== initialVersion;
     // Accepting an active review's checkpoint changes the obligations; otherwise reuse them.
-    const current = active ? workflowContext(this.storage, cycle)! : context;
+    const current = active
+      ? required(workflowContext(this.storage, cycle), 'the workflow context after the review')
+      : context;
     const obligations = decideObligations(
-      { status: cycle.status, workflow: cycle.workflow! },
+      { status: cycle.status, workflow: required(cycle.workflow, "the cycle's workflow") },
       current.checkpoints,
     );
     switch (obligations.kind) {
@@ -388,14 +396,19 @@ export class CycleWorkflow {
             {
               status: 'awaiting-merge',
               attention: cycleAttention(obligations.code),
-              workflow: { ...cycle.workflow!, waiting: obligations.waiting },
+              workflow: {
+                ...required(cycle.workflow, "the cycle's workflow"),
+                waiting: obligations.waiting,
+              },
               reason: obligations.waiting,
             },
             'workflow-wait',
           );
         return true;
       case 'clear-waiting':
-        cycle = this.writer.change(cycle, { workflow: { ...cycle.workflow!, waiting: null } });
+        cycle = this.writer.change(cycle, {
+          workflow: { ...required(cycle.workflow, "the cycle's workflow"), waiting: null },
+        });
         break;
       case 'done':
         break;

@@ -1,4 +1,5 @@
 import type { WorkCycleId } from '@craftingtable/domain';
+import { required } from '@craftingtable/domain';
 import { randomUUID } from 'node:crypto';
 import type {
   PrepareBaselineRequest,
@@ -125,7 +126,7 @@ export class CycleRecovery {
         this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
         if (this.storage.execution.cycles.find(workspaceId, id)?.version !== reserved.version)
           throw new ExecutionRequestError('conflict', 'Cycle changed during baseline preparation.');
-        this.gates.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
+        this.gates.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
         this.baselines.assertCurrent(cycle, preparation);
       };
       try {
@@ -313,11 +314,14 @@ export class CycleRecovery {
     return this.locks.duringTransition(id, async () => {
       this.locks.repairing.add(key);
       try {
-        this.settings.validateSettings({ profiles: delegation?.profiles ?? selected.profiles! });
+        this.settings.validateSettings({
+          profiles:
+            delegation?.profiles ?? required(selected.profiles, "the owning slice's profiles"),
+        });
         const resolved = requireScope(
           this.storage,
           workspaceId,
-          source.workItemId!,
+          required(source.workItemId, "the scope review's work item"),
           selected.scope,
           'start',
         );
@@ -333,8 +337,14 @@ export class CycleRecovery {
           tree = await this.execution.createWorktree(
             context,
             workspaceId,
-            source.workItemId!,
-            { repositoryId: resolved.binding.repositoryId!, executionScope: selected.scope },
+            required(source.workItemId, "the scope review's work item"),
+            {
+              repositoryId: required(
+                resolved.binding.repositoryId,
+                "the started scope's repository",
+              ),
+              executionScope: selected.scope,
+            },
             undefined,
             delegation ? { id: delegation.worktreeId, check } : undefined,
           );
@@ -357,12 +367,13 @@ export class CycleRecovery {
           const started = this.starts.start(
             context,
             workspaceId,
-            source.workItemId!,
+            required(source.workItemId, "the scope review's work item"),
             {
               worktreeId: tree.id,
-              profiles: delegation?.profiles ?? selected.profiles!,
+              profiles:
+                delegation?.profiles ?? required(selected.profiles, "the owning slice's profiles"),
               policy: delegation?.policy ?? {
-                ...selected.policy!,
+                ...required(selected.policy, "the owning slice's policy"),
                 maxRemediationRounds: input.maxRemediationRounds,
               },
               instructions: input.instructions,

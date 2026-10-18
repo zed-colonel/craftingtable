@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import type { AgentRunRole } from '@craftingtable/domain';
+import { required } from '@craftingtable/domain';
 import { type CutOffRecord, type HandoffFiles, oneLine, shownPath } from './run-handoff.js';
 
 /**
@@ -84,7 +85,11 @@ function quotedOpening(message: string, expired: readonly string[] | undefined):
   for (const line of markExpired(message.trim(), expired).split('\n')) {
     const opener = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
     if (fence) {
-      if (opener && opener[1]!.startsWith(fence) && !opener[2]!.trim()) {
+      if (
+        opener &&
+        required(opener[1], 'the fence group').startsWith(fence) &&
+        !required(opener[2], 'the info group').trim()
+      ) {
         fence = '';
         if (skipping) {
           skipping = false;
@@ -95,14 +100,14 @@ function quotedOpening(message: string, expired: readonly string[] | undefined):
       continue;
     }
     if (opener) {
-      fence = opener[1]!;
-      skipping = /^craftingtable-/.test(opener[2]!.trim());
+      fence = required(opener[1], 'the fence group');
+      skipping = /^craftingtable-/.test(required(opener[2], 'the info group').trim());
       if (skipping) continue;
       lines.push(line);
       continue;
     }
     const heading = /^#{1,6}\s+(.*)$/.exec(line);
-    lines.push(heading ? `**${heading[1]!.trim()}**` : line);
+    lines.push(heading ? `**${required(heading[1], 'the heading group').trim()}**` : line);
   }
   const collapsed = lines
     .join('\n')

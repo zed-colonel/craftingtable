@@ -5,6 +5,7 @@
  */
 import { activeEditor } from '../../authority-policy.js';
 import type { AgentRunId } from '@craftingtable/domain';
+import { required } from '@craftingtable/domain';
 import { createHash } from 'node:crypto';
 import {
   type AgentRun,
@@ -364,7 +365,7 @@ export class CycleRemediation {
     };
     const latest = find(remediation.parentRunId);
     if (!reviewedHere(latest)) return false;
-    const earlier = find(latest!.parentRunId);
+    const earlier = find(required(latest, "the reviewed remediation's parent").parentRunId);
     return earlier?.role === 'implement' && reviewedHere(find(earlier.parentRunId));
   }
 

@@ -6,6 +6,7 @@
  */
 import { validExtraRounds } from '../../command-bounds.js';
 import type { SourceRepositoryId, WorkCycleId, MapAmendmentId } from '@craftingtable/domain';
+import { required } from '@craftingtable/domain';
 import type { AuthorizeWorkCycleRemediationRequest } from '@craftingtable/contracts';
 import {
   type AgentRun,
@@ -125,7 +126,12 @@ export class CycleControl {
       case 'launch':
         return this.writer.next(cycle, step.step, step.parent, context, step.changes, step.action);
       case 'remediate':
-        return this.remediation.reviewRemediation(cycle, run!, context, step.grant);
+        return this.remediation.reviewRemediation(
+          cycle,
+          required(run, 'the reviewed run a remediate step resumes from'),
+          context,
+          step.grant,
+        );
       case 'review-scope':
         return this.reviewScopeAgain(context, cycle, run, step, expectedVersion, {
           ...(delegationCheck ? { check: delegationCheck } : {}),
@@ -211,7 +217,7 @@ export class CycleControl {
       reservation.check?.();
       if (this.storage.execution.cycles.find(workspaceId, id)?.version !== expectedVersion)
         throw new ExecutionRequestError('conflict', 'Cycle changed; refresh before resuming.');
-      this.gates.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
+      this.gates.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     };
     return this.locks.duringTransition(id, async () => {
       await this.branches.changeWorktree(
@@ -277,7 +283,7 @@ export class CycleControl {
       if (currentTree?.status !== 'active')
         throw new ExecutionRequestError('conflict', 'The review worktree is no longer active.');
       requireTreeScope(this.storage, currentTree, 'start');
-      this.gates.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
+      this.gates.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
       const runs = this.storage.execution.runs.listForWorktree(workspaceId, tree.id);
       if (
         (unstarted ? runs.length !== 0 : runs[0]?.id !== cycle.currentRunId) ||

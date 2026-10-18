@@ -15,6 +15,7 @@ import {
   remediationAllowance,
   type WorkCycle,
 } from '@craftingtable/domain';
+import { required } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AgentRunService } from '../agent-run-service.js';
@@ -369,7 +370,10 @@ export class CycleWriter {
       if (digest && digest !== active.contextDigest)
         changes = {
           ...changes,
-          workflow: { ...cycle.workflow!, activeReview: { ...active, contextDigest: digest } },
+          workflow: {
+            ...required(cycle.workflow, "the cycle's workflow"),
+            activeReview: { ...active, contextDigest: digest },
+          },
         };
     }
     let reviewHeadSha: string | undefined;
@@ -382,7 +386,10 @@ export class CycleWriter {
         );
       reviewHeadSha = (
         await reviewCapture(() =>
-          this.branches.captureReviewContinuation(tree, parent.reviewBranchContext!),
+          this.branches.captureReviewContinuation(
+            tree,
+            required(parent.reviewBranchContext, "the parent review's branch context"),
+          ),
         )
       ).context.headSha;
     } else if (step === 'review') reviewHeadSha = await this.cleanHead(cycle);

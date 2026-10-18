@@ -22,7 +22,7 @@ export class CycleGates {
 
   requireReady(
     workspaceId: WorkspaceId,
-    workItemId: WorkItemId,
+    workItemId: WorkItemId | undefined,
     scope?: import('@craftingtable/domain').ExecutionScope,
   ) {
     return requireReady(this.storage, workspaceId, workItemId, scope);

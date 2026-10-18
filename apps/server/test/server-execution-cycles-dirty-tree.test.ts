@@ -575,11 +575,12 @@ it.each([
     await waitFor(() => currentCycle(state, cycle).status === 'needs-attention', 'limit stop');
     const stopped = currentCycle(state, cycle);
     let release = () => {};
+    // The cycle's one mutation guard, shared by its modules (R-B7 increment 8: the commands).
     const lane = (
       state.context.services.workCycleService as unknown as {
-        mutations: { hold: (id: string, until: Promise<unknown>) => void };
+        controls: { mutations: { hold: (id: string, until: Promise<unknown>) => void } };
       }
-    ).mutations;
+    ).controls.mutations;
     during =
       what === 'the cycle changed'
         ? () =>

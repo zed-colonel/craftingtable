@@ -150,9 +150,12 @@ itNeedsCargo(
 
 itNeedsCargo('a reservation that created its worktree is retried in place', async () => {
   const { f, state, ws, tx, parent, input } = await stoppedParentReview();
-  const cycles = state.context.services.workCycleService as unknown as {
-    start: (...args: unknown[]) => unknown;
-  };
+  // delegateScopeRepair's start (R-B7 increment 8: the start command).
+  const cycles = (
+    state.context.services.workCycleService as unknown as {
+      starts: { start: (...args: unknown[]) => unknown };
+    }
+  ).starts;
   const spy = vi.spyOn(cycles, 'start').mockImplementationOnce(() => {
     throw new Error('simulated cycle creation failure');
   });
@@ -254,7 +257,11 @@ itNeedsCargo('a round whose request never finished holds its entry for the opera
     },
   });
   const spy = vi
-    .spyOn(state.context.services.workCycleService as unknown as { start: () => never }, 'start')
+    .spyOn(
+      (state.context.services.workCycleService as unknown as { starts: { start: () => never } })
+        .starts,
+      'start',
+    )
     .mockImplementationOnce(() => {
       throw new Error('simulated cycle creation failure');
     });

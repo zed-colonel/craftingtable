@@ -9,7 +9,7 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { ExecutionRequestError } from './errors.js';
-import type { ResolvedScope } from './execution-scope.js';
+import type { ResolvedScope } from './scope-resolution.js';
 import { nativeApproval } from './native-verification-policy.js';
 
 export class PhaseGateError extends ExecutionRequestError {

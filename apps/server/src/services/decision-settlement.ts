@@ -2,7 +2,7 @@ import type { ConcurrencyDefinition, WorkspaceId } from '@craftingtable/domain';
 import { asSliceId } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { approvedArchitectureDecisions } from './architecture-decision-policy.js';
-import { milestoneSatisfied } from './cross-project-service.js';
+import { milestoneSatisfied } from './milestone-policy.js';
 import { acceptedEvidence, parentAccepted } from './runtime-evidence-policy.js';
 
 /**

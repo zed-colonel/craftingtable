@@ -181,7 +181,7 @@ import {
 } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
-import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
+import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
 
 /** The least time an automatic output-format repair turn gets (R-C2). */
 const OUTPUT_REPAIR_MINUTES = 20;
@@ -314,11 +314,11 @@ export class WorkCycleService {
     private readonly git: GitOperations | undefined,
     private readonly notifier: WorkspaceEventNotifier,
     private readonly now: () => Date = () => new Date(),
-    private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
-    private readonly branches?: BranchService,
-    private readonly baselines?: BaselinePreparationService,
-    private readonly execution?: ExecutionService,
-    private readonly runtimeEvidence?: RuntimeEvidenceService,
+    private readonly mutations: WorktreeMutationGuard,
+    private readonly branches: BranchService,
+    private readonly baselines: BaselinePreparationService,
+    private readonly execution: ExecutionService,
+    private readonly runtimeEvidence: RuntimeEvidenceService,
   ) {}
 
   /** The stored cycle, for the access guard's step-up check (R-G9), as `RoadmapService.storedWork`. */
@@ -507,8 +507,6 @@ export class WorkCycleService {
         'conflict',
         'Open the existing slice repair cycle before delegating another.',
       );
-    if (!this.execution)
-      throw new ExecutionRequestError('unavailable', 'Execution service is unavailable.');
     const key = `${workspaceId}:${source.workItemId}:${input.sourceId}`;
     if (this.repairing.has(key))
       throw new ExecutionRequestError('conflict', 'Slice repair is already being prepared.');
@@ -532,7 +530,7 @@ export class WorkCycleService {
             'Another slice attempt needs manual recovery.',
           );
         if (!tree)
-          tree = await this.execution!.createWorktree(
+          tree = await this.execution.createWorktree(
             context,
             workspaceId,
             source.workItemId!,
@@ -1011,15 +1009,13 @@ export class WorkCycleService {
 
   async previewBaseline(context: CommandContext, workspaceId: WorkspaceId, id: WorkCycleId) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
-    if (!this.baselines)
-      throw new ExecutionRequestError('unavailable', 'Baseline preparation unavailable.');
     return this.baselines.preview(cycle);
   }
 
   baselineEvidence(context: CommandContext, workspaceId: WorkspaceId, id: WorkCycleId) {
     this.workspaceService.requireAuthorized(context, workspaceId);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
-    if (!cycle || !this.baselines) throw new NotFoundError();
+    if (!cycle) throw new NotFoundError();
     return this.baselines.evidence(cycle);
   }
   async prepareBaseline(
@@ -1030,8 +1026,6 @@ export class WorkCycleService {
   ) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
     this.requireNoInvestigation(cycle);
-    if (!this.baselines || !this.branches)
-      throw new ExecutionRequestError('unavailable', 'Baseline preparation unavailable.');
     const service = this.baselines;
     const branches = this.branches;
     return this.mutations.during(cycle.worktreeId, async () => {
@@ -1544,7 +1538,7 @@ export class WorkCycleService {
     check();
     const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    if (!tree || !run?.reviewBranchContext || !this.branches)
+    if (!tree || !run?.reviewBranchContext)
       throw new ExecutionRequestError(
         'conflict',
         'The current review needs a recorded branch checkpoint.',
@@ -1853,12 +1847,10 @@ export class WorkCycleService {
         );
     };
     check();
-    if (!this.branches)
-      throw new ExecutionRequestError('unavailable', 'Branch operations are unavailable.');
     // Existing branch authority rejects dirty, diverged, retired or busy snapshots. It only
     // fast-forwards review worktrees, and invalidates older branch-context evidence first.
     return this.duringTransition(id, async () => {
-      await this.branches!.changeWorktree(
+      await this.branches.changeWorktree(
         context,
         workspaceId,
         tree.id,
@@ -2025,8 +2017,7 @@ export class WorkCycleService {
   ): Promise<WorkCycle> {
     const { workspaceId, id } = cycle;
     const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
-    if (!tree || !this.branches)
-      throw new ExecutionRequestError('unavailable', 'Review snapshot is unavailable.');
+    if (!tree) throw new ExecutionRequestError('unavailable', 'Review snapshot is unavailable.');
     // Reviewing the same integration snapshot again reproduces the same findings (CTRL-04,
     // cycle 10dbc912): a plain resume waits until the owning slice has changed it.
     const reviewed = run?.reviewBranchContext;
@@ -2045,7 +2036,7 @@ export class WorkCycleService {
       this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
     };
     return this.duringTransition(id, async () => {
-      await this.branches!.changeWorktree(
+      await this.branches.changeWorktree(
         context,
         workspaceId,
         tree.id,
@@ -2528,7 +2519,7 @@ export class WorkCycleService {
       cycle.worktreeId,
     );
     if (reviewedWorktree === undefined) throw new NotFoundError();
-    await this.branches?.assertReview(reviewedWorktree, run);
+    await this.branches.assertReview(reviewedWorktree, run);
     const adopts = await this.declaredDefinitions(reviewedWorktree, run, !approval.reviewOnly);
     if (await this.advanceWorkflow(cycle, run)) return;
     const gate = approvalGate({
@@ -2556,10 +2547,9 @@ export class WorkCycleService {
     run: AgentRun,
     merges: boolean,
   ): Promise<boolean> {
-    const checks = this.execution?.repositoryChecks;
+    const checks = this.execution.repositoryChecks;
     const environment = this.storage.runtimeEvidence.run(tree.workspaceId, run.id);
     if (
-      !this.runtimeEvidence ||
       !checks ||
       !run.reviewBranchContext ||
       !environment?.checkDeclarationId ||
@@ -2567,7 +2557,7 @@ export class WorkCycleService {
       // whose definitions changed stops, and the operator adopts on the Repositories page.
       environment.runtimeId === undefined
     ) {
-      this.runtimeEvidence?.assertDeclaredDefinitions(tree, run.id);
+      this.runtimeEvidence.assertDeclaredDefinitions(tree, run.id);
       return false;
     }
     let diagnosis: CheckDefinitionDiagnosis | undefined;
@@ -2762,13 +2752,6 @@ export class WorkCycleService {
     }
     if (active) {
       if (active.kind === 'checkpoint') {
-        if (!this.runtimeEvidence)
-          throw new TypedRefusalError(
-            'service-unavailable',
-            'Checkpoint review service is unavailable.',
-            undefined,
-            'unavailable',
-          );
         await this.runtimeEvidence.acceptWorkflowCheckpoint(cycle);
       }
       cycle = this.change(
@@ -3022,7 +3005,7 @@ export class WorkCycleService {
       return false;
     }
     if (await this.refreshIntegration(cycle, run)) return false;
-    await this.branches?.assertReview(tree, run);
+    await this.branches.assertReview(tree, run);
     return true;
   }
 
@@ -3560,7 +3543,7 @@ export class WorkCycleService {
     run: AgentRun,
   ): Promise<WorkCycle | undefined> {
     const git = this.git;
-    if (!git || !this.branches || run.role !== 'implement') return cycle;
+    if (!git || run.role !== 'implement') return cycle;
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     const repo =
       tree && this.storage.execution.sourceRepositories.find(cycle.workspaceId, tree.repositoryId);
@@ -3702,7 +3685,7 @@ export class WorkCycleService {
     launching: boolean,
   ): Promise<boolean> {
     const owner = refreshOwner(this.storage, cycle, launching);
-    if (!owner || !this.branches) return false;
+    if (!owner) return false;
     const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (
       !worktree ||
@@ -3886,7 +3869,7 @@ export class WorkCycleService {
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     const repository =
       tree && this.storage.execution.sourceRepositories.find(cycle.workspaceId, tree.repositoryId);
-    if (!tree || !repository || !this.branches || !this.git) throw new NotFoundError();
+    if (!tree || !repository || !this.git) throw new NotFoundError();
     const check = () => {
       const saved = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
       const user = this.storage.users.findById(actingFor);
@@ -3998,7 +3981,7 @@ export class WorkCycleService {
         throw new ExecutionRequestError('conflict', 'Inspect integration conflicts first');
       // Starting or resuming a resolution launches an agent: run the launch's own gates
       // before accepting it, so it cannot be accepted and then bounce (R-A7).
-      if (input.action !== 'abandon' && this.branches)
+      if (input.action !== 'abandon')
         await this.branches.validateResolutionCommand(tree, resolution);
       if (input.action === 'abandon') {
         if (!ownsIntegrationResolution(cycle))
@@ -4358,14 +4341,14 @@ export class WorkCycleService {
     let reviewHeadSha: string | undefined;
     if (collectingReview) {
       const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-      if (!tree || !parent.reviewBranchContext || !this.branches)
+      if (!tree || !parent.reviewBranchContext)
         throw new TypedRefusalError(
           'review-capture-failed',
           'Review continuation requires its original branch checkpoint.',
         );
       reviewHeadSha = (
         await reviewCapture(() =>
-          this.branches!.captureReviewContinuation(tree, parent.reviewBranchContext!),
+          this.branches.captureReviewContinuation(tree, parent.reviewBranchContext!),
         )
       ).context.headSha;
     } else if (step === 'review') reviewHeadSha = await this.cleanHead(cycle);
@@ -4477,7 +4460,7 @@ export class WorkCycleService {
   private async transitionGate(cycle: WorkCycle): Promise<void> {
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     // An owned integration resolution is gated by resolveIntegration itself.
-    if (tree?.status !== 'active' || !this.branches || !cycle.workItemId) return;
+    if (tree?.status !== 'active' || !cycle.workItemId) return;
     // Only a resume that relaunches the same step goes straight to launch; a finished
     // step first refreshes integration, which can bring the predecessors in.
     const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
@@ -4495,7 +4478,7 @@ export class WorkCycleService {
    */
   private async assertPinsRefreshed(cycle: WorkCycle): Promise<void> {
     const stop = cycle.status === 'paused' ? cycle.attention : effectiveCycleAttention(cycle);
-    if (stop?.code !== 'upstream-pin-moved' || !this.runtimeEvidence) return;
+    if (stop?.code !== 'upstream-pin-moved') return;
     const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
     if (!tree) return;
     const recorded = new Set((stop.refs?.pins ?? []).map((p) => p.alias));

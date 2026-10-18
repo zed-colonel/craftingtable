@@ -28,7 +28,7 @@ vi.mock('../../src/services/architecture-decision-policy.js', () => ({
         ]
       : [],
 }));
-vi.mock('../../src/services/cross-project-service.js', () => ({
+vi.mock('../../src/services/milestone-policy.js', () => ({
   milestoneSatisfied: (
     _tx: unknown,
     _ws: unknown,

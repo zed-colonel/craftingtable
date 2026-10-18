@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   EMITTED_EXPORTS,
   inspectWorkspace,
+  KNOWN_IMPORT_CYCLES,
   PROCESS_AUTHORITY,
   runCheck,
 } from './check-forbidden-scope.mjs';
@@ -636,6 +637,9 @@ describe('the fail-open gaps the independent review found', () => {
         capability('apps/server/src/self.ts', 'node:child_process'),
         capability('apps/server/src/cycle-a.ts', 'node:child_process'),
         'packages/planning/src/cycle-a.ts: planning package imports impure module "node:fs"',
+        // Rule 10 finds the daemon's two cycles; the planning package's is outside it.
+        'apps/server/src/cycle-a.ts: import cycle among 2 modules (apps/server/src/cycle-a.ts → apps/server/src/cycle-b.ts → apps/server/src/cycle-a.ts); move what they share into a module none of them imports back (R-B7)',
+        'apps/server/src/self.ts: import cycle among 1 module (apps/server/src/self.ts → apps/server/src/self.ts); move what they share into a module none of them imports back (R-B7)',
       ].sort(),
     );
   });
@@ -1102,6 +1106,81 @@ describe('domain, contracts and storage export only what another module takes (r
   });
 });
 
+describe("the daemon's modules import one another without cycles (rule 10, R-B7)", () => {
+  const cycle = (path, modules, round) =>
+    `${path}: import cycle among ${modules} modules (${round.join(' → ')}); move what they share into a module none of them imports back (R-B7)`;
+  const inspect = (files, known = []) => inspectWorkspace(workspace(files), EMITTED_EXPORTS, known);
+
+  it('finds a cycle through value imports, type-only imports and import() types, with a path round it', () => {
+    const typed = inspect({
+      'apps/server/src/index.ts': "import { a } from './a.js';\nexport const main = a;\n",
+      'apps/server/src/a.ts':
+        "import { b } from './b.js';\nexport const a = b + 1;\nexport type A = number;\n",
+      'apps/server/src/b.ts':
+        "import type { C } from './c.js';\nexport const b = 1;\nexport type B = C;\n",
+      'apps/server/src/c.ts': "export type C = import('./a.js').A;\n",
+    });
+    expect(exceptRule8(typed.findings)).toEqual([
+      cycle('apps/server/src/a.ts', 3, [
+        'apps/server/src/a.ts',
+        'apps/server/src/b.ts',
+        'apps/server/src/c.ts',
+        'apps/server/src/a.ts',
+      ]),
+    ]);
+  });
+
+  it('allows a listed cycle, and finds a listed cycle that no longer exists or has grown', () => {
+    const files = {
+      'apps/server/src/index.ts':
+        "import { a } from './a.js';\nimport { d } from './d.js';\nexport const main = a + d;\n",
+      'apps/server/src/a.ts':
+        "import type { B } from './b.js';\nexport const a = 1;\nexport type A = B;\n",
+      'apps/server/src/b.ts': "import { a } from './a.js';\nexport type B = typeof a;\n",
+      'apps/server/src/d.ts': 'export const d = 1;\n',
+    };
+    const pair = ['apps/server/src/b.ts', 'apps/server/src/a.ts'];
+    expect(exceptRule8(inspect(files, [pair]).findings)).toEqual([]);
+    const gone = ['apps/server/src/a.ts', 'apps/server/src/d.ts'];
+    expect(exceptRule8(inspect(files, [pair, gone]).findings)).toEqual([
+      'apps/server/src/a.ts: KNOWN_IMPORT_CYCLES lists apps/server/src/a.ts, apps/server/src/d.ts, which no longer form exactly one import cycle; update the list (R-B7)',
+    ]);
+    // A third module joins the listed pair's cycle: the set is no longer the one listed.
+    const grown = inspect(
+      {
+        ...files,
+        'apps/server/src/b.ts':
+          "import { a } from './a.js';\nimport { d } from './d.js';\nexport type B = typeof a;\nexport const e = d;\n",
+        'apps/server/src/d.ts':
+          "import type { B } from './b.js';\nexport const d = 1;\nexport type D = B;\n",
+      },
+      [pair],
+    );
+    expect(exceptRule8(grown.findings).sort()).toEqual(
+      [
+        cycle('apps/server/src/a.ts', 3, [
+          'apps/server/src/a.ts',
+          'apps/server/src/b.ts',
+          'apps/server/src/a.ts',
+        ]),
+        'apps/server/src/a.ts: KNOWN_IMPORT_CYCLES lists apps/server/src/a.ts, apps/server/src/b.ts, which no longer form exactly one import cycle; update the list (R-B7)',
+      ].sort(),
+    );
+  });
+
+  it("leaves the packages' cycles and the tests' imports alone", () => {
+    const { findings } = inspect({
+      'apps/server/src/index.ts': 'export const main = 1;\n',
+      'apps/server/test/a.test.ts':
+        "import { b } from './b.js';\nimport { it } from 'vitest';\nit('a', () => b);\nexport const a = 1;\n",
+      'apps/server/test/b.ts': "import { a } from './a.test.js';\nexport const b = a;\n",
+      'packages/agents/src/index.ts': "import { b } from './b.js';\nexport const a = b;\n",
+      'packages/agents/src/b.ts': "import { a } from './index.js';\nexport const b = () => a;\n",
+    });
+    expect(findings.filter((finding) => finding.includes('import cycle'))).toEqual([]);
+  });
+});
+
 it('passes on the real repository, having read and classified its modules', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   const { findings, classes, vocabulary } = inspectWorkspace(root);
@@ -1118,6 +1197,8 @@ it('passes on the real repository, having read and classified its modules', () =
   // Rule 8's exceptions name production modules: one for a moved module would pass vacuously.
   for (const path of EMITTED_EXPORTS.keys()) expect(classes.get(path)).toBe('production');
   expect(classes.get('apps/server/src/index.ts')).toBe('production');
+  // Rule 10's listed cycles name the daemon's production modules: a moved one would pass vacuously.
+  for (const path of KNOWN_IMPORT_CYCLES.flat()) expect(classes.get(path)).toBe('production');
   // Run by a package script, and imported by its own test.
   expect(classes.get('apps/server/src/db-verify.ts')).toBe('production');
   expect(classes.get('apps/web/src/test-setup.ts')).toBe('test');

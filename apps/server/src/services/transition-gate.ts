@@ -7,7 +7,7 @@ import type {
   WorkspaceId,
 } from '@craftingtable/domain';
 import type { StorageRepositories, WorkItemDependencySummary } from '@craftingtable/storage';
-import { scopeAllowsEarlyDevelopment } from './execution-scope.js';
+import { scopeAllowsEarlyDevelopment } from './scope-resolution.js';
 
 /**
  * The whole-item predecessor rule, in one place (R-A7, CTRL-12). Commands

@@ -44,12 +44,10 @@ import {
   type AgentBackendKind,
   type AgentBillingSource,
   type AgentExitReason,
-  type AgentPermissionMode,
   type AgentRun,
   type AgentRunEvent,
   type AgentRunEventPayload,
   type AgentRunId,
-  type AgentRunRole,
   type AgentRunStatus,
   type AgentRunVerdict,
   asAgentRunEventId,
@@ -58,7 +56,6 @@ import {
   asEventId,
   isTerminalAgentRunStatus,
   mapCapabilities,
-  modelSpelling,
   OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
   type ReviewReportAssessment,
@@ -70,7 +67,6 @@ import {
   type WorkspaceId,
   type Worktree,
   type WorktreeId,
-  OUTCOME_SUMMARY_LIMIT_BYTES,
   truncateUtf8Bytes,
   type RepositoryCheckDeclarationId,
 } from '@craftingtable/domain';
@@ -102,7 +98,6 @@ import {
   RUN_RECORDS,
   SUPPLIED_DIRECTORIES,
 } from './brief.js';
-import type { OutputContext } from './brief-output.js';
 import { collectDesignRecovery, readDesignRecoverySource } from './design-recovery.js';
 import {
   DaemonDrainingError,
@@ -151,54 +146,25 @@ import {
 } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
-import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
-
-export interface StartRunInput {
-  readonly backend?: AgentBackendKind;
-  readonly worktreeId: WorktreeId;
-  readonly role: AgentRunRole;
-  readonly permissionMode: AgentPermissionMode;
-  readonly model?: string;
-  readonly reasoningEffort?: AgentRun['reasoningEffort'];
-  /** Operator-authored instructions (a manual run's request, or the cycle's start text). */
-  readonly instructions?: string;
-  /** One-shot operator guidance for this run only. */
-  readonly stepGuidance?: string;
-  /** Controller-authored rules for an automated step; never presented as operator text. */
-  readonly controllerInstructions?: string;
-  /**
-   * What the controller's step adds to the run's final message, which the role's instructions
-   * state (`brief-output.ts`, AGT-54): the workflow block, a finalization stage's report.
-   */
-  readonly output?: Pick<OutputContext, 'workflow' | 'finalizationStage'>;
-  /** Controller records for this step, written into the run's plan directory and named in its brief. */
-  readonly records?: readonly {
-    readonly filename: string;
-    readonly content: string;
-    readonly about: string;
-  }[];
-  readonly parentRunId?: AgentRunId;
-}
-
-/** A question stop's investigation, as the cycle service launches it (R-C16). */
-export interface InvestigationLaunch {
-  readonly value: import('@craftingtable/domain').CycleInvestigation;
-  /** The run's `investigation/` context: the questions, the reports and the branch. */
-  readonly documents: readonly { readonly name: string; readonly content: string }[];
-  /** Refuses the launch once the cycle no longer holds this investigation. */
-  readonly check: () => void;
-}
+import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
+import {
+  CycleLaunchCancelledError,
+  DRAIN_INTERRUPTED_MESSAGE,
+  drainUntilExit,
+  type InvestigationLaunch,
+  LIVE_STATUSES,
+  type LiveRun,
+  misnamedModel,
+  type RunLog,
+  SHUTDOWN_GRACE_MS,
+  type StartRunInput,
+  summarise,
+} from './run/shared.js';
 
 export interface RunCommandResult {
   readonly run: AgentRun;
   readonly accepted: boolean;
 }
-
-export interface RunLog {
-  warn(message: string, detail?: Readonly<Record<string, unknown>>): void;
-}
-
-class CycleLaunchCancelledError extends Error {}
 
 /** A run's own directory beneath the agents' temporary root: random bytes, in hex (LIVE-31). */
 /** The part of an agent selection the model checks read (R-G15). */
@@ -235,31 +201,12 @@ function isRunTemporaryDirectory(root: string, name: string): boolean {
   }
 }
 
-interface LiveRun {
-  readonly workspaceId: WorkspaceId;
-  readonly runId: AgentRunId;
-  readonly session: AgentSession;
-  cancelRequested: boolean;
-  /** Why it was cancelled, recorded when its process exits (an investigation's End, R-C16). */
-  cancelMessage?: string;
-  /** Set when a restart drain terminates the session; it then ends `interrupted`. */
-  drainInterrupted?: boolean;
-  /** The consumer is blocked on the session's next item (see `quiesce`). */
-  awaitingItem?: boolean;
-  done: Promise<void>;
-}
-
-const LIVE_STATUSES: readonly AgentRunStatus[] = ['starting', 'running', 'waiting'];
 const PROCESS_IDENTITY_MAX_BYTES = 4096;
 /** How long restart recovery lets a surviving group end on SIGTERM before SIGKILL. */
 const RECOVERY_TERMINATION_GRACE_MS = 5000;
 /** Bytes, matching the wire contract and the storage CHECK. */
 /** A parent run's findings are reproduced in the brief up to this size. */
 const PARENT_MESSAGE_LIMIT_BYTES = 256 * 1024;
-/** The order roles occur in the development loop, for profile listings. */
-const SHUTDOWN_GRACE_MS = 10_000;
-const DRAIN_INTERRUPTED_MESSAGE =
-  'CraftingTable stopped for a restart while this run was live. A cycle step resumes its session automatically after a clean restart.';
 
 /**
  * Refuses a model the backend's catalog lists under another id: a display name, or another
@@ -291,23 +238,6 @@ async function firstCatalogLook(backend: AgentBackend): Promise<void> {
     }),
   ]);
   clearTimeout(timer);
-}
-
-/** What is wrong with a model the backend's catalog lists under another id, if it is. */
-function misnamedModel(backend: AgentBackend, model: string | undefined): string | undefined {
-  if (model === undefined) return undefined;
-  const { label, models } = backend.describe();
-  const spelling = modelSpelling(models, model);
-  if (spelling.kind !== 'misnamed') return undefined;
-  const what =
-    model.trim().toLowerCase() === spelling.label.toLowerCase()
-      ? 'the display name of'
-      : 'another spelling of';
-  return `${JSON.stringify(model)} is ${what} ${JSON.stringify(spelling.id)} in ${label}'s model list. Only the id can be sent.`;
-}
-
-function summarise(text: string): string {
-  return truncateUtf8Bytes(text, OUTCOME_SUMMARY_LIMIT_BYTES);
 }
 
 /**
@@ -567,7 +497,6 @@ export class AgentRunService {
    * be read (R-C17 part 2 and its L-4).
    */
   private async whereStopped(worktree: Worktree): Promise<StoppedWorktree> {
-    if (!this.branches) return { unreadable: 'Git is unavailable to the daemon.' };
     try {
       return await this.branches.uncommitted(worktree);
     } catch (error) {
@@ -647,11 +576,11 @@ export class AgentRunService {
     private readonly config: ExecutionConfig,
     private readonly log: RunLog = { warn: () => undefined },
     private readonly now: () => Date = () => new Date(),
-    private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
-    private readonly branches?: BranchService,
-    private readonly storageService?: StorageService,
-    private readonly runtimeEvidence?: RuntimeEvidenceService,
-    private readonly baselines?: BaselinePreparationService,
+    private readonly mutations: WorktreeMutationGuard,
+    private readonly branches: BranchService,
+    private readonly storageService: StorageService,
+    private readonly runtimeEvidence: RuntimeEvidenceService,
+    private readonly baselines: BaselinePreparationService,
   ) {}
 
   /**
@@ -980,7 +909,7 @@ export class AgentRunService {
   }
 
   isCleaningRun(worktreeId: WorktreeId): boolean {
-    return this.storageService?.isCleaningRun(worktreeId) ?? false;
+    return this.storageService.isCleaningRun(worktreeId);
   }
 
   async startForCycle(cycle: WorkCycle): Promise<AgentRun> {
@@ -1263,7 +1192,7 @@ export class AgentRunService {
               'The investigation reached its time limit. Review its partial output and start another if needed.',
           }
         : undefined;
-    await this.storageService?.waitForRunCleanup(input.worktreeId);
+    await this.storageService.waitForRunCleanup(input.worktreeId);
     const preparationTree = this.storage.roadmaps
       .list(workspaceId)
       .some((r) => r.decisionPreparations?.some((p) => p.worktreeId === input.worktreeId));
@@ -1413,12 +1342,12 @@ export class AgentRunService {
       let reviewArtifacts: readonly string[] | undefined;
       try {
         if (ownsIntegrationResolution(cycle) && cycle?.integrationResolution)
-          await this.branches?.validateResolutionLaunch(
+          await this.branches.validateResolutionLaunch(
             prepared.worktree,
             cycle.integrationResolution,
           );
         else if (input.role !== 'review' && !investigation)
-          await this.branches?.validateLaunch(prepared.worktree);
+          await this.branches.validateLaunch(prepared.worktree);
         // A provider retry continues an interrupted review. A review that finished, and is
         // retried because the provider refused an approval review during it (R-C11), starts
         // afresh like any other review.
@@ -1447,7 +1376,7 @@ export class AgentRunService {
             ended?.kind === 'run-finished' ? ended.payload : undefined,
             cycle?.providerRecovery,
           );
-          if (!baseline || !continuable || !this.branches)
+          if (!baseline || !continuable)
             throw new TypedRefusalError(
               'review-capture-failed',
               'Review continuation requires the interrupted review and its pinned branch context.',
@@ -1461,7 +1390,7 @@ export class AgentRunService {
         } else
           reviewBranchContext =
             input.role === 'review'
-              ? await this.branches?.captureReview(prepared.worktree)
+              ? await this.branches.captureReview(prepared.worktree)
               : undefined;
         if (cancelled)
           throw new ExecutionRequestError(
@@ -1501,7 +1430,7 @@ export class AgentRunService {
       starting.workspaceId = workspaceId;
       starting.runId = runId;
       this.startingLaunches.add(starting);
-      this.storageService?.requireSpace('runsRoot', prepared.worktree.path);
+      this.storageService.requireSpace('runsRoot', prepared.worktree.path);
       const runDirectory = join(this.config.runsRoot, runId);
       const temporaryDirectory = join(runDirectory, 'scratch');
       mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
@@ -1515,7 +1444,7 @@ export class AgentRunService {
       // A read-only investigation runs no commands: no pinned build environment or checks.
       const pinned = investigation
         ? undefined
-        : await this.runtimeEvidence?.prepare(
+        : await this.runtimeEvidence.prepare(
             prepared.worktree,
             runId,
             runDirectory,
@@ -1534,7 +1463,7 @@ export class AgentRunService {
       const checksOnly =
         investigation || pinned
           ? undefined
-          : this.runtimeEvidence?.prepareChecks(
+          : this.runtimeEvidence.prepareChecks(
               prepared.worktree,
               runId,
               runDirectory,
@@ -1554,7 +1483,7 @@ export class AgentRunService {
       const verifying = pinned ?? checksOnly;
       const historical =
         cycle?.baselinePreparation?.status === 'prepared'
-          ? await this.baselines?.materialize(cycle, runDirectory)
+          ? await this.baselines.materialize(cycle, runDirectory)
           : undefined;
       const planDirectory = join(runDirectory, 'plan');
       mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
@@ -1751,7 +1680,7 @@ export class AgentRunService {
         records.push({ path, about: RUN_RECORDS['craftingtable-scope-evidence.json'] });
       }
       const policyPlan = worktreePlan(this.storage, prepared.worktree);
-      if (policyPlan && this.branches) {
+      if (policyPlan) {
         const evidence = await this.branches.policyEvidence(workspaceId, policyPlan);
         if (
           evidence.policy &&
@@ -2071,7 +2000,7 @@ export class AgentRunService {
             'Dependency generation changed during run preparation.',
           );
         if (pinned)
-          this.runtimeEvidence?.assertPrepared(
+          this.runtimeEvidence.assertPrepared(
             prepared.worktree,
             pinned.runtimeId,
             pinned.architectureDecisionDigest,
@@ -2108,7 +2037,7 @@ export class AgentRunService {
       this.notifier.notify();
 
       try {
-        this.storageService?.registerRun(run.id, runDirectory);
+        this.storageService.registerRun(run.id, runDirectory);
       } catch (error) {
         this.finalize(workspaceId, runId, 'failed', { message: 'Could not register run storage.' });
         throw error;
@@ -3410,7 +3339,7 @@ export class AgentRunService {
         if (before === undefined || isTerminalAgentRunStatus(before.status)) {
           return false;
         }
-        this.runtimeEvidence?.freezeRun(tx, workspaceId, runId, this.checks?.inFlight(runId));
+        this.runtimeEvidence.freezeRun(tx, workspaceId, runId, this.checks?.inFlight(runId));
         const after = tx.execution.runs.transition({
           workspaceId,
           runId,
@@ -3483,10 +3412,10 @@ export class AgentRunService {
         .catch((error) =>
           this.log.warn('Protected-ref check failed', { runId, error: String(error) }),
         )
-        .then(() => this.runtimeEvidence?.cleanupRun(workspaceId, runId))
+        .then(() => this.runtimeEvidence.cleanupRun(workspaceId, runId))
         .then(() =>
           run && status !== 'interrupted'
-            ? this.storageService?.cleanupAfterRun(run.worktreeId)
+            ? this.storageService.cleanupAfterRun(run.worktreeId)
             : undefined,
         )
         .catch((error) => this.log.warn('Run cleanup failed', { runId, error: String(error) }))
@@ -3531,16 +3460,6 @@ export class AgentRunService {
  * without one, the backend's SIGTERM-then-SIGKILL escalation is given time to
  * finish before the worktree is released.
  */
-async function drainUntilExit(items: AsyncIterator<AgentSessionItem>): Promise<void> {
-  try {
-    for (let next = await items.next(); next.done !== true; next = await items.next())
-      if (next.value.type === 'exited') return;
-  } catch {
-    // The backend stream failed; fall through to the grace period.
-  }
-  await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS));
-}
-
 /**
  * What the daemon records of a run's agent process group (R-G11): who the group is, whose run
  * it is, and which installation wrote it (the database file's device and inode).

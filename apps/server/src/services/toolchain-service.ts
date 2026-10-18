@@ -6,7 +6,7 @@ import {
   type ToolObservation,
 } from '@craftingtable/agents';
 import type { ToolchainTool, ToolProblemCode } from '@craftingtable/domain';
-import type { RunLog } from './agent-run-service.js';
+import type { RunLog } from './run/shared.js';
 
 /** How many changes Tools keeps per tool. */
 const CHANGES_KEPT = 20;

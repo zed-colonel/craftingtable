@@ -2,7 +2,7 @@ import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
 import { scopeArchitectureDecisions } from './architecture-decision-policy.js';
 import { bindingIssues } from './map-binding-policy.js';
 export { bindingIssues } from './map-binding-policy.js';
-import { mapReadSnapshot, snapshotCalculation } from './map-read-snapshot.js';
+import { mapReadSnapshot } from './map-read-snapshot.js';
 import { integratedSlice } from './scope-lineage.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -20,7 +20,6 @@ import {
   type EvidenceDecision,
   type ExecutionScope,
   type WorkItemId,
-  type ConcurrencyDefinition,
   type MapActivity,
   type MapActivitySettings,
   type RoadmapEntry,
@@ -45,12 +44,13 @@ import { carryPlanAcceptance } from './generated-plan-evidence.js';
 import {
   acceptedEvidence,
   activeRuntime,
-  currentScopeReceipt,
-  parentAccepted,
   type ReceiptStaleReason,
   receiptStaleness,
 } from './runtime-evidence-policy.js';
 import { scopePhaseBlockers } from './execution-scope.js';
+import { milestoneMet, milestoneSatisfied } from './milestone-policy.js';
+
+export { milestoneMemoKey, milestoneSatisfied } from './milestone-policy.js';
 function conflict(m: string): never {
   throw new ExecutionRequestError('conflict', m);
 }
@@ -58,83 +58,6 @@ export type MapSelection = Pick<
   CrossProjectConfiguration,
   'definitionId' | 'bindingRevision' | 'targetId' | 'selection'
 >;
-export function milestoneSatisfied(
-  tx: StorageRepositories,
-  ws: WorkspaceId,
-  d: ConcurrencyDefinition,
-  revision: number,
-  r: ConcurrencyRequirement,
-): boolean {
-  // Asked once per read snapshot: the map evaluation and each entry's completion in a roadmap
-  // read ask for the same milestones (R-D8).
-  return snapshotCalculation(tx, milestoneMemoKey(ws, d, revision, r), () =>
-    milestoneMet(tx, ws, d, revision, r),
-  );
-}
-/** The memo key of `milestoneSatisfied`: the definition, revision and requirement (R-D8). */
-export function milestoneMemoKey(
-  ws: WorkspaceId,
-  d: Pick<ConcurrencyDefinition, 'id' | 'digest'>,
-  revision: number,
-  r: Pick<ConcurrencyRequirement, 'kind' | 'id' | 'state'>,
-): string {
-  return JSON.stringify([
-    'milestone-satisfied',
-    ws,
-    d.id,
-    d.digest,
-    revision,
-    r.kind,
-    r.id,
-    r.state,
-  ]);
-}
-function milestoneMet(
-  tx: StorageRepositories,
-  ws: WorkspaceId,
-  d: ConcurrencyDefinition,
-  revision: number,
-  r: ConcurrencyRequirement,
-): boolean {
-  if (r.kind === 'checkpoint')
-    return !!acceptedEvidence(tx, ws, d.id, revision, { kind: 'checkpoint', sourceId: r.id });
-  const b = tx.imports.bindings(ws, d.id).find((b) => b.revision === revision);
-  const parent =
-    r.kind === 'work_item' ? r.id : d.source.slices.find((s) => s.id === r.id)?.work_item;
-  const id = b?.bindings.flatMap((b) => b.workItems).find((w) => w.sourceId === parent)?.workItemId;
-  if (!id) return false;
-  if (r.kind === 'work_item') return parentAccepted(tx, ws, d.id, revision, r.id);
-  const scope = {
-    kind: 'slice' as const,
-    definitionId: d.id,
-    bindingRevision: revision,
-    sourceId: r.id,
-  };
-  const trees = tx.execution.worktrees
-    .listForWorkItem(ws, id)
-    .filter((t) => sameExecutionScope(t.executionScope, scope));
-  const integrated = integratedSlice(tx, ws, id, scope);
-  if (r.state === 'started')
-    return (
-      !!integrated ||
-      tx.execution.runs.startedIn(
-        ws,
-        trees.map((t) => t.id),
-      )
-    );
-  if (r.state === 'merged') return !!integrated?.mergeSha;
-  return (
-    !!acceptedEvidence(tx, ws, d.id, revision, { kind: 'slice', sourceId: r.id }) ||
-    tx.scopeReceipts
-      .list(ws, id)
-      .some(
-        (p) =>
-          sameExecutionScope(p.scope, scope) &&
-          currentScopeReceipt(tx, ws, p) &&
-          integrated?.mergeSha === p.integrationSha,
-      )
-  );
-}
 /**
  * Why a review entry's evidence is not current, typed (R-C10's follow-up, decision 4), read as
  * `milestoneMet` reads it: the latest receipt's own reasons (`receiptStaleness`), and the

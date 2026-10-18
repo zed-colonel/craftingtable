@@ -1,6 +1,6 @@
 import type { AgentBackend } from '@craftingtable/agents';
 import type { AgentBackendKind } from '@craftingtable/domain';
-import type { RunLog } from './agent-run-service.js';
+import type { RunLog } from './run/shared.js';
 
 /** How often the daemon reads each CLI's model catalog again (R-G15): about hourly. */
 export const MODEL_CATALOG_REFRESH_MS = 60 * 60 * 1000;

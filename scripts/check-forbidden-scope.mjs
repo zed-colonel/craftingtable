@@ -75,6 +75,14 @@
  *    read them unparsed. Like rule 7 it guards
  *    against a mistake, not evasion: a member it cannot name (a computed key, `Reflect.get`)
  *    passes, and the self-test pins that.
+ * 10. The daemon's modules import one another without cycles (R-B7, CTRL-13): no production
+ *    module of `apps/server/src` reaches itself through what it imports, a type-only import
+ *    (`import type`, an `import('…')` type) included, since a type cycle still ties the modules
+ *    together. A finding names the cycle's modules and one path round it. The cycles still
+ *    allowed are listed by their modules (`KNOWN_IMPORT_CYCLES`): R-B7's scheduler half removes
+ *    the last, `roadmap-service` and `cross-project-service`. A listed cycle whose modules no
+ *    longer form exactly one cycle is a finding too, so the list only shrinks (the self-test
+ *    holds that every listed module exists). The packages' own cycles are outside it.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -186,6 +194,19 @@ export const PLANNING_FORBIDDEN_PATTERNS = [
   /^better-sqlite3$/,
   /^@craftingtable\/(storage|server|web|agents|git)$/,
 ];
+/** Where rule 10 applies: the daemon's modules (R-B7). */
+const CYCLE_FREE_SOURCES = 'apps/server/src/';
+/**
+ * The import cycles rule 10 still allows, each by its modules (R-B7): the scheduler half moves
+ * what `roadmap-service` and `cross-project-service` share into policy modules, and removes this.
+ */
+export const KNOWN_IMPORT_CYCLES = [
+  [
+    'apps/server/src/services/cross-project-service.ts',
+    'apps/server/src/services/roadmap-service.ts',
+  ],
+];
+
 /** The packages whose modules planning may import (ADR-012). */
 const PLANNING_MAY_IMPORT = new Set(['packages/planning', 'packages/domain', 'packages/contracts']);
 
@@ -1635,6 +1656,113 @@ function buildFindings(root, modules, classified, built) {
   return findings;
 }
 
+/**
+ * Rule 10: the strongly connected sets of the daemon's import graph (Tarjan's algorithm, without
+ * recursion), each a finding with one path round it, unless `known` lists exactly its modules.
+ */
+function cycleFindings(root, modules, production, known) {
+  const name = (file) => posix(relative(root, file));
+  const nodes = [...production]
+    .filter((file) => modules.has(file) && name(file).startsWith(CYCLE_FREE_SOURCES))
+    .sort();
+  const inGraph = new Set(nodes);
+  const edges = new Map(
+    nodes.map((file) => [
+      file,
+      [...modules.get(file).imports].filter((t) => inGraph.has(t)).sort(),
+    ]),
+  );
+  const index = new Map();
+  const low = new Map();
+  const stack = [];
+  const onStack = new Set();
+  const sets = [];
+  let next = 0;
+  for (const start of nodes) {
+    if (index.has(start)) continue;
+    const work = [[start, 0]];
+    index.set(start, next);
+    low.set(start, next++);
+    stack.push(start);
+    onStack.add(start);
+    while (work.length > 0) {
+      const frame = work[work.length - 1];
+      const [node, at] = frame;
+      const targets = edges.get(node);
+      if (at < targets.length) {
+        frame[1] += 1;
+        const target = targets[at];
+        if (!index.has(target)) {
+          index.set(target, next);
+          low.set(target, next++);
+          stack.push(target);
+          onStack.add(target);
+          work.push([target, 0]);
+        } else if (onStack.has(target)) low.set(node, Math.min(low.get(node), index.get(target)));
+        continue;
+      }
+      work.pop();
+      if (work.length > 0) {
+        const parent = work[work.length - 1][0];
+        low.set(parent, Math.min(low.get(parent), low.get(node)));
+      }
+      if (low.get(node) !== index.get(node)) continue;
+      const set = [];
+      for (;;) {
+        const member = stack.pop();
+        onStack.delete(member);
+        set.push(member);
+        if (member === node) break;
+      }
+      if (set.length > 1 || edges.get(node).includes(node)) sets.push(set.sort());
+    }
+  }
+  /** The shortest path from a set's first module back to it, through the set. */
+  const round = (set) => {
+    const members = new Set(set);
+    const from = new Map([[set[0], undefined]]);
+    const queue = [set[0]];
+    while (queue.length > 0) {
+      const node = queue.shift();
+      for (const target of edges.get(node)) {
+        if (!members.has(target)) continue;
+        if (target === set[0]) {
+          const path = [node];
+          while (from.get(path[0]) !== undefined) path.unshift(from.get(path[0]));
+          return [...path, set[0]].map(name);
+        }
+        if (!from.has(target)) {
+          from.set(target, node);
+          queue.push(target);
+        }
+      }
+    }
+    return set.map(name);
+  };
+  const listed = new Set(known.map((modules) => [...modules].sort().join('\n')));
+  const found = new Set();
+  const findings = [];
+  for (const set of sets) {
+    const key = set.map(name).join('\n');
+    found.add(key);
+    if (listed.has(key)) continue;
+    findings.push(
+      `${name(set[0])}: import cycle among ${set.length} module${set.length === 1 ? '' : 's'} (${round(set).join(' → ')}); move what they share into a module none of them imports back (R-B7)`,
+    );
+  }
+  // A listing whose modules this workspace does not have is another workspace's (the self-test's
+  // throwaway ones); the real repository's test holds that every listed module exists.
+  const present = new Set(nodes.map(name));
+  for (const modules of known) {
+    const key = [...modules].sort().join('\n');
+    if (!found.has(key) && modules.every((module) => present.has(module)))
+      findings.push(
+        `${[...modules].sort()[0]}: KNOWN_IMPORT_CYCLES lists ${[...modules].sort().join(', ')}, which no longer form exactly one import cycle; update the list (R-B7)`,
+      );
+  }
+  return findings;
+}
+
 /** The workspace package (`packages/storage`) or top-level directory a path is in. */
 function placeOf(root, path) {
   const [group, name] = posix(relative(root, path)).split('/');
@@ -1857,7 +1985,11 @@ function exportFindings(root, exported, consumed, reexported, production, except
  * read, so tests can see what was read. Rule 8 keeps the `exceptions` given (by default,
  * `EMITTED_EXPORTS`).
  */
-export function inspectWorkspace(root, exceptions = EMITTED_EXPORTS) {
+export function inspectWorkspace(
+  root,
+  exceptions = EMITTED_EXPORTS,
+  knownCycles = KNOWN_IMPORT_CYCLES,
+) {
   const absoluteRoot = realpathSync(resolve(root));
   const findings = manifestFindings(absoluteRoot);
   const { projects, modules, tests, exported, consumed, reexported } = readWorkspace(absoluteRoot);
@@ -1874,6 +2006,7 @@ export function inspectWorkspace(root, exceptions = EMITTED_EXPORTS) {
       exceptions,
     ),
   );
+  findings.push(...cycleFindings(absoluteRoot, modules, classified.production, knownCycles));
   // Rule 7 reads the vocabulary where it is declared; a workspace without the module has none.
   const vocabularyModule = [...modules.values()].find(
     (module) => posix(relative(absoluteRoot, module.file)) === MAP_VOCABULARY_MODULE,
@@ -1924,6 +2057,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules but the ${KNOWN_IMPORT_CYCLES.length} listed, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
   );
 }

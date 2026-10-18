@@ -39,6 +39,29 @@
   },
   "overrides": [
     {
+      // The non-null rule, file by file as R-B7 converts them (operator decision 6, 2026-10-17):
+      // a production `!` that is wrong surfaces as an anonymous TypeError far from its cause, so
+      // these files use `required` (packages/domain/src/invariant.ts), which names what was absent.
+      // The scheduler half converts the rest and turns the rule on everywhere, removing this list.
+      "includes": [
+        "packages/domain/src/invariant.ts",
+        "apps/server/src/services/agent-run-service.ts",
+        "apps/server/src/services/run/**",
+        "apps/server/src/services/cycle-facts.ts",
+        "apps/server/src/services/cycle-machine.ts",
+        "apps/server/src/services/cycle-effects.ts",
+        "apps/server/src/services/cycle-commands.ts",
+        "apps/server/src/services/cycle-transitions.ts",
+        "apps/server/src/services/step-outcome.ts",
+        "apps/server/src/services/cycle-attention-policy.ts",
+        "apps/server/src/services/scope-resolution.ts",
+        "apps/server/src/services/milestone-policy.ts",
+        "apps/server/src/services/authority-policy.ts",
+        "apps/server/src/services/command-bounds.ts"
+      ],
+      "linter": { "rules": { "style": { "noNonNullAssertion": "error" } } }
+    },
+    {
       // Every spec takes `test` and `expect` from e2e/support.ts, whose fixture fails it on browser
       // errors (TS-M15). Only names that carry no fixture may come from Playwright directly; a
       // namespace or default import is refused too.

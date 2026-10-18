@@ -44,3 +44,4 @@ export * from './repository-checks.js';
 export * from './upstream-transitions.js';
 export * from './protected-refs.js';
 export * from './map-capabilities.js';
+export * from './invariant.js';

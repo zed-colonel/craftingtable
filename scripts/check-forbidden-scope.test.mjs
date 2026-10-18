@@ -1280,6 +1280,70 @@ describe('the cycle core reaches no service and no file or process access (rule 
     );
     expect(coreFindings(findings)).toEqual([]);
   });
+
+  // Increment 5 review, LOW-1: a declaration that imports a value beside its types is followed.
+  it('follows a mixed import, a default beside types, a mixed re-export and an import require', () => {
+    const { findings } = inspectWorkspace(
+      workspace({
+        'apps/server/src/index.ts':
+          "import { decide } from './services/cycle/core/machine.js';\nexport const main = decide;\n",
+        [`${core}/machine.ts`]: [
+          "import { type Kind, read } from '../../journal.js';",
+          "import load, { type Loaded } from '../../loader.js';",
+          "export { type Emitted, emit } from '../../emitter.js';",
+          "import legacy = require('../../legacy.js');",
+          'export const decide = (k: Kind, l: Loaded) => [k, l, read(), load(), legacy];',
+          '',
+        ].join('\n'),
+        'apps/server/src/services/journal.ts':
+          "import { readFileSync } from 'node:fs';\nexport type Kind = string;\nexport const read = () => readFileSync('x', 'utf8');\n",
+        'apps/server/src/services/loader.ts':
+          "import { readFile } from 'node:fs/promises';\nexport type Loaded = string;\nexport default () => readFile('x', 'utf8');\n",
+        'apps/server/src/services/emitter.ts':
+          "import { writeFileSync } from 'node:fs';\nexport type Emitted = boolean;\nexport const emit = () => writeFileSync('x', 'y');\n",
+        'apps/server/src/services/legacy.ts':
+          "import { spawn } from 'node:child_process';\nexport const run = () => String(spawn);\n",
+      }),
+      EMITTED_EXPORTS,
+      [],
+    );
+    const via = (file) => [`${core}/machine.ts`, `apps/server/src/services/${file}`];
+    expect(coreFindings(findings).sort()).toEqual(
+      [
+        reaches('apps/server/src/services/journal.ts', via('journal.ts'), 'node:fs'),
+        reaches('apps/server/src/services/loader.ts', via('loader.ts'), 'node:fs/promises'),
+        reaches('apps/server/src/services/emitter.ts', via('emitter.ts'), 'node:fs'),
+        reaches('apps/server/src/services/legacy.ts', via('legacy.ts'), 'node:child_process'),
+      ].sort(),
+    );
+  });
+
+  // Increment 5 review, NIT-1: the path named is the shortest from the core.
+  it('names the shortest path from the core', () => {
+    const { findings } = inspectWorkspace(
+      workspace({
+        'apps/server/src/index.ts':
+          "import { decide } from './services/cycle/core/machine.js';\nexport const main = decide;\n",
+        [`${core}/machine.ts`]:
+          "import { far } from '../../far.js';\nimport { read } from '../../journal.js';\nexport const decide = () => far() + read();\n",
+        'apps/server/src/services/far.ts':
+          "import { near } from './near.js';\nexport const far = () => near();\n",
+        'apps/server/src/services/near.ts':
+          "import { read } from './journal.js';\nexport const near = () => read();\n",
+        'apps/server/src/services/journal.ts':
+          "import { readFileSync } from 'node:fs';\nexport const read = () => readFileSync('x', 'utf8');\n",
+      }),
+      EMITTED_EXPORTS,
+      [],
+    );
+    expect(coreFindings(findings)).toEqual([
+      reaches(
+        'apps/server/src/services/journal.ts',
+        [`${core}/machine.ts`, 'apps/server/src/services/journal.ts'],
+        'node:fs',
+      ),
+    ]);
+  });
 });
 
 it('passes on the real repository, having read and classified its modules', () => {

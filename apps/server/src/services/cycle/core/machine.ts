@@ -160,7 +160,7 @@ export type CycleDecision = CycleDecisionBody & { readonly guard: CycleGuard };
 
 /**
  * The stops the guards write themselves; the step outcome's are `STEP_ATTENTION_CODES` and the
- * effects' are their sub-decisions' (`cycle-effects.ts`). The item gate's and the finalization's
+ * effects' are their sub-decisions' (`effect-decisions.ts`). The item gate's and the finalization's
  * refusals are typed (R-B4, decision 3), so no guard writes `controller-error`.
  */
 export const GUARD_CODES: readonly CycleAttentionCode[] = [

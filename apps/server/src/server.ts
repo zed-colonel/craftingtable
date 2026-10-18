@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import cookie from '@fastify/cookie';
 import { type FastifyInstance, type FastifyRequest, fastify } from 'fastify';
+import { InvariantError } from '@craftingtable/domain';
 import type { ServerConfig } from './config.js';
 import { registerAgentRunRoutes } from './routes/agent-runs.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -311,7 +312,14 @@ export function buildServer(
       }
     }
     request.log.error(
-      { err: { name: error instanceof Error ? error.name : 'Error' } },
+      {
+        err: {
+          name: error instanceof Error ? error.name : 'Error',
+          // What a broken invariant found absent (R-B7 increment 4 review, LOW-1): the text is the
+          // code's own, never the request's.
+          ...(error instanceof InvariantError ? { message: error.message } : {}),
+        },
+      },
       'request failed',
     );
     return sendApiError(reply, 500, 'internal-error', 'Internal server error');

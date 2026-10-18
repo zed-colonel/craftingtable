@@ -31,7 +31,9 @@ to in one table (`V03_VOCABULARY`, `packages/domain/src/map-capabilities.ts`), a
 to the declaration (a short map names the types declaration emit needs). It also holds that
 the daemon's modules import one another without cycles, type-only imports included: what two
 services share goes into a module neither imports back (R-B7; `KNOWN_IMPORT_CYCLES` lists the one
-pair its scheduler half removes). No package depends
+pair its scheduler half removes). And it holds that the cycle's decision core
+(`apps/server/src/services/cycle/core/`) reaches, by value imports, no service and no file or
+process access: the core decides and the services act (R-B7). No package depends
 on ActionQueue, WorldInterface, Exoskeleton, or any other supervised project. The check reads
 what the TypeScript projects compile, through the compiler: tests are what `vitest.config.ts`
 runs, test support is what only tests import, and everything else is production, whatever its
@@ -192,7 +194,7 @@ and step time are bounded. Standalone cycles stop for merge approval; a roadmap 
 integration merges (ADR-025).
 
 `WorkCycleService.reconcile` decides what a step's outcome means in one pure function,
-`decideStepOutcome` (`services/step-outcome.ts`), over facts gathered from one cycle and run.
+`decideStepOutcome` (`services/cycle/core/step-outcome.ts`), over facts gathered from one cycle and run.
 `replayStepOutcomes` runs the same gatherer and decision over any database snapshot, so
 controller refactors are checked against recorded decisions (`pnpm controller:replay`, and a
 golden test over scenario snapshots); `controller:replay --scheduler` does the same for one

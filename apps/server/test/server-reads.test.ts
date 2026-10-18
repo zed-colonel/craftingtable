@@ -23,6 +23,7 @@ import {
   asWorkspaceId,
   asWorktreeId,
   DEFAULT_COMPLETION_POLICY,
+  InvariantError,
   type WorkCycle,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -388,6 +389,33 @@ describe('work item view (R-D5, PERF-14)', () => {
     expect(
       workItemViewSchema.parse((await f.get(`${base}/work-items/${item}/view`)).json()).unavailable,
     ).toBeUndefined();
+  });
+
+  it('logs what a broken invariant found absent, and of any other failure only its name (R-B7 increment 4 review)', async () => {
+    const log: string[] = [];
+    const f = await fixture({
+      env: { CRAFTINGTABLE_LOG_LEVEL: 'error' },
+      loggerStream: { write: (line) => log.push(line) },
+    });
+    const profiles = vi.spyOn(f.context.services.agentRunService, 'listRunProfiles');
+    const failed = async (error: Error) => {
+      profiles.mockImplementationOnce(() => {
+        throw error;
+      });
+      const response = await f.get(`/api/workspaces/${f.workspaceId}/run-profiles`);
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toMatchObject({ error: { message: 'Internal server error' } });
+      return log
+        .map((line) => JSON.parse(line))
+        .filter((entry) => entry.msg === 'request failed')
+        .at(-1)?.err;
+    };
+    expect(await failed(new InvariantError("the cycle's work item"))).toMatchObject({
+      name: 'InvariantError',
+      message: "Invariant failed: the cycle's work item",
+    });
+    // Another error's message may carry a request's data: it stays out of the log, as before.
+    expect(await failed(new TypeError('reading a secret'))).toEqual({ name: 'TypeError' });
   });
 
   it("closes a mergeable gate whose reviewed branches moved, and leaves a merge's recovery open (R-D5 review)", async () => {

@@ -1227,6 +1227,8 @@ per roadmap, test-first, before any cross-project roadmap is started beside a se
 question then open, whether Re-verify should take the in-place route at the record-scope-evidence gate
 (R-C10, follow-up 2), was decided later the same day: it does, and it is built with R-C17's parts 1 to 3.
 
+**Deployed and decided, 2026-10-18.** R-C17's parts 1 to 3 were deployed 2026-10-17 at 62bf204 (migration 0045); R-B7's cycle half and R-C17's follow-ups 2026-10-18 at 5f42f45 (migration 0046; its one-time removal found one orphan run directory). The operator decided R-B7's three items for the operator: the replays pin the host's identity, as R-B4b's first step; the controller pass's log goes to R-B5; a run cut off after a completed turn gets its cut-off record in R-C17's part 4. The order above is unchanged: R-B4b is next.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

@@ -6,7 +6,15 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!pnpm-lock.yaml", "!packages/planning/golden"]
+    // Recorded files a test writes and compares byte for byte: the planning goldens and the
+    // launch characterization's record (R-B7).
+    "includes": [
+      "**",
+      "!**/dist",
+      "!pnpm-lock.yaml",
+      "!packages/planning/golden",
+      "!fixtures/launch-characterization.json"
+    ]
   },
   "formatter": {
     "enabled": true,

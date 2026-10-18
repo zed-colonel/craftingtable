@@ -8,11 +8,11 @@ import {
   type WorkCycle,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
-import { mapReadSnapshot } from './map-read-snapshot.js';
-import { attemptDelegation } from './roadmap-delegation-policy.js';
-import { scopeMergeWait, scopeReviewWait } from './scope-repair.js';
-import { automatedScopeRecoveryWait, roadmapCarriesRound } from './scope-recovery-policy.js';
-import { cycleOwnership } from './cycle-ownership.js';
+import { mapReadSnapshot } from '../../map-read-snapshot.js';
+import { attemptDelegation } from '../../roadmap-delegation-policy.js';
+import { scopeMergeWait, scopeReviewWait } from '../../scope-repair.js';
+import { automatedScopeRecoveryWait, roadmapCarriesRound } from '../../scope-recovery-policy.js';
+import { cycleOwnership } from '../../cycle-ownership.js';
 
 /**
  * The attention a stopped cycle declares right now (R-A3, NOTIF-02).

@@ -82,7 +82,7 @@ import type { CommandContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
 import { prioritizeRoadmapCycles } from './cycle-priority.js';
-import { currentCycleAttention } from './cycle-attention-policy.js';
+import { currentCycleAttention } from './cycle/core/attention-policy.js';
 import { collectDesignRecovery } from './design-recovery.js';
 import {
   investigationDocuments,
@@ -109,7 +109,7 @@ import { finalizationForCycle } from './finalization-policy.js';
 import { assessStageReport, recordStageEvidence } from './finalization-stage-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { cycleOwnership } from './cycle-ownership.js';
-import { cycleFacts, type KernelFacts, refreshOwner, requireReady } from './cycle-facts.js';
+import { cycleFacts, type KernelFacts, refreshOwner, requireReady } from './cycle/core/facts.js';
 import {
   type CommandFacts,
   type CommandRefusal,
@@ -127,10 +127,19 @@ import {
   restoredStatus,
   resumeAdopts,
   resumeAtRoundLimit,
-} from './cycle-commands.js';
+} from './cycle/core/commands.js';
 import { reviewCapture } from './review-capture.js';
-import { type CycleChanges, type CycleFieldChanges, checkTransition } from './cycle-transitions.js';
-import { type CycleDecision, type CycleEffect, type CycleGuard, decide } from './cycle-machine.js';
+import {
+  type CycleChanges,
+  type CycleFieldChanges,
+  checkTransition,
+} from './cycle/core/transitions.js';
+import {
+  type CycleDecision,
+  type CycleEffect,
+  type CycleGuard,
+  decide,
+} from './cycle/core/machine.js';
 import {
   approvalGate,
   commitFailure,
@@ -165,10 +174,10 @@ import {
   turnTakesGrant,
   workflowAuthorityStop,
   workflowHeldGate,
-} from './cycle-effects.js';
+} from './cycle/core/effect-decisions.js';
 import { drainInterrupted } from './restart-resume.js';
-import { continuesLineage, latestReviewReport } from './run-handoff.js';
-import type { StepOutcomeDecision } from './step-outcome.js';
+import { continuesLineage, latestReviewReport } from './run-lineage.js';
+import type { StepOutcomeDecision } from './cycle/core/step-outcome.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
 import { collectScopeRepair, scopeMergeWait, scopeReviewWait } from './scope-repair.js';

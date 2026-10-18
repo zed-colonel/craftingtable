@@ -3,7 +3,7 @@ import { workCycleResponseSchema } from '@craftingtable/contracts';
 import type { ExecutionScope, WorkCycle } from '@craftingtable/domain';
 import { afterEach, expect } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
-import { latestReviewReport } from '../src/services/run-handoff.js';
+import { latestReviewReport } from '../src/services/run-lineage.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */

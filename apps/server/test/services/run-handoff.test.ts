@@ -1,6 +1,6 @@
 import { type AgentRun, asAgentRunId, type WorkCycle } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
-import { continuesLineage } from '../../src/services/run-handoff.js';
+import { continuesLineage } from '../../src/services/run-lineage.js';
 
 /**
  * Whether a newer run continues a cycle's handoff lineage, so a resume may adopt it (R-B4,

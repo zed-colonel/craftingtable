@@ -1,7 +1,7 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { latestReviewReport } from '../src/services/run-handoff.js';
+import { latestReviewReport } from '../src/services/run-lineage.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */

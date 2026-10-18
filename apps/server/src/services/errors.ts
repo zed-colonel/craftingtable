@@ -316,3 +316,34 @@ export class DeclaredChecksMissingError extends ExecutionRequestError {
     this.name = 'DeclaredChecksMissingError';
   }
 }
+
+/**
+ * An integration update that conflicts (R-B7: here, beside the other refusals, so the cycle core
+ * reads it without importing the branch service).
+ */
+export class IntegrationUpdateConflict extends ExecutionRequestError {
+  constructor(
+    readonly details: {
+      headSha: string;
+      targetSha: string;
+      targetBranch: string;
+      paths: readonly string[];
+      diagnostics: string;
+    },
+  ) {
+    super(
+      'conflict',
+      `Updating from ${details.targetBranch} conflicts in ${details.paths.length} files. Resolve integration conflicts from the automated cycle.`,
+    );
+  }
+}
+
+/** Another merge or repository mutation holds the repository; the controller retries (GIT-11). */
+export class RepositoryMutationBusyError extends ExecutionRequestError {
+  constructor() {
+    super(
+      'conflict',
+      'Another merge or repository mutation is in progress; retry after it finishes',
+    );
+  }
+}

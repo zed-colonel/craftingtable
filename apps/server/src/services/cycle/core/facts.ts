@@ -1,4 +1,4 @@
-import { activeEditor } from './authority-policy.js';
+import { activeEditor } from '../../authority-policy.js';
 import {
   type AgentRun,
   type AgentRunEvent,
@@ -13,24 +13,24 @@ import {
   type Worktree,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
-import type { CommandContext } from './auth-service.js';
-import { type CycleOwnership, cycleOwnership } from './cycle-ownership.js';
-import { designDependencyState } from './design-dependency-policy.js';
-import { type Readiness, readinessOf } from './cycle-effects.js';
-import { TypedRefusalError } from './errors.js';
-import { requireScope, scopePhaseBlockers } from './execution-scope.js';
-import { finalizationForCycle } from './finalization-policy.js';
-import { mapReadSnapshot } from './map-read-snapshot.js';
-import { attemptDelegation } from './roadmap-delegation-policy.js';
-import { roadmapCarriesRound } from './scope-recovery-policy.js';
+import type { CommandContext } from '../../auth-service.js';
+import { type CycleOwnership, cycleOwnership } from '../../cycle-ownership.js';
+import { designDependencyState } from '../../design-dependency-policy.js';
+import { type Readiness, readinessOf } from './effect-decisions.js';
+import { TypedRefusalError } from '../../errors.js';
+import { requireScope, scopePhaseBlockers } from '../../execution-scope.js';
+import { finalizationForCycle } from '../../finalization-policy.js';
+import { mapReadSnapshot } from '../../map-read-snapshot.js';
+import { attemptDelegation } from '../../roadmap-delegation-policy.js';
+import { roadmapCarriesRound } from '../../scope-recovery-policy.js';
 import { type StepOutcomeFacts, stepOutcomeFacts } from './step-outcome.js';
-import { type ItemRefusal, itemGate, predecessorGate } from './transition-gate.js';
+import { type ItemRefusal, itemGate, predecessorGate } from '../../transition-gate.js';
 import {
   controllerReviewRunnable,
   securityReviewCurrent,
   workflowContext,
   workflowDelegation,
-} from './workflow-policy.js';
+} from '../../workflow-policy.js';
 
 /**
  * What the cycle controller decides from (R-B4): one cycle's facts for one pass.

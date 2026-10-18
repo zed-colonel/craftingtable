@@ -45,7 +45,7 @@ import {
 import { createGitOperations } from '@craftingtable/git';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
-import { recordedFindings } from '../src/services/run-handoff.js';
+import { recordedFindings } from '../src/services/run-lineage.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */

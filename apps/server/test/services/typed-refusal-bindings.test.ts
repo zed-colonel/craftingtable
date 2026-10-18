@@ -2,7 +2,7 @@ import type { Finalization, WorkCycle } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BranchService } from '../../src/services/branch-service.js';
-import { refreshOwner } from '../../src/services/cycle-facts.js';
+import { refreshOwner } from '../../src/services/cycle/core/facts.js';
 import { TypedRefusalError } from '../../src/services/errors.js';
 import {
   assertFinalizationMap,

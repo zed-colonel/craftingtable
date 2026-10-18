@@ -1,8 +1,8 @@
 import type { WorkCycle } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
-import { cycleFacts } from '../src/services/cycle-facts.js';
-import { decide } from '../src/services/cycle-machine.js';
+import { cycleFacts } from '../src/services/cycle/core/facts.js';
+import { decide } from '../src/services/cycle/core/machine.js';
 import { createCycleFixture } from './cycle-test-support.js';
 import { cleanupExecutionFixtures, startCycle } from './execution-test-support.js';
 

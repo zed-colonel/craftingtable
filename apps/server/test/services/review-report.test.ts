@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assessReviewReport, finalVerdict } from '../../src/services/review-report.js';
-import { latestReviewReport } from '../../src/services/run-handoff.js';
+import { latestReviewReport } from '../../src/services/run-lineage.js';
 
 const finding = {
   id: 'F-001',

@@ -19,7 +19,7 @@ import {
   assessStageReport,
   stagedPromotionIssue,
 } from '../src/services/finalization-stage-policy.js';
-import { requiredFindingIds } from '../src/services/run-handoff.js';
+import { requiredFindingIds } from '../src/services/run-lineage.js';
 import { retireVersion } from './retirement-test-support.js';
 
 /* -------------------------------------------------------------------------- */

@@ -1,7 +1,11 @@
 import type { WorkCycle } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { describe, expect, it } from 'vitest';
-import { creatorAuthorized, refreshOwner, requireReady } from '../../src/services/cycle-facts.js';
+import {
+  creatorAuthorized,
+  refreshOwner,
+  requireReady,
+} from '../../src/services/cycle/core/facts.js';
 import {
   ConcurrentModificationError,
   ExecutionRequestError,

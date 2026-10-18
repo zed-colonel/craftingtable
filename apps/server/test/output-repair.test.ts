@@ -12,7 +12,7 @@ import {
   startCycle,
   stepDaemon,
 } from './execution-test-support.js';
-import { replayEveryRun } from '../src/services/step-outcome.js';
+import { replayEveryRun } from '../src/services/cycle/core/step-outcome.js';
 
 /**
  * R-C2: a final report that fails a structural check is sent back to the same agent

@@ -1,7 +1,7 @@
 import { cycleAttention, type WorkCycle } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
-import type { CycleDecision } from '../src/services/cycle-machine.js';
-import { CycleTransitionError } from '../src/services/cycle-transitions.js';
+import type { CycleDecision } from '../src/services/cycle/core/machine.js';
+import { CycleTransitionError } from '../src/services/cycle/core/transitions.js';
 import { createCycleFixture, storedCycle } from './cycle-test-support.js';
 import { cleanupExecutionFixtures, startCycle } from './execution-test-support.js';
 import {

@@ -15,7 +15,7 @@ import {
 } from '@craftingtable/domain';
 import type { GitOperations, WorktreeSnapshot } from '@craftingtable/git';
 import type { StorageRepositories } from '@craftingtable/storage';
-import { runLineage } from './run-handoff.js';
+import { runLineage } from './run-lineage.js';
 import { operatorQuestionRoutes } from './workflow-policy.js';
 
 /**

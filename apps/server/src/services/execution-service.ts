@@ -79,7 +79,7 @@ import {
 } from './errors.js';
 import { stagedPromotionIssue } from './finalization-stage-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
-import { latestReviewReport } from './run-handoff.js';
+import { latestReviewReport } from './run-lineage.js';
 import type { WorkItemService } from './work-item-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';

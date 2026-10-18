@@ -5,7 +5,7 @@ import {
   type WorkCycle,
 } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
-import type { CycleFacts, KernelFacts } from '../../src/services/cycle-facts.js';
+import type { CycleFacts, KernelFacts } from '../../src/services/cycle/core/facts.js';
 import {
   CYCLE_GUARDS,
   type CycleDecision,
@@ -16,8 +16,8 @@ import {
   guardApplies,
   IDLE_REASONS,
   WAIT_CHANGES,
-} from '../../src/services/cycle-machine.js';
-import type { StepOutcomeFacts } from '../../src/services/step-outcome.js';
+} from '../../src/services/cycle/core/machine.js';
+import type { StepOutcomeFacts } from '../../src/services/cycle/core/step-outcome.js';
 
 /**
  * Decision table for the cycle controller's guards (R-B4). Each row is one guard's branch, in

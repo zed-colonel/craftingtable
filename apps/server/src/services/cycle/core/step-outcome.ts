@@ -21,12 +21,12 @@ import {
   type WorkflowQuestion,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
-import { designDependencyState } from './design-dependency-policy.js';
-import { scopedReviewIssue } from './execution-scope.js';
-import { finalizationForCycle } from './finalization-policy.js';
-import { cycleStepRole, drainInterrupted } from './restart-resume.js';
-import { latestReviewReport, runEvents } from './run-handoff.js';
-import { workflowQuestions } from './workflow-policy.js';
+import { designDependencyState } from '../../design-dependency-policy.js';
+import { scopedReviewIssue } from '../../execution-scope.js';
+import { finalizationForCycle } from '../../finalization-policy.js';
+import { cycleStepRole, drainInterrupted } from '../../restart-resume.js';
+import { latestReviewReport, runEvents } from '../../run-lineage.js';
+import { workflowQuestions } from '../../workflow-policy.js';
 
 /**
  * What the cycle controller does once its current step has a run (R-B2).

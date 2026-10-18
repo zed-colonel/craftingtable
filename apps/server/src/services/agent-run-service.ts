@@ -129,12 +129,8 @@ import { reservePhase } from './phase-resources.js';
 import { policyMismatch, REPOSITORY_POLICY_RULES, worktreePlan } from './repository-policy.js';
 import { outputRepairPrompt, restartResumePrompt, sessionResumeSource } from './restart-resume.js';
 import { assessReviewReport, finalVerdict } from './review-report.js';
-import {
-  latestReviewReport,
-  requiredFindingIds,
-  type StoppedWorktree,
-  writeRunHandoff,
-} from './run-handoff.js';
+import { type StoppedWorktree, writeRunHandoff } from './run-handoff.js';
+import { latestReviewReport, requiredFindingIds } from './run-lineage.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { scopeRepairPacket } from './scope-repair.js';
 import { STEP_RULES } from './step-rules.js';

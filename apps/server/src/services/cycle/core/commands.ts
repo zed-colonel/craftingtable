@@ -1,4 +1,4 @@
-import { withinInstructionLimit } from './command-bounds.js';
+import { withinInstructionLimit } from '../../command-bounds.js';
 import {
   type AgentRun,
   type CycleAction,
@@ -13,7 +13,7 @@ import {
   type SourceRepositoryId,
   type WorkCycle,
 } from '@craftingtable/domain';
-import type { CycleChanges } from './cycle-transitions.js';
+import type { CycleChanges } from './transitions.js';
 
 /**
  * The operator's cycle commands through the core (R-B4 increment 6). `decideCommand` decides

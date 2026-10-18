@@ -19,7 +19,7 @@ import {
   decideWindDownStop,
   restoredStatus,
   resumeAtRoundLimit,
-} from '../../src/services/cycle-commands.js';
+} from '../../src/services/cycle/core/commands.js';
 
 /**
  * Decision table for the cycle's commands through the core (R-B4 increment 6). Each row is one

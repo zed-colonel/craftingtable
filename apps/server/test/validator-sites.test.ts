@@ -56,8 +56,8 @@ import {
  * answers as before.
  */
 const forced = vi.hoisted(() => ({ refreshOwner: false, workflow: false }));
-vi.mock('../src/services/cycle-facts.js', async (original) => {
-  const actual = await original<typeof import('../src/services/cycle-facts.js')>();
+vi.mock('../src/services/cycle/core/facts.js', async (original) => {
+  const actual = await original<typeof import('../src/services/cycle/core/facts.js')>();
   return {
     ...actual,
     refreshOwner: (...args: Parameters<typeof actual.refreshOwner>) =>

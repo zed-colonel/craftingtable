@@ -49,8 +49,8 @@ import {
   turnTakesGrant,
   workflowAuthorityStop,
   workflowHeldGate,
-} from '../../src/services/cycle-effects.js';
-import { GUARD_CODES } from '../../src/services/cycle-machine.js';
+} from '../../src/services/cycle/core/effect-decisions.js';
+import { GUARD_CODES } from '../../src/services/cycle/core/machine.js';
 import {
   CheckDefinitionChangedError,
   CheckpointAttestationError,
@@ -64,7 +64,7 @@ import {
   UpstreamTransitionUndeclaredError,
 } from '../../src/services/errors.js';
 import { PhaseGateError } from '../../src/services/phase-resources.js';
-import { STEP_ATTENTION_CODES } from '../../src/services/step-outcome.js';
+import { STEP_ATTENTION_CODES } from '../../src/services/cycle/core/step-outcome.js';
 import { WorktreeMutationBusyError } from '../../src/services/worktree-mutation-guard.js';
 
 /**

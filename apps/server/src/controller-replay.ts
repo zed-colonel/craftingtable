@@ -35,7 +35,7 @@ import {
   replaySchedulerDecisions,
   type SchedulerReplay,
 } from './scheduler-replay.js';
-import { replayEveryRun, replayStepOutcomes } from './services/step-outcome.js';
+import { replayEveryRun, replayStepOutcomes } from './services/cycle/core/step-outcome.js';
 
 /**
  * Replays the controller's step classification over a database snapshot (R-B2).

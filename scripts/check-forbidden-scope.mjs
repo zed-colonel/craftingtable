@@ -84,6 +84,13 @@
  *    the last, `roadmap-service` and `cross-project-service`. A listed cycle whose modules no
  *    longer form exactly one cycle is a finding too, so the list only shrinks (the self-test
  *    holds that every listed module exists). The packages' own cycles are outside it.
+ * 11. The cycle's decision core stays a core (R-B7): no module of `apps/server/src` that a module
+ *    of `apps/server/src/services/cycle/core/` reaches by value imports (a type-only import, an
+ *    `import('…')` type or named bindings all `type`, does not count) imports the file system or
+ *    processes (`fs`, `fs/promises`, `child_process`), and none is a service (`*-service.ts`).
+ *    The core decides; the services act. A finding names the path from the core. The packages are
+ *    left alone (the core reaches `@craftingtable/agents`' pure digest), and the rule claims
+ *    capabilities only: the core reads storage, through the transaction it is given.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -195,6 +202,11 @@ export const PLANNING_FORBIDDEN_PATTERNS = [
   /^better-sqlite3$/,
   /^@craftingtable\/(storage|server|web|agents|git)$/,
 ];
+/** Where rule 11 starts: the cycle's decision core (R-B7). */
+const CORE_SOURCES = 'apps/server/src/services/cycle/core/';
+/** What no module the cycle core reaches may import (rule 11): the file system and processes. */
+const CORE_FORBIDDEN = /^(?:node:)?(?:fs|fs\/promises|child_process)$/;
+
 /** Where rule 10 applies: the daemon's modules (R-B7). */
 const CYCLE_FREE_SOURCES = 'apps/server/src/';
 /**
@@ -681,6 +693,31 @@ function namespaceMembers(sourceFile, checker, bindings) {
 }
 
 /**
+ * Whether an import or export declaration brings in types alone (rule 11): `import type`,
+ * `export type`, or named bindings that are every one `type`. A bare `import './x.js'`, a default
+ * or namespace import and `export *` load the module's values.
+ */
+function typeOnlyDeclaration(node) {
+  if (node.kind === SyntaxKind.ExportDeclaration)
+    return (
+      node.isTypeOnly ||
+      (node.exportClause?.kind === SyntaxKind.NamedExports &&
+        node.exportClause.elements.length > 0 &&
+        node.exportClause.elements.every((element) => element.isTypeOnly))
+    );
+  const clause = node.importClause;
+  if (!clause) return false;
+  if (clause.phaseModifier === SyntaxKind.TypeKeyword) return true;
+  const bindings = clause.namedBindings;
+  return (
+    !clause.name &&
+    bindings?.kind === SyntaxKind.NamedImports &&
+    bindings.elements.length > 0 &&
+    bindings.elements.every((element) => element.isTypeOnly)
+  );
+}
+
+/**
  * One module's imports and computed loads, from its syntax tree. `require` identifiers are
  * returned for the caller to resolve: a local function called `require` is not module loading.
  */
@@ -690,8 +727,8 @@ function readModule(sourceFile) {
   const requires = [];
   // Modules named by `new URL('./x.js', import.meta.url)`: a launcher's or a worker's target.
   const urls = [];
-  const reference = (node, kind, names) => {
-    if (isLiteral(node)) references.push({ specifier: node.text, node, kind, ...names });
+  const reference = (node, kind, names, typeOnly = false) => {
+    if (isLiteral(node)) references.push({ specifier: node.text, node, kind, typeOnly, ...names });
     else loads.push({ node: node ?? sourceFile, what: kind });
   };
   const visit = (node) => {
@@ -728,17 +765,19 @@ function readModule(sourceFile) {
         break;
       case SyntaxKind.ImportDeclaration:
       case SyntaxKind.ExportDeclaration:
-        if (node.moduleSpecifier) reference(node.moduleSpecifier, 'import', taken(node));
+        if (node.moduleSpecifier)
+          reference(node.moduleSpecifier, 'import', taken(node), typeOnlyDeclaration(node));
         break;
       case SyntaxKind.ImportEqualsDeclaration:
         if (node.moduleReference.kind === SyntaxKind.ExternalModuleReference)
-          reference(node.moduleReference.expression, 'require', taken(node));
+          reference(node.moduleReference.expression, 'require', taken(node), node.isTypeOnly);
         break;
       case SyntaxKind.ImportType:
         if (node.argument?.kind === SyntaxKind.LiteralType && isLiteral(node.argument.literal))
           references.push({
             specifier: node.argument.literal.text,
             node: node.argument.literal,
+            typeOnly: true,
             ...taken(node),
           });
         break;
@@ -1764,6 +1803,49 @@ function cycleFindings(root, modules, production, known) {
   return findings;
 }
 
+/**
+ * Rule 11: what the cycle core reaches by value imports within the daemon, breadth first so each
+ * finding names the shortest path from the core; a service, or an import of the file system or
+ * processes, is a finding.
+ */
+function coreFindings(root, modules, production) {
+  const name = (file) => posix(relative(root, file));
+  const starts = [...production]
+    .filter((file) => modules.has(file) && name(file).startsWith(CORE_SOURCES))
+    .sort();
+  const from = new Map(starts.map((file) => [file, undefined]));
+  const queue = [...starts];
+  while (queue.length > 0) {
+    const file = queue.shift();
+    for (const ref of modules.get(file).references) {
+      const target = ref.target;
+      if (ref.typeOnly || target === undefined || from.has(target) || !modules.has(target))
+        continue;
+      if (!name(target).startsWith(CYCLE_FREE_SOURCES)) continue;
+      from.set(target, file);
+      queue.push(target);
+    }
+  }
+  const path = (file) => {
+    const chain = [];
+    for (let at = file; at !== undefined; at = from.get(at)) chain.unshift(name(at));
+    return chain.join(' → ');
+  };
+  const findings = [];
+  for (const file of [...from.keys()].sort()) {
+    if (file.endsWith('-service.ts'))
+      findings.push(
+        `${name(file)}: a service the cycle core reaches by value imports (${path(file)}); the core decides and the services act, so take what it needs from a module of its own (R-B7)`,
+      );
+    for (const ref of modules.get(file).references)
+      if (!ref.typeOnly && CORE_FORBIDDEN.test(ref.specifier))
+        findings.push(
+          `${name(file)}: imports "${ref.specifier}", and the cycle core reaches it by value imports (${path(file)}); keep file and process access out of the core's reach (R-B7)`,
+        );
+  }
+  return findings;
+}
+
 /** The workspace package (`packages/storage`) or top-level directory a path is in. */
 function placeOf(root, path) {
   const [group, name] = posix(relative(root, path)).split('/');
@@ -2008,6 +2090,7 @@ export function inspectWorkspace(
     ),
   );
   findings.push(...cycleFindings(absoluteRoot, modules, classified.production, knownCycles));
+  findings.push(...coreFindings(absoluteRoot, modules, classified.production));
   // Rule 7 reads the vocabulary where it is declared; a workspace without the module has none.
   const vocabularyModule = [...modules.values()].find(
     (module) => posix(relative(absoluteRoot, module.file)) === MAP_VOCABULARY_MODULE,
@@ -2058,6 +2141,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules but the ${KNOWN_IMPORT_CYCLES.length} listed, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules but the ${KNOWN_IMPORT_CYCLES.length} listed, the cycle core free of services and of file and process access, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
   );
 }

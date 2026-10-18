@@ -4,7 +4,7 @@ import {
   CYCLE_TRANSITIONS,
   CycleTransitionError,
   checkTransition,
-} from '../../src/services/cycle-transitions.js';
+} from '../../src/services/cycle/core/transitions.js';
 
 /**
  * The cycle's explicit state machine over today's fields (R-B4 increment 6): which status changes

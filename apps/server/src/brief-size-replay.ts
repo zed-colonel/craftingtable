@@ -24,7 +24,7 @@ import {
   SUPPLIED_DIRECTORIES,
 } from './services/brief.js';
 import { resolveScope, scopeNeedsKata } from './services/execution-scope.js';
-import { latestReviewReport } from './services/run-handoff.js';
+import { latestReviewReport } from './services/run-lineage.js';
 import { STEP_RULES } from './services/step-rules.js';
 import { WORKFLOW_OBLIGATIONS_FILE, workflowRules } from './services/workflow-policy.js';
 

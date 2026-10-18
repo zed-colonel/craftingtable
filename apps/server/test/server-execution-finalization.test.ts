@@ -10,7 +10,7 @@ import { createGitOperations } from '@craftingtable/git';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
-import { recordedFindings, requiredFindingIds } from '../src/services/run-handoff.js';
+import { recordedFindings, requiredFindingIds } from '../src/services/run-lineage.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */

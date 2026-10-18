@@ -29,10 +29,14 @@ import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/s
 import type { AuthContext, CommandContext } from './auth-service.js';
 import {
   ExecutionRequestError,
+  IntegrationUpdateConflict,
   NotFoundError,
   type RefusalStop,
+  RepositoryMutationBusyError,
   TypedRefusalError,
 } from './errors.js';
+
+export { IntegrationUpdateConflict, RepositoryMutationBusyError } from './errors.js';
 import { retiredVersionIds } from './retired-versions.js';
 import type { StoppedWorktree } from './run-handoff.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -43,22 +47,6 @@ import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
 function value<T>(result: GitResult<T>): T {
   if (!result.ok) throw new TypedRefusalError('worktree-state', result.failure.message);
   return result.value;
-}
-export class IntegrationUpdateConflict extends ExecutionRequestError {
-  constructor(
-    readonly details: {
-      headSha: string;
-      targetSha: string;
-      targetBranch: string;
-      paths: readonly string[];
-      diagnostics: string;
-    },
-  ) {
-    super(
-      'conflict',
-      `Updating from ${details.targetBranch} conflicts in ${details.paths.length} files. Resolve integration conflicts from the automated cycle.`,
-    );
-  }
 }
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);
@@ -73,15 +61,6 @@ const absentMerge = (sourceId: string) =>
 /** A refusal the controller stops a cycle on with its code (R-B4, decision 3). */
 function refuse(stop: RefusalStop, message: string): never {
   throw new TypedRefusalError(stop, message);
-}
-
-export class RepositoryMutationBusyError extends ExecutionRequestError {
-  constructor() {
-    super(
-      'conflict',
-      'Another merge or repository mutation is in progress; retry after it finishes',
-    );
-  }
 }
 
 export class IntegrationHeldError extends ExecutionRequestError {

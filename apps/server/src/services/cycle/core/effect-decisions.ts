@@ -17,21 +17,22 @@ import {
   stagedFollowUps,
   type WorkCycle,
 } from '@craftingtable/domain';
-import { IntegrationUpdateConflict, RepositoryMutationBusyError } from './branch-service.js';
 import {
   CheckDefinitionChangedError,
   CheckpointAttestationError,
   ConcurrentModificationError,
   DaemonDrainingError,
   ExecutionRequestError,
+  IntegrationUpdateConflict,
   type RefusalStop,
   RepositoryChecksUndeclaredError,
+  RepositoryMutationBusyError,
   TypedRefusalError,
   UpstreamPinMovedError,
   UpstreamTransitionUndeclaredError,
-} from './errors.js';
-import { PhaseGateError } from './phase-resources.js';
-import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
+} from '../../errors.js';
+import { PhaseGateError } from '../../phase-resources.js';
+import { WorktreeMutationBusyError } from '../../worktree-mutation-guard.js';
 
 /**
  * The effects' sub-decisions (R-B4). An effect does I/O (Git, a checkpoint's evidence, a review

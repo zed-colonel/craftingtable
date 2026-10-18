@@ -13,7 +13,7 @@ import {
   startCycle,
   stepDaemon,
 } from './execution-test-support.js';
-import { replayStepOutcomes } from '../src/services/step-outcome.js';
+import { replayStepOutcomes } from '../src/services/cycle/core/step-outcome.js';
 
 /**
  * Golden replay for the controller's step classification (R-B2).

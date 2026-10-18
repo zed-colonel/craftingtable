@@ -1208,6 +1208,80 @@ describe("the daemon's modules import one another without cycles (rule 10, R-B7)
   });
 });
 
+describe('the cycle core reaches no service and no file or process access (rule 11, R-B7)', () => {
+  const core = 'apps/server/src/services/cycle/core';
+  const reaches = (file, path, what) =>
+    `${file}: imports "${what}", and the cycle core reaches it by value imports (${path.join(' → ')}); keep file and process access out of the core's reach (R-B7)`;
+  const service = (file, path) =>
+    `${file}: a service the cycle core reaches by value imports (${path.join(' → ')}); the core decides and the services act, so take what it needs from a module of its own (R-B7)`;
+  const coreFindings = (findings) =>
+    findings.filter((finding) => finding.includes('the cycle core reaches'));
+
+  it('finds file and process access and services the core reaches by value imports, with the path', () => {
+    const { findings } = inspectWorkspace(
+      workspace({
+        'apps/server/src/index.ts':
+          "import { decide } from './services/cycle/core/machine.js';\nexport const main = decide;\n",
+        [`${core}/machine.ts`]:
+          "import { read } from '../../journal.js';\nimport { act } from '../../thing-service.js';\nexport const decide = () => read() + act();\n",
+        'apps/server/src/services/journal.ts':
+          "import { readFileSync } from 'node:fs';\nexport const read = () => readFileSync('x', 'utf8');\n",
+        'apps/server/src/services/thing-service.ts':
+          "import { spawn } from 'child_process';\nexport const act = () => String(spawn);\n",
+      }),
+      EMITTED_EXPORTS,
+      [],
+    );
+    expect(coreFindings(findings).sort()).toEqual(
+      [
+        reaches(
+          'apps/server/src/services/journal.ts',
+          [`${core}/machine.ts`, 'apps/server/src/services/journal.ts'],
+          'node:fs',
+        ),
+        reaches(
+          'apps/server/src/services/thing-service.ts',
+          [`${core}/machine.ts`, 'apps/server/src/services/thing-service.ts'],
+          'child_process',
+        ),
+        service('apps/server/src/services/thing-service.ts', [
+          `${core}/machine.ts`,
+          'apps/server/src/services/thing-service.ts',
+        ]),
+      ].sort(),
+    );
+  });
+
+  it('follows only value imports, within the daemon', () => {
+    const { findings } = inspectWorkspace(
+      workspace({
+        'apps/server/src/index.ts':
+          "import { decide } from './services/cycle/core/machine.js';\nexport const main = decide;\n",
+        [`${core}/machine.ts`]: [
+          "import type { Journal } from '../../journal.js';",
+          "import { type Thing } from '../../thing-service.js';",
+          "import { digest } from '@scratch/agents';",
+          "export type Kind = import('../../writer.js').Written;",
+          'export const decide = (j: Journal, t: Thing, k: Kind) => [j, t, k, digest()];',
+          '',
+        ].join('\n'),
+        'apps/server/src/services/journal.ts':
+          "import { readFileSync } from 'node:fs';\nexport type Journal = string;\nexport const read = () => readFileSync('x', 'utf8');\n",
+        'apps/server/src/services/thing-service.ts': 'export type Thing = number;\n',
+        'apps/server/src/services/writer.ts':
+          "import { writeFileSync } from 'node:fs';\nexport type Written = boolean;\nexport const write = () => writeFileSync('x', 'y');\n",
+        'packages/agents/package.json':
+          '{"name":"@scratch/agents","type":"module","exports":"./src/index.ts"}',
+        'packages/agents/src/index.ts':
+          "import { readFileSync } from 'node:fs';\nexport const digest = () => readFileSync('x', 'utf8');\n",
+      }),
+      EMITTED_EXPORTS,
+      [],
+    );
+    expect(coreFindings(findings)).toEqual([]);
+  });
+});
+
 it('passes on the real repository, having read and classified its modules', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   const { findings, classes, vocabulary } = inspectWorkspace(root);
@@ -1224,6 +1298,8 @@ it('passes on the real repository, having read and classified its modules', () =
   // Rule 8's exceptions name production modules: one for a moved module would pass vacuously.
   for (const path of EMITTED_EXPORTS.keys()) expect(classes.get(path)).toBe('production');
   expect(classes.get('apps/server/src/index.ts')).toBe('production');
+  // Rule 11 starts from the cycle core's modules: a moved core would pass vacuously.
+  expect(classes.get('apps/server/src/services/cycle/core/machine.ts')).toBe('production');
   // Rule 10's listed cycles name the daemon's production modules: a moved one would pass vacuously.
   for (const path of KNOWN_IMPORT_CYCLES.flat()) expect(classes.get(path)).toBe('production');
   // Run by a package script, and imported by its own test.

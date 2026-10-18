@@ -12,7 +12,7 @@ import {
   type StepAttentionCode,
   type StepOutcomeDecision,
   type StepOutcomeFacts,
-} from '../../src/services/step-outcome.js';
+} from '../../src/services/cycle/core/step-outcome.js';
 
 /**
  * Decision table for the controller's step classification (R-B2). Each row is one branch

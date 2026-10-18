@@ -17,7 +17,7 @@ import {
   type ReplayRecord,
 } from './replay-check.js';
 import { replayServices } from './replay-services.js';
-import { decisionSummary } from './services/cycle-machine.js';
+import { decisionSummary } from './services/cycle/core/machine.js';
 import { ConcurrentModificationError } from './services/errors.js';
 
 /**

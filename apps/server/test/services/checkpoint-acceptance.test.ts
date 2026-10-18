@@ -1,7 +1,7 @@
 import type { WorkCycle } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { decideRefusal } from '../../src/services/cycle-effects.js';
+import { decideRefusal } from '../../src/services/cycle/core/effect-decisions.js';
 import { RuntimeEvidenceService } from '../../src/services/runtime-evidence-service.js';
 
 /**

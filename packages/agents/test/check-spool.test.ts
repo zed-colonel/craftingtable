@@ -105,3 +105,68 @@ it('refuses malformed requests and names outside the protocol (R-G4)', () => {
   expect(pendingCheckRequests(s.directory)).toEqual([]);
   expect(existsSync(join(s.directory, `${ID}.claimed`))).toBe(true);
 });
+
+/** A launcher with a short limit, which the test answers as the daemon would. */
+async function launch(limitMs: number) {
+  const s = spool();
+  const module = new URL('../src/check-spool.ts', import.meta.url).href;
+  const launcher = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `import(${JSON.stringify(module)}).then(m=>m.submitCheck(${JSON.stringify(s.directory)},${JSON.stringify(s.replies)},'ct-check',['--declared','b'],${limitMs},30000,20))`,
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  let stderr = '';
+  launcher.stderr.on('data', (d) => (stderr += d));
+  const closed = new Promise<number | null>((resolve) => launcher.once('close', resolve));
+  let id: string | undefined;
+  for (let i = 0; i < 200 && !id; i++) {
+    id = pendingCheckRequests(s.directory)[0];
+    if (!id) await new Promise((r) => setTimeout(r, 20));
+  }
+  expect(id, stderr).toBeDefined();
+  expect(claimCheckRequest(s.directory, id!)).toHaveProperty('request');
+  return { s, id: id!, closed, stderr: () => stderr, exited: () => launcher.exitCode !== null };
+}
+
+it("counts a launcher's limit from the daemon's start of its check, not from its request: a check queued past the limit is not cancelled while it waits (R-C17 LOW-4)", async () => {
+  const { s, id, closed, stderr, exited } = await launch(300);
+  // Claimed and queued behind another check of the run for well past the launcher's limit.
+  await new Promise((r) => setTimeout(r, 900));
+  expect(exited(), stderr()).toBe(false);
+  expect(existsSync(join(s.directory, `${id}.cancel`))).toBe(false);
+  const reply = new CheckReply(s.directory, s.replies, id);
+  reply.start();
+  expect(existsSync(join(s.replies, `${id}.started`))).toBe(true);
+  await new Promise((r) => setTimeout(r, 100));
+  reply.write('ran\n');
+  reply.finish(0);
+  expect(await closed).toBe(0);
+  expect(stderr()).not.toContain('within its time limit');
+  expect(existsSync(join(s.directory, `${id}.cancel`))).toBe(false);
+});
+
+it('once the daemon has started its check, a launcher still gives up at its limit and asks for cancellation (R-C17 LOW-4)', async () => {
+  const { s, id, closed, stderr } = await launch(300);
+  const reply = new CheckReply(s.directory, s.replies, id);
+  reply.start();
+  // Started once only: a second start leaves the first marker.
+  reply.start();
+  expect(await closed).toBe(1);
+  expect(stderr()).toContain('CraftingTable did not report this check within its time limit.');
+  expect(existsSync(join(s.directory, `${id}.cancel`))).toBe(true);
+});
+
+it("never follows a link the agent plants for the daemon's start marker (R-C17 LOW-4)", () => {
+  const s = spool();
+  const outside = join(s.root, 'operator-file');
+  writeFileSync(outside, 'unchanged');
+  request(s.directory, ID, JSON.stringify({ version: 1, tool: 'ct-check', args: [] }));
+  expect(claimCheckRequest(s.directory, ID)).toHaveProperty('request');
+  symlinkSync(outside, join(s.replies, `${ID}.started`));
+  new CheckReply(s.directory, s.replies, ID).start();
+  expect(readFileSync(outside, 'utf8')).toBe('unchanged');
+});

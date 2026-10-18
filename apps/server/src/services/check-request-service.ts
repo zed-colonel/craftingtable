@@ -94,7 +94,7 @@ export interface CheckRunContext {
 }
 
 /** Where a check's answer goes: the run's spool, or the daemon itself for checks it starts. */
-type Reply = Pick<CheckReply, 'write' | 'finish' | 'cancelRequested'>;
+type Reply = Pick<CheckReply, 'start' | 'write' | 'finish' | 'cancelRequested'>;
 
 /** Who asked for a check, recorded on its receipt (R-G13 increment 3). */
 export type CheckOrigin = 'agent' | 'daemon';
@@ -316,6 +316,7 @@ export class CheckRequestService {
           };
           const logPath = join(this.config.checkLogRoot, runId, `${id}.log`);
           const reply: Reply = {
+            start: () => undefined,
             write: () => undefined,
             cancelRequested: () => false,
             finish: (exitCode: number, diagnostic: string) =>
@@ -530,6 +531,8 @@ export class CheckRequestService {
     served.cargoSlots.add(slot);
     try {
       const stepDeadline = this.stepDeadline(context);
+      // Its time limit runs from here, and so does its launcher's (R-C17 LOW-4).
+      reply.start();
       const outcome = await executeCheck({
         tool: request.tool,
         // Named by the daemon, not by the request: two requests with one id never share it.

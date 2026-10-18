@@ -1156,12 +1156,18 @@ itNeedsCargo(
       'the first rerun and the commands running',
     );
     expect(checks.inFlight(asAgentRunId(run))).toHaveLength(4);
+    // Each launcher's limit counts from the daemon's start of its check (R-C17 LOW-4): the
+    // waiting rerun has no start marker, so its launcher does not cancel it while it waits.
+    const replies = join(f.state.context.config.execution.checkLogRoot, run, 'replies');
+    const startedMarker = (i: number) =>
+      existsSync(join(replies, `00000000-0000-4000-8000-${String(i).padStart(12, '0')}.started`));
+    expect([0, 1, 2, 3, 4].map(startedMarker)).toEqual([true, false, true, true, true]);
     declared.open(1);
     await waitUntil(() => declared.pids().length === 5, 'the second rerun running');
     expect(checks.inFlight(asAgentRunId(run))).toHaveLength(4);
+    expect(startedMarker(1)).toBe(true);
     own.open(3);
     declared.open(1);
-    const replies = join(f.state.context.config.execution.checkLogRoot, run, 'replies');
     await waitUntil(() => {
       try {
         return readdirSync(replies).filter((name) => name.endsWith('.exit')).length === 5;

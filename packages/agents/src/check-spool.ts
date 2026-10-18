@@ -10,8 +10,9 @@
  * Per request `<id>`: the launcher writes `<id>.request` into the spool (atomically, by
  * rename); the daemon claims it by renaming it to `<id>.claimed`. The daemon answers in a reply
  * directory of its own, outside every writable root of the run, so the agent can read the
- * answer but cannot redirect where the daemon writes it: it appends output to `<id>.out` and
- * finally writes `<id>.exit`. The launcher asks for cancellation with `<id>.cancel` in the spool.
+ * answer but cannot redirect where the daemon writes it: it writes `<id>.started` when the check
+ * leaves its run's queue and starts, appends output to `<id>.out` and finally writes `<id>.exit`.
+ * The launcher asks for cancellation with `<id>.cancel` in the spool.
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -51,7 +52,11 @@ const path = (spool: string, id: string, suffix: string) => join(spool, `${id}.$
 /**
  * Leaves one request and relays the daemon's output until it reports an exit code. A request
  * the daemon has not claimed within `claimMs` fails: the daemon is stopped or does not serve
- * this run. `limitMs` bounds the whole wait; the daemon enforces the check's own time limit.
+ * this run. `limitMs` bounds the wait from the daemon's start of the check (R-C17 LOW-4): a
+ * claimed check can wait in its run's queue behind another (a run's declared checks and Cargo
+ * builds run one at a time), and the daemon answers a queued request when it is cancelled or
+ * its run ends, so the launcher never cancels a check for its time in the queue. The daemon
+ * enforces the check's own time limit.
  */
 export async function submitCheck(
   spool: string,
@@ -79,7 +84,9 @@ export async function submitCheck(
   };
   process.once('SIGTERM', cancel);
   process.once('SIGINT', cancel);
-  const started = Date.now();
+  const requested = Date.now();
+  /** When the launcher saw the daemon start the check, from which its limit counts. */
+  let started: number | undefined;
   let offset = 0;
   const relay = () => {
     const out = path(replies, id, 'out');
@@ -110,8 +117,8 @@ export async function submitCheck(
         process.exitCode = result.exitCode;
         return;
       }
-      const elapsed = Date.now() - started;
-      if (existsSync(path(spool, id, 'request')) && elapsed > claimMs) {
+      if (started === undefined && existsSync(path(replies, id, 'started'))) started = Date.now();
+      if (existsSync(path(spool, id, 'request')) && Date.now() - requested > claimMs) {
         console.error('CraftingTable did not pick up this check; the daemon may be stopped.');
         process.exitCode = 1;
         return;
@@ -121,7 +128,7 @@ export async function submitCheck(
         process.exitCode = 143;
         return;
       }
-      if (elapsed > limitMs) {
+      if (started !== undefined && Date.now() - started > limitMs) {
         cancel();
         console.error('CraftingTable did not report this check within its time limit.');
         process.exitCode = 1;
@@ -226,6 +233,17 @@ export class CheckReply {
     } catch {
       // Output relay is best effort; the retained log is the daemon's.
       this.failed = true;
+    }
+  }
+  /**
+   * Marks the check started: it has left its run's queue, and its time limit runs from now. The
+   * launcher's own limit counts from here (R-C17 LOW-4). Written once; a later call leaves it.
+   */
+  start(): void {
+    try {
+      closeSync(createExclusive(path(this.replies, this.id, 'started')));
+    } catch {
+      /* already marked, or the run ended and its directory went with it */
     }
   }
   cancelRequested(): boolean {

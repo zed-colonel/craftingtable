@@ -353,7 +353,10 @@ previous daemon left.
   step's deadline at the latest. Changing it changes the checks file, so it is adopted like any
   other change: on the Repositories page, or by the merge approval of the slice that makes it. A
   check that times out says what was still running: the last "has been running for over 60
-  seconds" line Rust's test harness printed, or else the last lines of its log.
+  seconds" line Rust's test harness printed, or else the last lines of its log. A check's limit,
+  and its launcher's wait, count from when the daemon starts it: one waiting behind another of
+  its run (a run's adopted checks and Cargo builds run one at a time) is not cancelled while it
+  waits.
 - **Toolchains.** When `cargo` on the daemon's PATH is rustup's proxy (a link, hard link or copy of
   rustup), each check runs the checked commit's rustup-managed toolchain, with automatic installs
   off: install the toolchains a repository pins, or its checks fail saying so. A shim script in

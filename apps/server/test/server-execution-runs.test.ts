@@ -1529,7 +1529,8 @@ describe('agent runs', () => {
     // Simulate a hard daemon death: the row stays live while the session is gone.
     const service = state.context.services.agentRunService;
     expect(service.liveCount()).toBe(1);
-    (service as unknown as { live: Map<string, unknown> }).live.clear();
+    // The live sessions are in the supervisor's state (R-B7 increment 10).
+    (service as unknown as { state: { live: Map<string, unknown> } }).state.live.clear();
     expect(await service.recoverInterrupted()).toBe(1);
     const recovered = state.context.storage.execution.runs.find(state.workspaceId, run.id);
     expect(recovered?.status).toBe('interrupted');

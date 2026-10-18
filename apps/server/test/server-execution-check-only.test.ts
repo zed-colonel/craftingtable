@@ -565,7 +565,10 @@ it('a check-only review whose work changed an adopted definition stops as check-
 it("refuses to start a check-only run when the daemon's check service cannot run its checks (R-G13 increment 4)", async () => {
   const { state, worktree } = await manualFixture();
   // A daemon whose check service is not attached: nothing would run or record the checks.
-  (state.context.services.agentRunService as unknown as { checks: undefined }).checks = undefined;
+  // The check service is an attach point in the supervisor's state (R-B7 increment 10).
+  (
+    state.context.services.agentRunService as unknown as { state: { checks: undefined } }
+  ).state.checks = undefined;
   const started = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,

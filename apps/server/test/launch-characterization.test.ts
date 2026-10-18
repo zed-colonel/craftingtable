@@ -958,7 +958,10 @@ it("pins the check service's refusal before the repository policy's, when both h
   const now = fixtureClock();
   const { state, backend, worktree, root } = await policyFixture([implementationDone], () => now);
   declareFixtureChecks(state);
-  (state.context.services.agentRunService as unknown as { checks: undefined }).checks = undefined;
+  // The check service is an attach point in the supervisor's state (R-B7 increment 10).
+  (
+    state.context.services.agentRunService as unknown as { state: { checks: undefined } }
+  ).state.checks = undefined;
   moveFrozenBranch(root);
   const refused = await manualRun(state, worktree.id);
   expect(backend.launches).toHaveLength(0);

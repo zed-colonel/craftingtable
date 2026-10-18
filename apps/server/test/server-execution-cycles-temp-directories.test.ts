@@ -242,9 +242,17 @@ it('starts after a stop that left an unremovable directory, and removes it (LIVE
 it("removes a run's earlier directory when the run launches again, and when its record fails to end (LIVE-31 verification)", async () => {
   const { state } = await cycleFixture([]);
   // The service's own bookkeeping, as a launch that failed before its record leaves it.
-  const service = state.context.services.agentRunService as unknown as {
-    processTemporaryDirectory(runId: string): string;
-    finalize(workspaceId: string, runId: string, status: 'failed', detail: object): void;
+  // The processes' and the journal's (R-B7 increment 10).
+  const runs = state.context.services.agentRunService as unknown as {
+    processes: { processTemporaryDirectory(runId: string): string };
+    journal: {
+      finalize(workspaceId: string, runId: string, status: 'failed', detail: object): void;
+    };
+  };
+  const service = {
+    processTemporaryDirectory: (runId: string) => runs.processes.processTemporaryDirectory(runId),
+    finalize: (workspaceId: string, runId: string, status: 'failed', detail: object) =>
+      runs.journal.finalize(workspaceId, runId, status, detail),
   };
   const first = service.processTemporaryDirectory('run-a');
   const second = service.processTemporaryDirectory('run-a');

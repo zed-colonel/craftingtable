@@ -222,7 +222,10 @@ describe('restart drain and automatic resume (R-B9)', () => {
     const f = await fixture();
     const started = await startLiveCycle(f);
     // A crash: the process dies and no drain records a clean stop.
-    (f.services.agentRunService as unknown as { live: Map<string, unknown> }).live.clear();
+    // The live sessions are in the supervisor's state (R-B7 increment 10).
+    (
+      f.services.agentRunService as unknown as { state: { live: Map<string, unknown> } }
+    ).state.live.clear();
 
     const services = await restart(f);
     expect(storedCycle(f, started.id)).toMatchObject({ status: 'needs-attention' });

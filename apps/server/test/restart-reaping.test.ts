@@ -500,13 +500,18 @@ it('keeps the record until the agent has exited, and then removes it (R-G11 revi
 
 /** Makes the daemon's supervision of its run fail at the agent's next message ("again"). */
 function failSupervision(state: Ready, worktreePath: string) {
-  const service = state.context.services.agentRunService as unknown as {
-    appendEvent: (
-      workspaceId: string,
-      runId: string,
-      event: { kind: string; payload: unknown },
-    ) => void;
-  };
+  // The journal's, which supervision appends to (R-B7 increment 10).
+  const service = (
+    state.context.services.agentRunService as unknown as {
+      journal: {
+        appendEvent: (
+          workspaceId: string,
+          runId: string,
+          event: { kind: string; payload: unknown },
+        ) => void;
+      };
+    }
+  ).journal;
   const append = service.appendEvent.bind(service);
   service.appendEvent = (workspaceId, id, event) => {
     if (event.kind === 'assistant-message' && JSON.stringify(event.payload).includes('again'))

@@ -1,54 +1,22 @@
-import { moveRecords, unrecordedMoves } from './ref-watch.js';
-import { randomBytes, randomUUID } from 'node:crypto';
-import {
-  closeSync,
-  constants,
-  existsSync,
-  fstatSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  openSync,
-  readSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
-import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   type AgentBackend,
   AgentLaunchError,
   type AgentLaunchRequest,
   type AgentSession,
-  type AgentSessionItem,
-  type NormalizedAgentEvent,
   launchSourceOverlay,
   outsideSourcesNote,
-  parseProcessGroupIdentity,
-  type ProcessGroupIdentity,
-  type ProcessGroupReaping,
-  processGroupIdentity,
   RUN_ID_VARIABLE,
-  reapProcessGroup,
-  repositoryEnablesWorktreeConfig,
-  worktreeGitDirectories,
 } from '@craftingtable/agents';
 import {
   AGENT_BACKEND_LABELS,
-  AGENT_BACKENDS,
-  AGENT_PROFILE_PURPOSES,
   type AgentBackendKind,
-  type AgentBillingSource,
   type AgentExitReason,
   type AgentRun,
   type AgentRunEvent,
-  type AgentRunEventPayload,
   type AgentRunId,
-  type AgentRunStatus,
-  type AgentRunVerdict,
-  asAgentRunEventId,
   asAgentRunId,
   asAuditEventId,
   asEventId,
@@ -68,14 +36,8 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../config.js';
-import { AGENTS_ROOT_LOCK_FILE } from '../instance-lock.js';
 import { activeEditor } from './authority-policy.js';
-import { workspaceLayer } from './agent-profile-policy.js';
-import { launchProfile, resolveAgents, selectionSet } from './agent-resolution.js';
-import { removeAgentTree } from './agent-tree.js';
 import { cycleOwnership } from './cycle-ownership.js';
-import { WORKTREE_CACHES_DIRECTORY } from './storage-files.js';
-import { offloadToolResult, readToolResult } from './tool-result-store.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
@@ -87,14 +49,10 @@ import {
 } from './errors.js';
 import { reviewCapture } from './review-capture.js';
 import { requireNotRetired, requireTreeScope, resolveScope } from './execution-scope.js';
-import { assessStageReport } from './finalization-stage-policy.js';
 import { reservePhase } from './phase-resources.js';
 import { outputRepairPrompt, restartResumePrompt, sessionResumeSource } from './restart-resume.js';
-import { assessReviewReport, finalVerdict } from './review-report.js';
-import { latestReviewReport, requiredFindingIds } from './run-lineage.js';
+import { latestReviewReport } from './run-lineage.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
-import { scopeRepairPacket } from './scope-repair.js';
-import { resolveExecutable } from './executables.js';
 import type { StorageService } from './storage-service.js';
 import { controllerReviewRunnable } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -109,10 +67,15 @@ import {
   type LiveRun,
   misnamedModel,
   type RunLog,
-  SHUTDOWN_GRACE_MS,
   type StartRunInput,
-  summarise,
 } from './run/shared.js';
+import { RunState } from './run/state.js';
+import type { ModelSelection, RunProfiles } from './run/profiles.js';
+import { RunSandbox } from './run/sandbox.js';
+import { RunProfileCatalog } from './run/profiles.js';
+import { RunJournal } from './run/journal.js';
+import { RunProcesses } from './run/processes.js';
+import { RunSupervision } from './run/supervision.js';
 import { briefFor, buildsWithCargo, declaredCheckReport } from './run/context/brief-input.js';
 import { cycleLaunchInput } from './run/context/launch-input.js';
 import { materializeRunFiles } from './run/context/materialize.js';
@@ -123,43 +86,7 @@ export interface RunCommandResult {
 }
 
 /** A run's own directory beneath the agents' temporary root: random bytes, in hex (LIVE-31). */
-/** The part of an agent selection the model checks read (R-G15). */
-type ModelSelection = { readonly backend: AgentBackendKind; readonly model?: string };
 
-const RUN_TEMPORARY_NAME_BYTES = 6;
-const RUN_TEMPORARY_NAME = new RegExp(`^[0-9a-f]{${RUN_TEMPORARY_NAME_BYTES * 2}}$`);
-/** How many of the entries a start's sweep left it names in its one warning. */
-const LEFT_ENTRIES_NAMED = 20;
-
-/**
- * A lock socket of the agents' root (R-G5): a daemon's published `<file>.<id>`, or one still
- * being published. The start sweep leaves them unnamed.
- */
-function isRootLockSocket(root: string, name: string): boolean {
-  if (!name.startsWith(AGENTS_ROOT_LOCK_FILE)) return false;
-  try {
-    return lstatSync(join(root, name)).isSocket();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Whether `name` beneath `root` is a directory a run made (TS-H3): its name is one
- * `processTemporaryDirectory` gives, and it is a directory itself, never through a link.
- */
-function isRunTemporaryDirectory(root: string, name: string): boolean {
-  if (!RUN_TEMPORARY_NAME.test(name)) return false;
-  try {
-    return lstatSync(join(root, name), { throwIfNoEntry: false })?.isDirectory() === true;
-  } catch {
-    return false;
-  }
-}
-
-const PROCESS_IDENTITY_MAX_BYTES = 4096;
-/** How long restart recovery lets a surviving group end on SIGTERM before SIGKILL. */
-const RECOVERY_TERMINATION_GRACE_MS = 5000;
 /** Bytes, matching the wire contract and the storage CHECK. */
 /** A parent run's findings are reproduced in the brief up to this size. */
 const PARENT_MESSAGE_LIMIT_BYTES = 256 * 1024;
@@ -221,148 +148,21 @@ export function reviewContinuable(
   );
 }
 
-/** The workspace defaults `run-profiles` and the page reads report (R-E5a). */
-export type RunProfiles = {
-  readonly profiles: readonly (WorkspaceAgentProfile & { readonly stored: boolean })[];
-  readonly agents: Readonly<
-    Record<
-      import('@craftingtable/domain').AgentProfilePurpose,
-      import('@craftingtable/domain').EffectiveAgent
-    >
-  >;
-};
-
-/** `run-profiles`' answer: the defaults, and the same as the selection set setup starts from. */
-function withSelections(profiles: RunProfiles) {
-  return { ...profiles, selections: selectionSet(profiles.agents) };
-}
-
 export class AgentRunService {
-  private readonly preparationTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly live = new Map<string, LiveRun>();
-  /** Each launched run's short private temporary directory, until the run ends (LIVE-31). */
-  private readonly processTemporaryDirectories = new Map<string, string>();
-  /** Runs whose supervision failed; their killed sessions have not reported exit yet. */
-  private readonly orphaned = new Set<LiveRun>();
-  private readonly pendingCycleLaunches = new Map<AgentRunId, () => void>();
-  /**
-   * Reviews whose adopted checks run before their agent starts (R-G13 increment 3): how to cancel
-   * each, and the launch that continues after them. A drain counts and cancels them like a
-   * launch; `quiesce` waits for the launches, as it waits for cleanups.
-   */
-  private readonly checkingLaunches = new Map<
-    string,
-    {
-      readonly workspaceId: WorkspaceId;
-      readonly runId: AgentRunId;
-      readonly cancel: () => void;
-      readonly done: Promise<void>;
-    }
-  >();
-  /**
-   * Launches past their last drain check that are not yet live or in their checks: Git
-   * preflight, the pinned evidence, the baseline. A drain counts them and waits for them
-   * (R-G13 increment 3 verification).
-   */
-  private readonly startingLaunches = new Set<{
-    workspaceId?: WorkspaceId;
-    runId?: AgentRunId;
-    done?: Promise<unknown>;
-  }>();
-  /** A restart is ending live sessions now: a launch that completes meanwhile is ended too. */
-  private interrupting = false;
-  /** A restart drain is in progress: no new run may start (R-B9). */
-  private draining = false;
-  /**
-   * The daemon itself is being stopped by a signal. The service manager's stop signal may
-   * reach agent process groups too, so a run killed by a signal from now on was stopped by
-   * the restart. A drain a deploy requested stops nothing else, so there a signal is a
-   * failure like any other.
-   */
-  private serviceStopping = false;
-  /** Post-run cleanup still running; the controller skips a worktree until it settles. */
-  private readonly cleanups = new Set<Promise<unknown>>();
-  /** Runs and records the checks agents ask for (R-G4); absent, launchers run them inline. */
-  private checks: import('./check-request-service.js').CheckRequestService | undefined;
+  private readonly state = new RunState();
+  private readonly sandbox: RunSandbox;
+  private readonly profiles: RunProfileCatalog;
+  private readonly journal: RunJournal;
+  private readonly processes: RunProcesses;
+  private readonly supervision: RunSupervision;
   attachChecks(checks: import('./check-request-service.js').CheckRequestService): void {
-    this.checks = checks;
+    this.state.checks = checks;
   }
-  /** Protected-ref snapshots around each run (R-G5, SEC-02d). */
-  private refWatch:
-    | {
-        readonly watch: import('./ref-watch.js').RefWatch;
-        readonly git: import('@craftingtable/git').GitOperations;
-      }
-    | undefined;
   attachRefWatch(
     watch: import('./ref-watch.js').RefWatch,
     git: import('@craftingtable/git').GitOperations,
   ): void {
-    this.refWatch = { watch, git };
-  }
-
-  /** Flags protected branches that moved during a run by something other than the daemon. */
-  private async checkProtectedRefs(workspaceId: WorkspaceId, runId: AgentRunId): Promise<void> {
-    if (!this.refWatch) return;
-    const run = this.storage.execution.runs.find(workspaceId, runId);
-    const tree = run && this.storage.execution.worktrees.find(workspaceId, run.worktreeId);
-    const owned = this.storage.execution.worktrees
-      .listActive(workspaceId)
-      .filter((w) => w.repositoryId === tree?.repositoryId)
-      .map((w) => w.branchName)
-      .concat(tree ? [tree.branchName] : []);
-    const moves = await this.refWatch.watch.unexplainedMoves(runId, this.refWatch.git, owned);
-    if (!moves.length) return;
-    const described = moves
-      .map(
-        (m) =>
-          `${m.branch} ${m.before?.slice(0, 12) ?? '(absent)'} → ${m.after?.slice(0, 12) ?? '(deleted)'}`,
-      )
-      .join(', ');
-    this.appendEvent(workspaceId, runId, {
-      kind: 'notice',
-      payload: {
-        category: 'other',
-        message: `Protected branches moved during this run, not by CraftingTable: ${described}.`,
-      },
-    });
-    const detectedAt = this.now().toISOString();
-    // The audit stands on its own, so nothing about the records below can lose it.
-    this.storage.transaction((tx) =>
-      tx.audit.append({
-        id: asAuditEventId(randomUUID()),
-        occurredAt: detectedAt,
-        actorKind: 'system',
-        workspaceId,
-        action: 'agent-run.protected-ref-moved',
-        targetType: 'agent-run',
-        targetId: runId,
-        outcome: 'failed',
-        metadata: {
-          repositoryId: tree?.repositoryId ?? null,
-          moves: moves.map((m) => ({ branch: m.branch, before: m.before, after: m.after })),
-        },
-      }),
-    );
-    // Kept until the operator acknowledges it; the inbox shows it until then. A move another
-    // run already recorded is not recorded again, and a large set takes several records.
-    if (tree)
-      this.storage.transaction((tx) => {
-        const fresh = unrecordedMoves(
-          tx.protectedRefs.unacknowledged(workspaceId, tree.repositoryId),
-          moves.map((m) => ({ branch: m.branch, before: m.before, after: m.after })),
-        );
-        for (const chunk of moveRecords(fresh))
-          tx.protectedRefs.add({
-            id: randomUUID(),
-            workspaceId,
-            repositoryId: tree.repositoryId,
-            runId,
-            worktreeId: tree.id,
-            detectedAt,
-            moves: chunk,
-          });
-      });
+    this.state.refWatch = { watch, git };
   }
 
   constructor(
@@ -371,183 +171,46 @@ export class AgentRunService {
     private readonly notifier: WorkspaceEventNotifier,
     private readonly backends: ReadonlyMap<AgentBackendKind, AgentBackend>,
     private readonly config: ExecutionConfig,
-    private readonly log: RunLog,
+    // Read by the modules the constructor builds, not by the service itself.
+    log: RunLog,
     private readonly now: () => Date,
     private readonly mutations: WorktreeMutationGuard,
     private readonly branches: BranchService,
     private readonly storageService: StorageService,
     private readonly runtimeEvidence: RuntimeEvidenceService,
     private readonly baselines: BaselinePreparationService,
-  ) {}
-
-  /**
-   * The worktree's Git directories as the daemon resolves them from the repository's primary
-   * checkout (R-G14), or nothing when they cannot be resolved or do not agree: the run then
-   * cannot commit from a sandbox, and the daemon says why in its log.
-   */
-  private worktreeGitDirectories(
-    workspaceId: WorkspaceId,
-    worktree: Pick<Worktree, 'repositoryId' | 'path'>,
-  ): Pick<AgentLaunchRequest, 'gitDirectories'> {
-    const repository = this.storage.execution.sourceRepositories.find(
-      workspaceId,
-      worktree.repositoryId,
+  ) {
+    this.sandbox = new RunSandbox(storage, config, log, now);
+    this.profiles = new RunProfileCatalog(storage, workspaceService, backends, now);
+    this.journal = new RunJournal(
+      storage,
+      workspaceService,
+      notifier,
+      now,
+      log,
+      storageService,
+      runtimeEvidence,
+      this.state,
     );
-    const gitExecutable = resolveExecutable('git', this.config.gitExecutable);
-    const resolved =
-      repository && gitExecutable
-        ? worktreeGitDirectories(gitExecutable, worktree.path, repository.rootPath)
-        : undefined;
-    if (resolved === undefined) {
-      this.log.warn("A worktree's Git directories could not be resolved for its run", {
-        worktree: worktree.path,
-      });
-      return {};
-    }
-    // Whether the repository reads per-worktree configuration, from its own configuration
-    // (operator decision 2026-10-08): Codex then gets no Git grant, as a run could create its
-    // `config.worktree`.
-    return {
-      gitDirectories: {
-        ...resolved,
-        worktreeConfig:
-          gitExecutable === undefined ||
-          repositoryEnablesWorktreeConfig(gitExecutable, resolved.gitCommonDirectory),
-      },
-    };
-  }
-
-  hasBackend(kind: AgentBackendKind): boolean {
-    return this.backends.has(kind);
-  }
-
-  /**
-   * Refuses agent selections an operator submits whose model is a display name, or another
-   * spelling of a catalog id (R-G15, LIVE-34): caught when it is chosen, not at a later launch.
-   * Each selection is named by its slot (a role, an entry's step, a purpose). Only what a command
-   * submits is checked, and a slot that keeps the model the record already saved there (`saved`)
-   * is let through, so a saved selection is a warning and never blocks another change; the
-   * launch check still stops it.
-   */
-  requireModelIds(
-    selections: Iterable<readonly [slot: string, selection: ModelSelection | undefined]>,
-    saved: Iterable<readonly [slot: string, selection: ModelSelection | undefined]> = [],
-  ): void {
-    const key = (slot: string, selection: ModelSelection) =>
-      `${slot}\0${selection.backend}\0${selection.model}`;
-    const kept = new Set(
-      [...saved].flatMap(([slot, selection]) => (selection ? [key(slot, selection)] : [])),
+    this.processes = new RunProcesses(storage, config, log, now, this.state, this.journal);
+    this.supervision = new RunSupervision(
+      storage,
+      notifier,
+      log,
+      mutations,
+      this.state,
+      this.journal,
+      this.processes,
     );
-    for (const [slot, selection] of selections) {
-      if (selection === undefined || kept.has(key(slot, selection))) continue;
-      const backend = this.backends.get(selection.backend);
-      const misnamed = backend && misnamedModel(backend, selection.model);
-      if (misnamed !== undefined) throw new ExecutionRequestError('invalid-request', misnamed);
-    }
-  }
-
-  backendAvailable(): boolean {
-    return this.backends.size > 0;
-  }
-
-  defaultBackend(): AgentBackendKind | undefined {
-    return AGENT_BACKENDS.find((kind) => this.backends.has(kind));
   }
 
   liveCount(): number {
-    return this.live.size;
+    return this.state.live.size;
   }
 
   /* ---------------------------------------------------------------------- */
   /* Run profiles                                                            */
   /* ---------------------------------------------------------------------- */
-
-  /**
-   * Every role, in role order; unsaved roles carry the daemon's default. Beside them, each
-   * purpose's default with its source (R-E5a), read in the same read.
-   */
-  listRunProfiles(context: AuthContext, workspaceId: WorkspaceId, requestId?: string) {
-    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
-    return withSelections(
-      this.storage.readTransaction((tx) => this.runProfilesIn(tx, workspaceId)),
-    );
-  }
-
-  saveRunProfiles(
-    context: AuthContext,
-    workspaceId: WorkspaceId,
-    profiles: readonly WorkspaceAgentProfile[],
-    requestId?: string,
-  ): RunProfiles {
-    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
-      ...(requestId === undefined ? {} : { requestId }),
-    });
-    this.requireModelIds(
-      profiles.map((profile) => [profile.role, profile] as const),
-      this.storage.execution.runProfiles
-        .list(workspaceId)
-        .map((profile) => [profile.role, profile] as const),
-    );
-    const occurredAt = this.now().toISOString();
-    this.storage.transaction((tx) => {
-      tx.execution.runProfiles.replace({
-        workspaceId,
-        profiles,
-        occurredAt,
-        updatedByUserId: context.user.id,
-      });
-      tx.audit.append({
-        id: asAuditEventId(randomUUID()),
-        occurredAt,
-        actorKind: 'user',
-        actorUserId: context.user.id,
-        sessionId: context.session.id,
-        workspaceId,
-        ...(requestId === undefined ? {} : { requestId }),
-        action: 'run-profiles.updated',
-        targetType: 'workspace',
-        targetId: workspaceId,
-        outcome: 'succeeded',
-        metadata: {
-          profiles: profiles.map((profile) => ({
-            role: profile.role,
-            backend: profile.backend,
-            model: profile.model ?? null,
-            permissionMode: profile.permissionMode,
-            reasoningEffort: profile.reasoningEffort ?? null,
-          })),
-        },
-      });
-    });
-    return withSelections(
-      this.storage.readTransaction((tx) => this.runProfilesIn(tx, workspaceId)),
-    );
-  }
-
-  /** The workspace's defaults as a resolution layer (R-E5a). */
-  workspaceLayerIn(tx: StorageRepositories, workspaceId: WorkspaceId) {
-    return workspaceLayer(
-      tx.execution.runProfiles.list(workspaceId),
-      this.defaultBackend() ?? AGENT_BACKENDS[0],
-    );
-  }
-
-  /**
-   * The workspace's profiles as `listRunProfiles` returns them, read in the caller's read (R-D5):
-   * each role's effective default, whether it is saved, and its source (R-E5a).
-   */
-  runProfilesIn(tx: StorageRepositories, workspaceId: WorkspaceId): RunProfiles {
-    const layer = this.workspaceLayerIn(tx, workspaceId);
-    const agents = resolveAgents({ workspace: layer });
-    return {
-      profiles: AGENT_PROFILE_PURPOSES.map((role) => ({
-        ...launchProfile(agents[role]),
-        role,
-        stored: layer.profiles.some((profile) => profile.role === role),
-      })),
-      agents,
-    };
-  }
 
   /* ---------------------------------------------------------------------- */
   /* Commands                                                                */
@@ -652,7 +315,7 @@ export class AgentRunService {
       liveRun.session.kill();
       return;
     }
-    this.finalize(workspaceId, runId, 'cancelled', { message });
+    this.journal.finalize(workspaceId, runId, 'cancelled', { message });
   }
 
   /** Ends an investigation its cycle no longer holds; the run is read-only, so nothing is lost. */
@@ -666,7 +329,7 @@ export class AgentRunService {
       liveRun.session.kill();
       return;
     }
-    this.finalize(workspaceId, runId, 'cancelled', { message });
+    this.journal.finalize(workspaceId, runId, 'cancelled', { message });
   }
 
   private requireCycleLaunchAuthority(cycle: WorkCycle): void {
@@ -766,7 +429,7 @@ export class AgentRunService {
    * cycle was paused. The launch then starts no agent; a live session is left alone.
    */
   cancelStartingChecks(runId: AgentRunId): void {
-    this.checkingLaunches.get(runId)?.cancel();
+    this.state.checkingLaunches.get(runId)?.cancel();
   }
 
   /** Only the controller can close/terminate its reserved session. No browser authority bypass. */
@@ -774,9 +437,9 @@ export class AgentRunService {
     const stored = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
     if (stored?.currentRunId !== cycle.currentRunId) return false;
     if (cancel) {
-      this.pendingCycleLaunches.get(cycle.currentRunId)?.();
+      this.state.pendingCycleLaunches.get(cycle.currentRunId)?.();
       // A review still running its adopted checks: stop them; its agent never starts (R-G13).
-      this.checkingLaunches.get(cycle.currentRunId)?.cancel();
+      this.state.checkingLaunches.get(cycle.currentRunId)?.cancel();
     }
     const live = this.liveRun(cycle.workspaceId, cycle.currentRunId);
     if (live === undefined) return false;
@@ -794,7 +457,7 @@ export class AgentRunService {
     exceptRunId?: AgentRunId,
   ): void {
     this.mutations.requireNoTerminatingAgent(worktreeId);
-    for (const live of this.live.values()) {
+    for (const live of this.state.live.values()) {
       if (
         live.workspaceId !== workspaceId ||
         live.runId === exceptRunId ||
@@ -854,7 +517,7 @@ export class AgentRunService {
     preparation?: { value: import('@craftingtable/domain').DecisionPreparation; check: () => void },
     investigation?: InvestigationLaunch,
   ): Promise<AgentRun> {
-    if (this.draining) throw new DaemonDrainingError();
+    if (this.state.draining) throw new DaemonDrainingError();
     // Controller-run, read-only and deadline-bound (ADR-065, R-C16): a decision preparation or
     // a question stop's investigation. Neither is a cycle's run, and each ends after one turn.
     const controlled = preparation
@@ -889,7 +552,7 @@ export class AgentRunService {
         'conflict',
         'Recover the reserved integration merge before launching another run',
       );
-    const kind = input.backend ?? this.defaultBackend();
+    const kind = input.backend ?? this.profiles.defaultBackend();
     const backend = kind === undefined ? undefined : this.backends.get(kind);
     if (backend === undefined) {
       throw new ExecutionRequestError(
@@ -1019,7 +682,8 @@ export class AgentRunService {
       const cancelPreflight = () => {
         cancelled = true;
       };
-      if (cycle !== undefined) this.pendingCycleLaunches.set(cycle.currentRunId, cancelPreflight);
+      if (cycle !== undefined)
+        this.state.pendingCycleLaunches.set(cycle.currentRunId, cancelPreflight);
       let reviewBranchContext: AgentRun['reviewBranchContext'];
       let reviewArtifacts: readonly string[] | undefined;
       try {
@@ -1095,25 +759,25 @@ export class AgentRunService {
       } finally {
         if (
           cycle !== undefined &&
-          this.pendingCycleLaunches.get(cycle.currentRunId) === cancelPreflight
+          this.state.pendingCycleLaunches.get(cycle.currentRunId) === cancelPreflight
         )
-          this.pendingCycleLaunches.delete(cycle.currentRunId);
+          this.state.pendingCycleLaunches.delete(cycle.currentRunId);
       }
       controlled?.check();
       // A drain can begin during Git preflight; no run record may start after it.
-      if (this.draining) throw new DaemonDrainingError();
+      if (this.state.draining) throw new DaemonDrainingError();
       const runId = cycle?.currentRunId ?? controlled?.runId ?? asAgentRunId(randomUUID());
       starting.workspaceId = workspaceId;
       starting.runId = runId;
-      this.startingLaunches.add(starting);
+      this.state.startingLaunches.add(starting);
       this.storageService.requireSpace('runsRoot', prepared.worktree.path);
       const runDirectory = join(this.config.runsRoot, runId);
       const temporaryDirectory = join(runDirectory, 'scratch');
       mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
       // Made with the scratch, before the run's record: a failure here fails the launch as a
       // scratch failure does, never leaves a run starting (LIVE-31 review).
-      const processTemporaryDirectory = this.processTemporaryDirectory(runId);
-      const buildCacheDirectory = this.worktreeBuildCache(
+      const processTemporaryDirectory = this.processes.processTemporaryDirectory(runId);
+      const buildCacheDirectory = this.sandbox.worktreeBuildCache(
         prepared.worktree,
         buildsWithCargo(prepared.worktree.path),
       );
@@ -1148,7 +812,7 @@ export class AgentRunService {
             );
       // Its record says the daemon records its receipts; without the daemon's check service
       // nothing would, and its gate could never be met.
-      if (checksOnly && !this.checks)
+      if (checksOnly && !this.state.checks)
         throw new TypedRefusalError(
           'service-unavailable',
           "CraftingTable's check service is not running, so this repository's adopted checks cannot run.",
@@ -1192,7 +856,7 @@ export class AgentRunService {
       });
 
       // Nor after a drain that began while the evidence, baseline or policy was prepared.
-      if (this.draining) throw new DaemonDrainingError();
+      if (this.state.draining) throw new DaemonDrainingError();
       const createdAt = this.now().toISOString();
       const run = this.storage.transaction((tx) => {
         controlled?.check();
@@ -1310,7 +974,7 @@ export class AgentRunService {
             ...(pinned.movedToCurrentPins
               ? { verificationMode: 'current-upstream-build' as const }
               : {}),
-            ...(pinned.spoolDirectory && this.checks
+            ...(pinned.spoolDirectory && this.state.checks
               ? { receiptAuthority: 'daemon' as const }
               : {}),
             ...(pinned.checkDeclarationId ? { checkDeclarationId: pinned.checkDeclarationId } : {}),
@@ -1322,21 +986,27 @@ export class AgentRunService {
       try {
         this.storageService.registerRun(run.id, runDirectory);
       } catch (error) {
-        this.finalize(workspaceId, runId, 'failed', { message: 'Could not register run storage.' });
+        this.journal.finalize(workspaceId, runId, 'failed', {
+          message: 'Could not register run storage.',
+        });
         throw error;
       }
       // The protected branches as the run starts (R-G5).
-      if (this.refWatch) {
+      if (this.state.refWatch) {
         const repository = this.storage.execution.sourceRepositories.find(
           workspaceId,
           prepared.worktree.repositoryId,
         );
         if (repository)
-          await this.refWatch.watch.snapshot(runId, this.refWatch.git, repository.rootPath);
+          await this.state.refWatch.watch.snapshot(
+            runId,
+            this.state.refWatch.git,
+            repository.rootPath,
+          );
       }
       // The daemon runs and records this run's checks from here on (R-G4).
-      if (verifying?.spoolDirectory && this.checks)
-        this.checks.open({
+      if (verifying?.spoolDirectory && this.state.checks)
+        this.state.checks.open({
           workspaceId,
           runId,
           spoolDirectory: verifying.spoolDirectory,
@@ -1382,7 +1052,7 @@ export class AgentRunService {
           cwd: prepared.worktree.path,
           // The worktree's Git directories, so a sandboxed run can stage and commit (R-G14,
           // operator decision 2026-10-08); only when they are the repository's own.
-          ...this.worktreeGitDirectories(workspaceId, prepared.worktree),
+          ...this.sandbox.worktreeGitDirectories(workspaceId, prepared.worktree),
           temporaryDirectory,
           processTemporaryDirectory,
           ...(buildCacheDirectory ? { buildCacheDirectory } : {}),
@@ -1450,13 +1120,13 @@ export class AgentRunService {
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Agent could not be started';
-          if (error instanceof CycleLaunchCancelledError && this.draining)
-            this.finalize(workspaceId, runId, 'interrupted', {
+          if (error instanceof CycleLaunchCancelledError && this.state.draining)
+            this.journal.finalize(workspaceId, runId, 'interrupted', {
               reason: 'daemon-drain',
               message: DRAIN_INTERRUPTED_MESSAGE,
             });
           else
-            this.finalize(
+            this.journal.finalize(
               workspaceId,
               runId,
               error instanceof CycleLaunchCancelledError ? 'cancelled' : 'failed',
@@ -1473,22 +1143,22 @@ export class AgentRunService {
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
 
-        this.recordProcessIdentity(workspaceId, runId, session);
+        this.processes.recordProcessIdentity(workspaceId, runId, session);
         // A restart began ending sessions while this one was launching: it is the drain's too, so
         // the restart resumes it (R-G13 increment 3 verification).
-        if (this.interrupting) {
+        if (this.state.interrupting) {
           session.kill();
-          this.finalize(workspaceId, runId, 'interrupted', {
+          this.journal.finalize(workspaceId, runId, 'interrupted', {
             reason: 'daemon-drain',
             message: DRAIN_INTERRUPTED_MESSAGE,
           });
           // The record goes once the killed group has (R-G11 review LOW-4).
           void drainUntilExit(session.items[Symbol.asyncIterator]()).then(() =>
-            this.removeProcessRecord(runId),
+            this.processes.removeProcessRecord(runId),
           );
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
-        this.appendEvent(workspaceId, runId, {
+        this.journal.appendEvent(workspaceId, runId, {
           kind: 'user-message',
           payload: {
             text: prompt,
@@ -1496,11 +1166,11 @@ export class AgentRunService {
           },
         });
         // What the run's commands may reach, as the adapter applied it (R-G14).
-        this.appendEvent(workspaceId, runId, {
+        this.journal.appendEvent(workspaceId, runId, {
           kind: 'notice',
           payload: { category: 'other', message: outsideSourcesNote(launch) },
         });
-        const started = this.transition(workspaceId, runId, LIVE_STATUSES, 'running', {
+        const started = this.journal.transition(workspaceId, runId, LIVE_STATUSES, 'running', {
           startedAt: this.now().toISOString(),
         });
         if (started === undefined) {
@@ -1512,7 +1182,7 @@ export class AgentRunService {
             input.worktreeId,
             drainUntilExit(session.items[Symbol.asyncIterator]()),
           );
-          this.removeProcessRecord(runId);
+          this.processes.removeProcessRecord(runId);
           return this.storage.execution.runs.find(workspaceId, runId) ?? run;
         }
 
@@ -1523,7 +1193,7 @@ export class AgentRunService {
           cancelRequested: false,
           done: Promise.resolve(),
         };
-        this.live.set(runId, liveRun);
+        this.state.live.set(runId, liveRun);
         if (controlled) {
           const timer = setTimeout(
             () => {
@@ -1532,11 +1202,11 @@ export class AgentRunService {
               // The run ends now, but its process may still be writing: the worktree is held
               // until it exits, so an investigation is compared only then (R-C16 review M1).
               void this.mutations.untilExited(input.worktreeId, liveRun.done);
-              this.finalize(workspaceId, runId, 'failed', { message: controlled.limit });
+              this.journal.finalize(workspaceId, runId, 'failed', { message: controlled.limit });
             },
             Math.max(1, Date.parse(controlled.deadlineAt) - this.now().getTime()),
           );
-          this.preparationTimers.set(runId, timer);
+          this.state.preparationTimers.set(runId, timer);
         }
         if (cycle !== undefined) {
           const latest = this.storage.execution.cycles.find(workspaceId, cycle.id);
@@ -1545,7 +1215,7 @@ export class AgentRunService {
             session.kill();
           }
         }
-        liveRun.done = this.supervise(liveRun, input.worktreeId);
+        liveRun.done = this.supervision.supervise(liveRun, input.worktreeId);
         return this.storage.execution.runs.find(workspaceId, runId) ?? run;
       };
       const declaredIds =
@@ -1556,7 +1226,7 @@ export class AgentRunService {
               }
             ).declaredChecks?.checks.map((check) => check.id) ?? [])
           : [];
-      const checks = this.checks;
+      const checks = this.state.checks;
       if (!declaredIds.length || !checks) return proceed('');
       // A review's adopted checks run before the reviewer starts, so its gate never waits on the
       // reviewer running them, and the reviewer reads their results (R-G13 increment 3, LIVE-23).
@@ -1568,8 +1238,8 @@ export class AgentRunService {
         const current = this.storage.execution.runs.find(workspaceId, runId);
         if (!current || isTerminalAgentRunStatus(current.status)) return;
         // Drained, stopped or replaced while the checks ran: start no agent.
-        if (this.draining)
-          return this.finalize(workspaceId, runId, 'interrupted', {
+        if (this.state.draining)
+          return this.journal.finalize(workspaceId, runId, 'interrupted', {
             reason: 'daemon-drain',
             message: DRAIN_INTERRUPTED_MESSAGE,
           });
@@ -1582,27 +1252,28 @@ export class AgentRunService {
           actor.userId,
           cycle,
         );
-        if (refused) return this.finalize(workspaceId, runId, 'cancelled', { message: refused });
+        if (refused)
+          return this.journal.finalize(workspaceId, runId, 'cancelled', { message: refused });
         await proceed(declaredCheckReport(results, runDirectory));
       })()
         .catch((error) => {
           try {
             const current = this.storage.execution.runs.find(workspaceId, runId);
             if (current && !isTerminalAgentRunStatus(current.status))
-              this.finalize(workspaceId, runId, 'failed', {
+              this.journal.finalize(workspaceId, runId, 'failed', {
                 message: error instanceof Error ? error.message : 'The review could not start.',
               });
           } catch {
             /* storage closed with the daemon: the restart recovers the run */
           }
         })
-        .finally(() => this.checkingLaunches.delete(runId));
-      this.checkingLaunches.set(runId, { workspaceId, runId, cancel, done: continuation });
+        .finally(() => this.state.checkingLaunches.delete(runId));
+      this.state.checkingLaunches.set(runId, { workspaceId, runId, cancel, done: continuation });
       this.mutations.hold(input.worktreeId, continuation);
       return this.storage.execution.runs.find(workspaceId, runId) ?? run;
     });
     starting.done = launch;
-    return launch.finally(() => this.startingLaunches.delete(starting));
+    return launch.finally(() => this.state.startingLaunches.delete(starting));
   }
 
   private async launchCycleSession(
@@ -1618,7 +1289,7 @@ export class AgentRunService {
         reject(new CycleLaunchCancelledError('Cycle launch cancelled or step time limit reached'));
       };
     });
-    this.pendingCycleLaunches.set(cycle.currentRunId, cancel);
+    this.state.pendingCycleLaunches.set(cycle.currentRunId, cancel);
     const timeout = setTimeout(
       cancel,
       Math.max(1, Date.parse(cycle.runDeadlineAt) - this.now().getTime()),
@@ -1637,7 +1308,7 @@ export class AgentRunService {
       return await Promise.race([launching, cancellation]);
     } finally {
       clearTimeout(timeout);
-      this.pendingCycleLaunches.delete(cycle.currentRunId);
+      this.state.pendingCycleLaunches.delete(cycle.currentRunId);
     }
   }
 
@@ -1653,7 +1324,7 @@ export class AgentRunService {
     cancelled: () => boolean,
   ): Promise<AgentSession> {
     if (request.model !== undefined) await firstCatalogLook(backend);
-    if (cancelled() || this.draining || this.interrupting)
+    if (cancelled() || this.state.draining || this.state.interrupting)
       throw new CycleLaunchCancelledError('Launch cancelled while the model catalog was read');
     refuseMisnamedModel(backend, request.model);
     return backend.launch(request);
@@ -1685,7 +1356,7 @@ export class AgentRunService {
     if (liveRun === undefined || !liveRun.session.send(text)) {
       return { run, accepted: false };
     }
-    this.appendEvent(workspaceId, runId, { kind: 'user-message', payload: { text } });
+    this.journal.appendEvent(workspaceId, runId, { kind: 'user-message', payload: { text } });
     const occurredAt = this.now().toISOString();
     this.storage.transaction((tx) => {
       tx.audit.append({
@@ -1703,7 +1374,13 @@ export class AgentRunService {
         metadata: { byteLength: Buffer.byteLength(text, 'utf8') },
       });
     });
-    const updated = this.transition(workspaceId, runId, ['waiting', 'running'], 'running', {});
+    const updated = this.journal.transition(
+      workspaceId,
+      runId,
+      ['waiting', 'running'],
+      'running',
+      {},
+    );
     return { run: updated ?? this.requireRun(workspaceId, runId), accepted: true };
   }
 
@@ -1723,7 +1400,7 @@ export class AgentRunService {
       return { run, accepted: false };
     }
     liveRun.session.end();
-    this.recordCommand(context, workspaceId, runId, 'agent-run.end', requestId);
+    this.journal.recordCommand(context, workspaceId, runId, 'agent-run.end', requestId);
     return { run, accepted: true };
   }
 
@@ -1742,15 +1419,15 @@ export class AgentRunService {
     if (liveRun !== undefined) {
       liveRun.cancelRequested = true;
       liveRun.session.kill();
-      this.recordCommand(context, workspaceId, runId, 'agent-run.cancel', requestId);
+      this.journal.recordCommand(context, workspaceId, runId, 'agent-run.cancel', requestId);
       return { run, accepted: true };
     }
     if (isTerminalAgentRunStatus(run.status)) {
       return { run, accepted: false };
     }
     // Non-terminal but not live: the process is gone, so close the record.
-    this.recordCommand(context, workspaceId, runId, 'agent-run.cancel', requestId);
-    this.finalize(workspaceId, runId, 'cancelled', { message: 'Cancelled by operator' });
+    this.journal.recordCommand(context, workspaceId, runId, 'agent-run.cancel', requestId);
+    this.journal.finalize(workspaceId, runId, 'cancelled', { message: 'Cancelled by operator' });
     return { run: this.requireRun(workspaceId, runId), accepted: true };
   }
 
@@ -1844,299 +1521,23 @@ export class AgentRunService {
   /* Lifecycle                                                               */
   /* ---------------------------------------------------------------------- */
 
-  /**
-   * A short private directory for the agent process itself, its TMPDIR (LIVE-31): Claude Code's
-   * command sandbox makes Unix sockets there, and a socket path holds at most 107 bytes, which
-   * the run's scratch path leaves no room for. The run's scratch stays the commands' and
-   * builds' place. Removed when the run ends.
-   */
-  private processTemporaryDirectory(runId: AgentRunId): string {
-    // A launch of the same run that failed before its record left one: it goes now.
-    this.removeProcessTemporaryDirectory(runId);
-    const root = this.config.agentTemporaryRoot;
-    mkdirSync(root, { recursive: true, mode: 0o700 });
-    for (;;) {
-      const directory = join(root, randomBytes(RUN_TEMPORARY_NAME_BYTES).toString('hex'));
-      try {
-        mkdirSync(directory, { mode: 0o700 });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
-        throw error;
-      }
-      this.processTemporaryDirectories.set(runId, directory);
-      return directory;
-    }
-  }
-
-  private removeProcessTemporaryDirectory(runId: AgentRunId): void {
-    const directory = this.processTemporaryDirectories.get(runId);
-    if (directory === undefined) return;
-    this.processTemporaryDirectories.delete(runId);
-    this.removeAgentDirectory(directory, { runId });
-  }
-
-  /**
-   * Removes an agent's directory in the background, as a run's scratch is, never following
-   * what the agent left (LIVE-31 verification). `quiesce` waits for it; a failure is logged.
-   */
-  private removeAgentDirectory(directory: string, context: Record<string, string> = {}): void {
-    const removing: Promise<void> = removeAgentTree(directory)
-      .then((failure) => {
-        if (failure)
-          this.log.warn("An agent's temporary directory could not be removed", {
-            ...context,
-            directory,
-            error: failure,
-          });
-      })
-      // Nothing here may become an unhandled rejection, not even a failing log.
-      .catch(() => undefined)
-      .finally(() => this.cleanups.delete(removing));
-    this.cleanups.add(removing);
-  }
-
-  /**
-   * Records who the run's agent process group is, right after launch (R-G11, AGT-02), so the
-   * next daemon can end it if this one stops without draining. The record is the daemon's own
-   * (operator decision 2026-10-07): beside the database, which no sandboxed command may read or
-   * write (R-G9), replaced whole and never through a link. A launch never fails for want of it.
-   */
-  private recordProcessIdentity(
-    workspaceId: WorkspaceId,
-    runId: AgentRunId,
-    session: AgentSession,
-  ): void {
-    const path = this.processRecordPath(runId);
-    const identity = processGroupIdentity(session.pid);
-    if (path === undefined || identity === undefined) return;
-    // A run already ended while it launched has nothing for a restart to end (R-G11 review).
-    const run = this.storage.execution.runs.find(workspaceId, runId);
-    if (run === undefined || isTerminalAgentRunStatus(run.status)) return;
-    const installation = this.installation();
-    if (installation === undefined) return;
-    const record: ProcessRecord = { ...identity, workspaceId, runId, installation };
-    const temporary = `${path}.${randomBytes(8).toString('hex')}`;
-    try {
-      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      writeFileSync(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
-      renameSync(temporary, path);
-    } catch (error) {
-      this.log.warn("The agent's process identity could not be recorded", {
-        runId,
-        error: String(error),
-      });
-    }
-  }
-
-  /**
-   * Which installation this daemon is: its database file's device and inode (R-G11 re-check
-   * LOW-6). A daemon started on a copy of the data directory has another, so it never takes the
-   * original's records for its own.
-   */
-  private installation(): ProcessRecord['installation'] | undefined {
-    try {
-      // As decimal text from the exact values: a device or inode number may pass 2^53.
-      const status = statSync(this.storage.databasePath, { bigint: true });
-      return { device: status.dev.toString(), inode: status.ino.toString() };
-    } catch {
-      return undefined;
-    }
-  }
-
-  /** Where a run's process record is kept; none without a daemon-private root. */
-  private processRecordPath(runId: AgentRunId): string | undefined {
-    const root = this.config.processRecordRoot;
-    return root === undefined ? undefined : join(root, `${runId}.json`);
-  }
-
-  /** Each record in the daemon-private root, by run id. */
-  private processRecords(): [string, string][] {
-    const root = this.config.processRecordRoot;
-    if (root === undefined) return [];
-    try {
-      return readdirSync(root).flatMap((name): [string, string][] => {
-        const runId = /^([0-9a-f-]{1,64})\.json$/.exec(name)?.[1];
-        return runId === undefined ? [] : [[runId, join(root, name)]];
-      });
-    } catch {
-      return [];
-    }
-  }
-
-  /** Once a run's process group has exited, its record goes: nothing of it is left to end. */
-  private removeProcessRecord(runId: AgentRunId): void {
-    const path = this.processRecordPath(runId);
-    if (path === undefined) return;
-    try {
-      rmSync(path, { force: true });
-    } catch (error) {
-      this.log.warn("A run's process record could not be removed", {
-        runId,
-        error: String(error),
-      });
-    }
-  }
-
-  /**
-   * Ends what a live run's agent left running when the daemon stopped without draining
-   * (R-G11, AGT-02), when its recorded identity proves the group is the run's, and journals it.
-   */
-  private async reapRecordedGroup(
-    run: AgentRun,
-    record: ProcessRecord,
-    graceMs: number,
-    installation: ProcessRecord['installation'] | undefined,
-  ): Promise<void> {
-    const identity: ProcessGroupIdentity = {
-      pid: record.pid,
-      startTime: record.startTime,
-      bootId: record.bootId,
-    };
-    // Written by another installation, such as the one whose data directory this is a copy of:
-    // its agents are not this daemon's to end (R-G11 re-check LOW-6).
-    if (
-      installation === undefined ||
-      record.installation.device !== installation.device ||
-      record.installation.inode !== installation.inode
-    ) {
-      this.appendEvent(run.workspaceId, run.id, {
-        kind: 'notice',
-        payload: {
-          category: 'other',
-          message: `On restart, CraftingTable left process group ${identity.pid} alone: its record was written by another installation (a copy of this data directory, or the one it was copied from).`,
-        },
-      });
-      return;
-    }
-    let reaping: ProcessGroupReaping;
-    try {
-      reaping = await reapProcessGroup(identity, {
-        graceMs,
-        notStartedBefore: Date.parse(run.createdAt),
-        runId: run.id,
-      });
-    } catch (error) {
-      this.log.warn("A run's surviving process group could not be ended", {
-        runId: run.id,
-        error: String(error),
-      });
-      return;
-    }
-    if (reaping.outcome !== 'terminated' && reaping.outcome !== 'surviving') return;
-    this.appendEvent(run.workspaceId, run.id, {
-      kind: 'notice',
-      payload: {
-        category: 'other',
-        message:
-          reaping.outcome === 'terminated'
-            ? `The daemon stopped without ending this run's agent. On restart, CraftingTable ended its process group ${identity.pid}, still running, with ${reaping.signal}.`
-            : `The daemon stopped without ending this run's agent. On restart, CraftingTable could not end its process group ${identity.pid}: it still runs after SIGTERM and SIGKILL.`,
-      },
-    });
-    if (reaping.outcome === 'surviving')
-      this.log.warn("A run's surviving process group could not be ended", {
-        runId: run.id,
-        pid: identity.pid,
-      });
-  }
-
-  /**
-   * Marks runs that were live when the daemon last stopped. A process group one of them left
-   * running, proved the run's by its recorded identity, is ended first (R-G11, AGT-02).
-   */
-  async recoverInterrupted(
-    options: { readonly terminationGraceMs?: number } = {},
-  ): Promise<number> {
-    // First what is still running, so nothing writes into what is removed below (R-G11): the
-    // group behind every record, whether its run is still live or already ended while its killed
-    // agent outlived it (R-G11 re-check LOW-4). Only the daemon's own records: a `process.json`
-    // an agent left in its run directory is never read (operator decision 2026-10-07).
-    const stale = this.storage.execution.runs.listLive();
-    const live = new Map(stale.map((run) => [run.id as string, run]));
-    const installation = this.installation();
-    const reaping: Promise<void>[] = [];
-    for (const [runId, path] of this.processRecords()) {
-      const record = readProcessRecord(path);
-      if (record === undefined || record.runId !== runId) continue;
-      const run =
-        live.get(runId) ??
-        this.storage.execution.runs.find(record.workspaceId as WorkspaceId, runId as AgentRunId);
-      if (run === undefined) continue;
-      reaping.push(
-        this.reapRecordedGroup(
-          run,
-          record,
-          options.terminationGraceMs ?? RECOVERY_TERMINATION_GRACE_MS,
-          installation,
-        ),
-      );
-    }
-    await Promise.all(reaping);
-    // Their agents' temporary directories went with them (LIVE-31). One that cannot be removed
-    // is logged; it never keeps the daemon from starting (LIVE-31 review).
-    const root = this.config.agentTemporaryRoot;
-    let leftovers: string[] = [];
-    try {
-      leftovers = readdirSync(root);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-        this.log.warn("Agents' temporary directories could not be listed", {
-          error: String(error),
-        });
-    }
-    // Only what a run made goes: a directory, not a link, named as `processTemporaryDirectory`
-    // names one. Anything else stays, so a root set where other files live loses none of them
-    // (TS-H3); it is named once.
-    const left: string[] = [];
-    for (const name of leftovers) {
-      if (isRunTemporaryDirectory(root, name)) this.removeAgentDirectory(join(root, name));
-      // The root's lock sockets (R-G5), a daemon's own; never a file or directory so named.
-      else if (!isRootLockSocket(root, name)) left.push(name);
-    }
-    if (left.length > 0)
-      this.log.warn(
-        "Entries in the agents' temporary root that are not run directories were left in place",
-        { root, count: left.length, entries: left.sort().slice(0, LEFT_ENTRIES_NAMED) },
-      );
-    this.storage.transaction((tx) =>
-      tx.phaseScheduling.releaseOperations(this.now().toISOString()),
-    );
-    for (const run of stale) {
-      this.finalize(run.workspaceId, run.id, 'interrupted', {
-        message: 'The daemon restarted while this run was live',
-      });
-    }
-    // No run is live now: records a stop left behind (a write cut short, say) go too.
-    const records = this.config.processRecordRoot;
-    if (records !== undefined)
-      try {
-        for (const name of readdirSync(records))
-          if (/^[0-9a-f-]{1,64}\.json(?:\.[0-9a-f]{16})?$/.test(name))
-            rmSync(join(records, name), { force: true });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-          this.log.warn('Process records could not be cleared', { error: String(error) });
-      }
-    return stale.length;
-  }
-
   /** Stops admitting new runs for a restart drain (R-B9); live runs continue. */
   beginDrain(): void {
-    this.draining = true;
+    this.state.draining = true;
   }
 
   /** The daemon is stopping on a signal; see `serviceStopping`. */
   noteServiceStop(): void {
-    this.serviceStopping = true;
+    this.state.serviceStopping = true;
   }
 
   /** Lifts a drain that was cancelled before anything was interrupted. */
   cancelDrain(): void {
-    this.draining = false;
+    this.state.draining = false;
   }
 
   isDraining(): boolean {
-    return this.draining;
+    return this.state.draining;
   }
 
   /**
@@ -2146,13 +1547,13 @@ export class AgentRunService {
    */
   async quiesce(maxTurns = 1000): Promise<void> {
     for (let turn = 0; turn < maxTurns; turn++) {
-      await Promise.allSettled([...this.cleanups]);
-      await Promise.allSettled([...this.checkingLaunches.values()].map((c) => c.done));
+      await Promise.allSettled([...this.state.cleanups]);
+      await Promise.allSettled([...this.state.checkingLaunches.values()].map((c) => c.done));
       await new Promise((resolve) => setImmediate(resolve));
       if (
-        this.pendingCycleLaunches.size === 0 &&
-        this.cleanups.size === 0 &&
-        [...this.live.values()].every((liveRun) => liveRun.awaitingItem === true)
+        this.state.pendingCycleLaunches.size === 0 &&
+        this.state.cleanups.size === 0 &&
+        [...this.state.live.values()].every((liveRun) => liveRun.awaitingItem === true)
       )
         return;
     }
@@ -2165,97 +1566,73 @@ export class AgentRunService {
    */
   busyRunCount(): number {
     let busy =
-      this.pendingCycleLaunches.size + this.checkingLaunches.size + this.startingLaunches.size;
-    for (const liveRun of this.live.values()) {
+      this.state.pendingCycleLaunches.size +
+      this.state.checkingLaunches.size +
+      this.state.startingLaunches.size;
+    for (const liveRun of this.state.live.values()) {
       const run = this.storage.execution.runs.find(liveRun.workspaceId, liveRun.runId);
       if (run?.status !== 'waiting' || liveRun.session.backgroundWorkPending) busy++;
     }
     return busy;
   }
 
-  /**
-   * Ends every live session for a restart and returns how many were interrupted. A
-   * controller step waiting between turns has finished its work and ends normally, so
-   * the controller classifies its result after the restart; everything else is
-   * terminated and recorded as `interrupted` with reason `daemon-drain`.
-   */
-  async interruptForRestart(): Promise<number> {
-    this.draining = true;
-    this.interrupting = true;
-    for (const cancel of this.pendingCycleLaunches.values()) cancel();
-    const checking = [...this.checkingLaunches.values()];
-    for (const launch of checking) launch.cancel();
-    const starting = [...this.startingLaunches];
-    const liveAtStart = new Set(this.live.keys());
-    const pending = [...this.live.values(), ...this.orphaned];
-    let interrupted = 0;
-    for (const liveRun of this.live.values()) {
-      const run = this.storage.execution.runs.find(liveRun.workspaceId, liveRun.runId);
-      const cycleTurnDone =
-        run?.status === 'waiting' &&
-        !liveRun.session.backgroundWorkPending &&
-        this.storage.execution.cycles.activeForWorktree(run.workspaceId, run.worktreeId)
-          ?.currentRunId === run.id;
-      if (cycleTurnDone) {
-        liveRun.session.end();
-        continue;
-      }
-      liveRun.drainInterrupted = true;
-      liveRun.session.kill();
-      interrupted++;
-    }
-    const timeout = new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, SHUTDOWN_GRACE_MS);
-      timer.unref();
-    });
-    await Promise.race([
-      Promise.allSettled([
-        ...pending.map((liveRun) => liveRun.done),
-        // A review stopped in its checks records its interruption before storage closes.
-        ...checking.map((launch) => launch.done),
-        // A launch past its drain check reaches its checks (stopped at once) or its session
-        // (ended at once).
-        ...starting.map((launch) => launch.done),
-      ]),
-      timeout,
-    ]);
-    // Every launch the drain found (none can begin a run after it). A review whose checks
-    // outlast the grace (a slow clone ignores the abort), or a launch whose session has not
-    // come, is recorded as the drain's now, before storage closes; it then starts nothing.
-    const launches = new Map<string, { workspaceId: WorkspaceId; runId: AgentRunId }>();
-    for (const launch of checking) launches.set(launch.runId, launch);
-    for (const { workspaceId, runId } of starting)
-      if (workspaceId && runId) launches.set(runId, { workspaceId, runId });
-    const status = (launch: { workspaceId: WorkspaceId; runId: AgentRunId }) =>
-      this.storage.execution.runs.find(launch.workspaceId, launch.runId)?.status;
-    for (const launch of launches.values()) {
-      const current = status(launch);
-      if (current && !isTerminalAgentRunStatus(current) && !this.live.has(launch.runId))
-        this.finalize(launch.workspaceId, launch.runId, 'interrupted', {
-          reason: 'daemon-drain',
-          message: DRAIN_INTERRUPTED_MESSAGE,
-        });
-    }
-    // Only the launches the drain itself stopped, each once: a session already counted above,
-    // or a review whose checks failed or that something else ended, is not.
-    return (
-      interrupted +
-      [...launches.values()].filter(
-        (launch) => !liveAtStart.has(launch.runId) && status(launch) === 'interrupted',
-      ).length
-    );
-  }
-
   async shutdown(): Promise<void> {
-    await this.interruptForRestart();
+    await this.processes.interruptForRestart();
   }
 
   /* ---------------------------------------------------------------------- */
   /* Internals                                                               */
   /* ---------------------------------------------------------------------- */
 
+  hasBackend(kind: AgentBackendKind): boolean {
+    return this.profiles.hasBackend(kind);
+  }
+  requireModelIds(
+    selections: Iterable<readonly [slot: string, selection: ModelSelection | undefined]>,
+    saved: Iterable<readonly [slot: string, selection: ModelSelection | undefined]> = [],
+  ): void {
+    this.profiles.requireModelIds(selections, saved);
+  }
+  backendAvailable(): boolean {
+    return this.profiles.backendAvailable();
+  }
+  defaultBackend(): AgentBackendKind | undefined {
+    return this.profiles.defaultBackend();
+  }
+  listRunProfiles(context: AuthContext, workspaceId: WorkspaceId, requestId?: string) {
+    return this.profiles.listRunProfiles(context, workspaceId, requestId);
+  }
+  saveRunProfiles(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    profiles: readonly WorkspaceAgentProfile[],
+    requestId?: string,
+  ): RunProfiles {
+    return this.profiles.saveRunProfiles(context, workspaceId, profiles, requestId);
+  }
+  workspaceLayerIn(tx: StorageRepositories, workspaceId: WorkspaceId) {
+    return this.profiles.workspaceLayerIn(tx, workspaceId);
+  }
+  runProfilesIn(tx: StorageRepositories, workspaceId: WorkspaceId): RunProfiles {
+    return this.profiles.runProfilesIn(tx, workspaceId);
+  }
+  toolResult(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    runId: AgentRunId,
+    digest: string,
+    requestId?: string,
+  ): string {
+    return this.journal.toolResult(context, workspaceId, runId, digest, requestId);
+  }
+  recoverInterrupted(options: { readonly terminationGraceMs?: number } = {}): Promise<number> {
+    return this.processes.recoverInterrupted(options);
+  }
+  interruptForRestart(): Promise<number> {
+    return this.processes.interruptForRestart();
+  }
   private liveRun(workspaceId: WorkspaceId, runId: AgentRunId): LiveRun | undefined {
-    const liveRun = this.live.get(runId);
+    const liveRun = this.state.live.get(runId);
     return liveRun !== undefined && liveRun.workspaceId === workspaceId ? liveRun : undefined;
   }
 
@@ -2266,553 +1643,4 @@ export class AgentRunService {
     }
     return run;
   }
-
-  /**
-   * Consumes the session. If supervision itself fails (a storage write, a
-   * report assessment), the agent must not keep working unobserved: its process
-   * group is killed, the run is closed as failed, and the worktree stays
-   * reserved until the session reports its exit (AGT-01).
-   */
-  private async supervise(liveRun: LiveRun, worktreeId: WorktreeId): Promise<void> {
-    const items = liveRun.session.items[Symbol.asyncIterator]();
-    try {
-      await this.consume(liveRun, items);
-    } catch (error) {
-      const { workspaceId, runId } = liveRun;
-      this.log.warn('agent run consumer failed', {
-        runId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      liveRun.cancelRequested = true;
-      liveRun.session.kill();
-      this.orphaned.add(liveRun);
-      const reserved = this.mutations.untilExited(worktreeId, drainUntilExit(items));
-      try {
-        this.finalize(workspaceId, runId, 'failed', { message: 'Run supervision failed' });
-      } catch (finalizeError) {
-        this.log.warn('agent run finalization failed', {
-          runId,
-          error: finalizeError instanceof Error ? finalizeError.message : String(finalizeError),
-        });
-      }
-      await reserved;
-      // Not at the finalize above: the killed group may outlive it (R-G11 review LOW-4).
-      this.removeProcessRecord(runId);
-      this.orphaned.delete(liveRun);
-      this.notifier.notify();
-    }
-  }
-
-  /**
-   * Iterates by hand rather than with `for await`: an exception in the loop body
-   * must not close the backend's stream, because `supervise` keeps reading it to
-   * learn when the killed process has exited.
-   */
-  private async consume(liveRun: LiveRun, items: AsyncIterator<AgentSessionItem>): Promise<void> {
-    const { workspaceId, runId } = liveRun;
-    const read = async () => {
-      liveRun.awaitingItem = true;
-      try {
-        return await items.next();
-      } finally {
-        liveRun.awaitingItem = false;
-      }
-    };
-    for (let next = await read(); next.done !== true; next = await read()) {
-      const item = next.value;
-      if (item.type === 'exited') {
-        // Its process group is gone: nothing is left for a restart to end (R-G11 review).
-        this.removeProcessRecord(runId);
-        const lastTurn = this.storage.execution.runEvents.latestOfKind(
-          workspaceId,
-          runId,
-          'turn-completed',
-        );
-        const serviceFailed =
-          lastTurn?.kind === 'turn-completed' &&
-          lastTurn.payload.outcome === 'error' &&
-          !!lastTurn.payload.providerFailure;
-        // While the daemon is stopping on a signal, a signal the daemon did not send is the
-        // service manager stopping the unit's whole process group: that is a restart, not a
-        // failure. During a deploy's drain nothing else is stopping, so a signal-killed
-        // agent (OOM, crash) is a failure and keeps the explicit resume.
-        const drained =
-          liveRun.drainInterrupted === true ||
-          (this.serviceStopping && !liveRun.cancelRequested && item.signal !== null);
-        const status: AgentRunStatus = drained
-          ? 'interrupted'
-          : liveRun.cancelRequested
-            ? 'cancelled'
-            : item.exitCode === 0 && !item.reason && !serviceFailed
-              ? 'finished'
-              : 'failed';
-        this.finalize(workspaceId, runId, status, {
-          ...(item.exitCode === null ? {} : { exitCode: item.exitCode }),
-          ...(item.signal === null ? {} : { signal: item.signal }),
-          ...(drained
-            ? { reason: 'daemon-drain' as const, message: DRAIN_INTERRUPTED_MESSAGE }
-            : item.reason
-              ? {
-                  reason: item.reason,
-                  message:
-                    item.reason === 'background-work-incomplete'
-                      ? 'The agent exited before collecting background work and reporting completion. Its process group has finished; the last message is an incomplete outcome.'
-                      : 'Background work exceeded the step time limit and was terminated. Inspect partial verification results before resuming.',
-                }
-              : status === 'cancelled' && liveRun.cancelMessage
-                ? { message: liveRun.cancelMessage }
-                : {}),
-        });
-        return;
-      }
-      let event = item.event;
-      if (event.kind === 'turn-completed') {
-        const run = this.storage.execution.runs.find(workspaceId, runId);
-        if (run?.role === 'review') {
-          const repairCycle = this.storage.execution.cycles.activeForWorktree(
-            run.workspaceId,
-            run.worktreeId,
-          );
-          const repairIds = repairCycle?.scopeRepair
-            ? scopeRepairPacket(this.storage, repairCycle).sources.flatMap((s) =>
-                s.findings.map((f) => f.id),
-              )
-            : [];
-          let reviewReport =
-            event.payload.outcome === 'error'
-              ? {
-                  status: 'invalid' as const,
-                  fault: 'content' as const,
-                  issues: ['The review turn failed; request a successful consolidated report.'],
-                }
-              : assessReviewReport(
-                  event.payload.resultText,
-                  event.payload.truncated,
-                  new Set([...requiredFindingIds(this.storage.execution, run), ...repairIds]),
-                );
-          const stagedCycle = this.storage.execution.cycles.activeForWorktree(
-            run.workspaceId,
-            run.worktreeId,
-          );
-          const staged = stagedCycle?.finalizationId
-            ? this.storage.execution.finalizations.find(run.workspaceId, stagedCycle.finalizationId)
-            : undefined;
-          if (staged?.stages && stagedCycle?.currentRunId === run.id)
-            reviewReport = assessStageReport(
-              staged,
-              stagedCycle,
-              reviewReport,
-              run.reviewBranchContext,
-            );
-          event = { ...event, payload: { ...event.payload, reviewReport } };
-        }
-      }
-      this.appendEvent(workspaceId, runId, event);
-      switch (event.kind) {
-        case 'session-started':
-          this.transition(workspaceId, runId, ['starting', 'running', 'waiting'], 'running', {
-            backendSessionId: event.payload.backendSessionId,
-            resolvedModel: event.payload.model,
-            billing: event.payload.billing,
-          });
-          break;
-        case 'assistant-message':
-        case 'tool-call':
-          // A message queued during the preceding turn can start after its result
-          // moved the run to waiting. Activity belongs to the new turn.
-          this.transition(workspaceId, runId, ['waiting'], 'running', {});
-          break;
-        case 'turn-completed': {
-          const run = this.storage.execution.runs.find(workspaceId, runId);
-          const verdict =
-            run?.role === 'review' &&
-            event.payload.outcome === 'success' &&
-            event.payload.reviewReport?.status !== 'invalid'
-              ? finalVerdict(event.payload.resultText)
-              : undefined;
-          this.transition(workspaceId, runId, ['starting', 'running', 'waiting'], 'waiting', {
-            turnCountIncrement: 1,
-            ...(event.payload.model === undefined ? {} : { resolvedModel: event.payload.model }),
-            outcomeSummary: summarise(event.payload.resultText),
-            ...(event.payload.costUsd === undefined ? {} : { costUsd: event.payload.costUsd }),
-            ...(run?.role === 'review' ? { verdict: verdict ?? null } : {}),
-          });
-          if (this.preparationTimers.has(runId)) liveRun.session.end();
-          break;
-        }
-        default:
-          break;
-      }
-    }
-  }
-
-  private appendEvent(
-    workspaceId: WorkspaceId,
-    runId: AgentRunId,
-    event: NormalizedAgentEvent,
-  ): void {
-    const occurredAt = this.now().toISOString();
-    this.storage.transaction((tx) => {
-      tx.execution.runEvents.append({
-        id: asAgentRunEventId(randomUUID()),
-        workspaceId,
-        runId,
-        occurredAt,
-        kind: event.kind,
-        payload:
-          event.kind === 'tool-result'
-            ? this.journalToolResult(tx, runId, event.payload)
-            : event.payload,
-        ...(event.raw === undefined ? {} : { raw: event.raw }),
-      } as Parameters<typeof tx.execution.runEvents.append>[0]);
-    });
-    this.notifier.notify(
-      ['session-started', 'turn-completed', 'run-finished'].includes(event.kind)
-        ? 'workflow'
-        : 'activity',
-    );
-  }
-
-  /**
-   * A large tool result keeps only a preview in the journal; its body goes to the run's
-   * directory (R-H2). Without a registered directory, or when the write fails, the whole
-   * output is journaled as before.
-   */
-  private journalToolResult(
-    tx: StorageRepositories,
-    runId: AgentRunId,
-    payload: AgentRunEventPayload<'tool-result'>,
-  ): AgentRunEventPayload<'tool-result'> {
-    const directory = tx.maintenance.directory(runId)?.path;
-    if (directory === undefined) return payload;
-    try {
-      return offloadToolResult(payload, directory);
-    } catch {
-      return payload;
-    }
-  }
-
-  /**
-   * The worktree's shared Cargo target directory (R-G7), registered at the worktree's first
-   * launch and reused by every later step, so each step builds incrementally instead of from
-   * cold. Cargo creates the directory on its first build, so a worktree that never builds
-   * Rust leaves nothing behind. Storage cleanup removes it once the worktree is merged or
-   * removed and nothing runs in it (ADR-039). Without a usable location the run builds in
-   * its own scratch, as before.
-   */
-  private worktreeBuildCache(worktree: Worktree, create: boolean): string | undefined {
-    try {
-      // For a worktree that builds with Cargo the daemon makes the directory before the launch:
-      // a sandbox can make only an existing directory writable, and its parent is read-only to
-      // the agent, so Cargo could not create it (live 2026-10-13: an off-map run's builds all
-      // failed). Storage may have cleaned a recorded cache away; it is made again where it was
-      // recorded. A worktree that never builds Rust still leaves nothing.
-      const recorded = this.storage.maintenance.worktreeCache(worktree.id);
-      if (recorded) {
-        if (create) mkdirSync(recorded.path, { recursive: true, mode: 0o700 });
-        else if (!existsSync(recorded.path)) return recorded.path;
-        const usable =
-          lstatSync(recorded.path).isDirectory() && statSync(recorded.path).dev === recorded.device;
-        return usable ? recorded.path : undefined;
-      }
-      const parent = join(this.config.runsRoot, WORKTREE_CACHES_DIRECTORY);
-      mkdirSync(parent, { recursive: true, mode: 0o700 });
-      const root = realpathSync(parent);
-      const path = join(root, worktree.id);
-      if (create) mkdirSync(path, { recursive: true, mode: 0o700 });
-      this.storage.maintenance.registerWorktreeCache({
-        worktreeId: worktree.id,
-        workspaceId: worktree.workspaceId,
-        path,
-        device: statSync(root).dev,
-        createdAt: this.now().toISOString(),
-      });
-      return path;
-    } catch {
-      return undefined;
-    }
-  }
-
-  /** The full output of a tool result whose body left the journal (R-H2). */
-  toolResult(
-    context: AuthContext,
-    workspaceId: WorkspaceId,
-    runId: AgentRunId,
-    digest: string,
-    requestId?: string,
-  ): string {
-    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
-    const run = this.storage.execution.runs.find(workspaceId, runId);
-    const directory = run && this.storage.maintenance.directory(run.id)?.path;
-    const body = directory === undefined ? undefined : readToolResult(directory, digest);
-    if (body === undefined) throw new NotFoundError();
-    return body;
-  }
-
-  /**
-   * Guarded status transition. Emits a workspace event only when the status
-   * actually changed, so per-event bookkeeping (session id, cost) stays out of
-   * the workspace journal.
-   */
-  private transition(
-    workspaceId: WorkspaceId,
-    runId: AgentRunId,
-    expectedStatuses: readonly AgentRunStatus[],
-    toStatus: AgentRunStatus,
-    fields: {
-      readonly backendSessionId?: string;
-      readonly resolvedModel?: string;
-      readonly billing?: AgentBillingSource;
-      readonly verdict?: AgentRunVerdict | null;
-      readonly startedAt?: string;
-      readonly exitCode?: number;
-      readonly outcomeSummary?: string;
-      readonly costUsd?: number;
-      readonly turnCountIncrement?: number;
-    },
-  ): AgentRun | undefined {
-    const occurredAt = this.now().toISOString();
-    const result = this.storage.transaction((tx) => {
-      const before = tx.execution.runs.find(workspaceId, runId);
-      if (before === undefined || !expectedStatuses.includes(before.status)) {
-        return undefined;
-      }
-      const after = tx.execution.runs.transition({
-        workspaceId,
-        runId,
-        expectedStatuses,
-        toStatus,
-        occurredAt,
-        ...fields,
-      });
-      if (after === undefined) {
-        return undefined;
-      }
-      if (before.status !== after.status) {
-        appendStatusChanged(tx, after, before.status, occurredAt);
-      }
-      return { before, after };
-    });
-    if (result !== undefined && result.before.status !== result.after.status) {
-      this.notifier.notify();
-    }
-    return result?.after;
-  }
-
-  private finalize(
-    workspaceId: WorkspaceId,
-    runId: AgentRunId,
-    status: Extract<AgentRunStatus, 'finished' | 'failed' | 'cancelled' | 'interrupted'>,
-    detail: {
-      readonly exitCode?: number;
-      readonly signal?: string;
-      readonly message?: string;
-      readonly reason?: AgentExitReason;
-    },
-  ): void {
-    clearTimeout(this.preparationTimers.get(runId));
-    this.preparationTimers.delete(runId);
-    this.live.delete(runId);
-    const occurredAt = this.now().toISOString();
-    let changed: boolean;
-    try {
-      changed = this.storage.transaction((tx) => {
-        tx.phaseScheduling.release(runId, occurredAt, status);
-        const before = tx.execution.runs.find(workspaceId, runId);
-        if (before === undefined || isTerminalAgentRunStatus(before.status)) {
-          return false;
-        }
-        this.runtimeEvidence.freezeRun(tx, workspaceId, runId, this.checks?.inFlight(runId));
-        const after = tx.execution.runs.transition({
-          workspaceId,
-          runId,
-          expectedStatuses: LIVE_STATUSES,
-          toStatus: status,
-          occurredAt,
-          finishedAt: occurredAt,
-          ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
-          ...(detail.reason ? { verdict: null } : {}),
-          ...(detail.message === undefined || before.outcomeSummary !== undefined
-            ? {}
-            : { outcomeSummary: summarise(detail.message) }),
-        });
-        if (after === undefined) {
-          return false;
-        }
-        tx.execution.runEvents.append({
-          id: asAgentRunEventId(randomUUID()),
-          workspaceId,
-          runId,
-          occurredAt,
-          kind: 'run-finished',
-          payload: {
-            status,
-            ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
-            ...(detail.signal === undefined ? {} : { signal: detail.signal }),
-            ...(detail.reason === undefined ? {} : { reason: detail.reason }),
-            ...(detail.message === undefined ? {} : { message: detail.message }),
-          },
-        });
-        tx.audit.append({
-          id: asAuditEventId(randomUUID()),
-          occurredAt,
-          actorKind: 'system',
-          workspaceId,
-          action: 'agent-run.finished',
-          targetType: 'agent-run',
-          targetId: runId,
-          outcome: status === 'finished' ? 'succeeded' : 'failed',
-          priorVersion: before.version,
-          resultingVersion: after.version,
-          metadata: {
-            status,
-            ...(detail.exitCode === undefined ? {} : { exitCode: detail.exitCode }),
-            turnCount: after.turnCount,
-            ...(after.costUsd === undefined ? {} : { costUsd: after.costUsd }),
-            ...(after.verdict === undefined ? {} : { verdict: after.verdict }),
-          },
-        });
-        appendStatusChanged(tx, after, before.status, occurredAt);
-        return true;
-      });
-    } finally {
-      // After the run's record, and even if it failed, so nothing an agent left can keep a run
-      // from ending, and its directory never waits for a restart (LIVE-31 review).
-      this.removeProcessTemporaryDirectory(runId);
-    }
-    // Checks still running record nothing: the build record was frozen above.
-    const checks = this.checks?.close(runId);
-    if (checks) {
-      const stopping = checks
-        .catch((error) => this.log.warn('Check cleanup failed', { runId, error: String(error) }))
-        .finally(() => this.cleanups.delete(stopping));
-      this.cleanups.add(stopping);
-    }
-    if (changed) {
-      const run = this.storage.execution.runs.find(workspaceId, runId);
-      const cleanup = Promise.resolve(this.checkProtectedRefs(workspaceId, runId))
-        // A failed comparison must not skip the run's other cleanup (R-G5 review).
-        .catch((error) =>
-          this.log.warn('Protected-ref check failed', { runId, error: String(error) }),
-        )
-        .then(() => this.runtimeEvidence.cleanupRun(workspaceId, runId))
-        .then(() =>
-          run && status !== 'interrupted'
-            ? this.storageService.cleanupAfterRun(run.worktreeId)
-            : undefined,
-        )
-        .catch((error) => this.log.warn('Run cleanup failed', { runId, error: String(error) }))
-        .finally(() => {
-          this.cleanups.delete(cleanup);
-          this.notifier.notify();
-        });
-      this.cleanups.add(cleanup);
-      this.notifier.notify();
-    }
-  }
-
-  private recordCommand(
-    context: AuthContext,
-    workspaceId: WorkspaceId,
-    runId: AgentRunId,
-    action: 'agent-run.end' | 'agent-run.cancel',
-    requestId?: string,
-  ): void {
-    const occurredAt = this.now().toISOString();
-    this.storage.transaction((tx) => {
-      tx.audit.append({
-        id: asAuditEventId(randomUUID()),
-        occurredAt,
-        actorKind: 'user',
-        actorUserId: context.user.id,
-        sessionId: context.session.id,
-        workspaceId,
-        ...(requestId === undefined ? {} : { requestId }),
-        action,
-        targetType: 'agent-run',
-        targetId: runId,
-        outcome: 'succeeded',
-        metadata: {},
-      });
-    });
-  }
-}
-
-/**
- * What the daemon records of a run's agent process group (R-G11): who the group is, whose run
- * it is, and which installation wrote it (the database file's device and inode).
- */
-interface ProcessRecord extends ProcessGroupIdentity {
-  readonly workspaceId: string;
-  readonly runId: string;
-  readonly installation: { readonly device: string; readonly inode: string };
-}
-
-/**
- * A run's process record, or nothing. Never read through a link, never waiting on a pipe put in
- * its place, and at most 4 KiB; anything malformed reads as nothing.
- */
-function readProcessRecord(path: string): ProcessRecord | undefined {
-  let descriptor: number;
-  try {
-    descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  } catch {
-    return undefined;
-  }
-  try {
-    if (!fstatSync(descriptor).isFile()) return undefined;
-    const buffer = Buffer.alloc(PROCESS_IDENTITY_MAX_BYTES + 1);
-    let length = 0;
-    for (let read = -1; read !== 0 && length < buffer.length; length += read)
-      read = readSync(descriptor, buffer, length, buffer.length - length, length);
-    if (length > PROCESS_IDENTITY_MAX_BYTES) return undefined;
-    const value: unknown = JSON.parse(buffer.subarray(0, length).toString('utf8'));
-    const identity = parseProcessGroupIdentity(value);
-    if (identity === undefined || typeof value !== 'object' || value === null) return undefined;
-    const { workspaceId, runId, installation } = value as Record<string, unknown>;
-    if (
-      typeof workspaceId !== 'string' ||
-      workspaceId.length > 200 ||
-      typeof runId !== 'string' ||
-      typeof installation !== 'object' ||
-      installation === null
-    )
-      return undefined;
-    const { device, inode } = installation as Record<string, unknown>;
-    if (
-      typeof device !== 'string' ||
-      !/^\d{1,20}$/.test(device) ||
-      typeof inode !== 'string' ||
-      !/^\d{1,20}$/.test(inode)
-    )
-      return undefined;
-    return { ...identity, workspaceId, runId, installation: { device, inode } };
-  } catch {
-    return undefined;
-  } finally {
-    closeSync(descriptor);
-  }
-}
-
-function appendStatusChanged(
-  tx: StorageRepositories,
-  run: AgentRun,
-  fromStatus: AgentRunStatus,
-  occurredAt: string,
-): void {
-  tx.workspaceEvents.appendEvent({
-    id: asEventId(randomUUID()),
-    occurredAt,
-    workspaceId: run.workspaceId,
-    projectId: run.projectId,
-    workItemId: run.workItemId,
-    runId: run.id,
-    kind: 'agent-run-status-changed',
-    payload: {
-      runId: run.id,
-      ...(run.workItemId ? { workItemId: run.workItemId } : { planVersionId: run.planVersionId }),
-      fromStatus,
-      toStatus: run.status,
-    },
-  });
 }

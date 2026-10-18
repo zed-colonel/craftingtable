@@ -12,12 +12,18 @@
  *   1. copies it and its goldens into a private temporary directory and checks each copy's
  *      SHA-256 against the manifest, so the corpus itself is never opened and a re-recorded
  *      golden is a manifest change;
- *   2. runs `pnpm controller:replay <copy> [--every-run | --scheduler | --cycles | --evidence-view]
- *      --check <golden> --report <file>` for each of its cases, and for a measurement case
- *      (`evidence-decode`, R-H4), which has no golden, `--evidence-decode --report <file>`: its
- *      report lists each way the measurement fails as a changed record, never expected;
+ *   2. runs `pnpm controller:replay <copy> --host-digest <digest> [--every-run | --scheduler |
+ *      --cycles | --evidence-view] --check <golden> --report <file>` for each of its cases, and for
+ *      a measurement case (`evidence-decode`, R-H4), which has no golden, `--evidence-decode
+ *      --report <file>`: its report lists each way the measurement fails as a changed record,
+ *      never expected;
  *   3. matches each changed record against the case's expected changes, by record key and
  *      the SHA-256 of the record's new canonical value, each with its reason.
+ *
+ * Each snapshot names `hostDigest`, the native host digest current when its goldens were recorded
+ * (R-B4b). A native approval names the host it was given on, and the live digest changes with every
+ * kernel or native-tool update, so the replay runs as that host: the goldens then compare the
+ * controller, not the workstation. Record a golden for the gate with the same `--host-digest`.
  *
  * The manifest's `schedulerFormat` is the oldest scheduler golden format it accepts: while it is
  * 1, format-1 goldens pass without their command arguments compared, and the summary says so;
@@ -134,7 +140,14 @@ export function validateManifest(manifest) {
       return;
     }
     const at = isText(snapshot.id) ? `snapshot ${snapshot.id}` : where;
-    for (const key of keysOutside(snapshot, ['id', 'sha256', 'cases', 'withoutGolden', 'note']))
+    for (const key of keysOutside(snapshot, [
+      'id',
+      'sha256',
+      'hostDigest',
+      'cases',
+      'withoutGolden',
+      'note',
+    ]))
       errors.push(`${at}: unknown field "${key}".`);
     if (!isText(snapshot.id) || !NAME.test(snapshot.id))
       errors.push(`${where}: "id" must be a directory name (letters, digits, ".", "_", "-").`);
@@ -145,12 +158,22 @@ export function validateManifest(manifest) {
     if (snapshot.withoutGolden !== undefined) {
       if (!isText(snapshot.withoutGolden))
         errors.push(`${at}: "withoutGolden" must say why the snapshot has no golden.`);
-      if (snapshot.cases !== undefined || snapshot.sha256 !== undefined)
-        errors.push(`${at}: a snapshot without a golden has no cases and no "sha256".`);
+      if (
+        snapshot.cases !== undefined ||
+        snapshot.sha256 !== undefined ||
+        snapshot.hostDigest !== undefined
+      )
+        errors.push(
+          `${at}: a snapshot without a golden has no cases, no "sha256" and no "hostDigest".`,
+        );
       return;
     }
     if (!isText(snapshot.sha256) || !SHA256.test(snapshot.sha256))
       errors.push(`${at}: "sha256" must be the snapshot's SHA-256 (64 hex digits).`);
+    if (!isText(snapshot.hostDigest) || !SHA256.test(snapshot.hostDigest))
+      errors.push(
+        `${at}: "hostDigest" must be the host digest its goldens were recorded under (64 hex digits).`,
+      );
     if (!Array.isArray(snapshot.cases) || snapshot.cases.length === 0) {
       errors.push(`${at}: "cases" must be a non-empty list, or "withoutGolden" must say why not.`);
       return;
@@ -502,7 +525,16 @@ export async function main(
           log(`== ${snapshot.id} ${replayCase.mode}`);
           const result = run(
             'pnpm',
-            ['-s', 'controller:replay', copy, ...MODES[replayCase.mode], '--report', reportFile],
+            [
+              '-s',
+              'controller:replay',
+              copy,
+              '--host-digest',
+              snapshot.hostDigest,
+              ...MODES[replayCase.mode],
+              '--report',
+              reportFile,
+            ],
             { cwd: REPOSITORY_ROOT, outFile: join(out, `${name}.txt`), env: measurement },
           );
           let report;
@@ -552,6 +584,8 @@ export async function main(
             '-s',
             'controller:replay',
             copy,
+            '--host-digest',
+            snapshot.hostDigest,
             ...MODES[replayCase.mode],
             '--check',
             golden,

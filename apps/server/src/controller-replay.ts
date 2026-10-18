@@ -9,16 +9,16 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { type EvidenceSubmission, submissionHead } from '@craftingtable/domain';
 import { join, resolve } from 'node:path';
+import { type EvidenceSubmission, submissionHead } from '@craftingtable/domain';
+import { formatBriefSizes, replayBriefSizes } from './brief-size-replay.js';
+import { type CycleReplay, checkCycleReplay, replayCycleSnapshot } from './cycle-replay.js';
 import {
   evidenceDecodeFaults,
   exposedCollector,
   formatEvidenceDecodes,
   replayEvidenceDecodes,
 } from './evidence-decode-replay.js';
-import { formatBriefSizes, replayBriefSizes } from './brief-size-replay.js';
-import { checkCycleReplay, type CycleReplay, replayCycleSnapshot } from './cycle-replay.js';
 import { type EvidenceViewReplay, replayEvidenceViews } from './evidence-view-replay.js';
 import { formatPageLoads, replayPageLoads } from './page-load-replay.js';
 import { openDaemonStorage } from './persisted-records.js';
@@ -29,13 +29,14 @@ import {
   formatCheck,
   type ReplayCheck,
 } from './replay-check.js';
-import { submissionSummary } from './services/runtime-evidence-service.js';
 import {
   checkSchedulerReplay,
   replaySchedulerDecisions,
   type SchedulerReplay,
 } from './scheduler-replay.js';
 import { replayEveryRun, replayStepOutcomes } from './services/cycle/core/step-outcome.js';
+import { pinReplayHost } from './services/replay-host.js';
+import { submissionSummary } from './services/runtime-evidence-service.js';
 
 /**
  * Replays the controller's step classification over a database snapshot (R-B2).
@@ -63,6 +64,10 @@ import { replayEveryRun, replayStepOutcomes } from './services/cycle/core/step-o
  *       time (R-D5)
  *   ... --check <file> --report <report.json>   also write the comparison as JSON; the
  *       versioned replay gate reads it (`pnpm replays`, `scripts/replays.mjs`)
+ *   ... --host-digest <sha256>   replay as the host the goldens were recorded on (R-B4b): a
+ *       native approval in the snapshot is current when it names this digest, not the live
+ *       host's, which changes with every kernel; the gate passes the manifest's for each snapshot,
+ *       and a golden recorded for the gate is recorded with it too
  *
  * Take the snapshot with SQLite's backup API (for example the Storage page's backup) and
  * keep it and its golden file outside the repository: they hold real plans and agent
@@ -353,7 +358,26 @@ function briefSizes(snapshot: string, since: string, json: string | undefined): 
   }
 }
 
-async function main(args: readonly string[]): Promise<number> {
+/** Takes `--host-digest <sha256>` out of the arguments, wherever it stands, and pins it. */
+async function main(argv: readonly string[]): Promise<number> {
+  const at = argv.indexOf('--host-digest');
+  if (at < 0) return run(argv);
+  const digest = argv[at + 1];
+  const rest = [...argv.slice(0, at), ...argv.slice(at + 2)];
+  try {
+    if (digest === undefined || rest.includes('--host-digest'))
+      throw new Error('once, with a value');
+    pinReplayHost(digest);
+  } catch {
+    process.stderr.write(
+      'Usage: pnpm controller:replay <snapshot.sqlite> --host-digest <sha256> ...: the host digest the goldens were recorded under, once (64 lower-case hex digits)\n',
+    );
+    return 2;
+  }
+  return run(rest);
+}
+
+async function run(args: readonly string[]): Promise<number> {
   // pnpm runs the script in the server package; paths are relative to where it was invoked.
   const base = process.env.INIT_CWD ?? process.cwd();
   if (args.includes('--brief-sizes')) {

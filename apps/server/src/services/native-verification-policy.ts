@@ -1,6 +1,3 @@
-import { snapshotCalculation } from './map-read-snapshot.js';
-import { sameRuntimeEnvironments } from './runtime-input-policy.js';
-import { nativeHostDigest } from '@craftingtable/agents';
 import {
   type ConcurrencyDefinition,
   type ExecutionScope,
@@ -8,6 +5,9 @@ import {
   type WorkspaceId,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
+import { snapshotCalculation } from './map-read-snapshot.js';
+import { sameRuntimeEnvironments } from './runtime-input-policy.js';
+import { workstationDigest } from './workstation.js';
 export function nativeApproval(tx: StorageRepositories, ws: WorkspaceId, scope: ExecutionScope) {
   return snapshotCalculation(
     tx,
@@ -28,7 +28,7 @@ export function nativeApproval(tx: StorageRepositories, ws: WorkspaceId, scope: 
           generations.find((r) => r.id === a.runtimeId),
           generations[0],
         ) &&
-        a.hostDigest === nativeHostDigest()
+        a.hostDigest === workstationDigest()
         ? a
         : undefined;
     },

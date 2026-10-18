@@ -9,6 +9,8 @@ import {
   inspectWorkspace,
   KNOWN_IMPORT_CYCLES,
   PROCESS_AUTHORITY,
+  REPLAY_HOST_PIN,
+  REPLAY_HOST_USERS,
   runCheck,
 } from './check-forbidden-scope.mjs';
 
@@ -1346,6 +1348,44 @@ describe('the cycle core reaches no service and no file or process access (rule 
   });
 });
 
+describe('only the replay tool pins the host a replay runs as (rule 12, R-B4b)', () => {
+  const pinned = (file) =>
+    `${file}: imports the replay host pin (${REPLAY_HOST_PIN}); only the replay tool sets it and only the workstation reads it, so the daemon compares native approvals with the live host digest (R-B4b)`;
+  const pin =
+    'let pinned: string | undefined;\nexport const pinReplayHost = (d?: string) => { pinned = d; };\nexport const replayHost = () => pinned;\n';
+
+  it('finds any other production module importing the pin, by value or by type', () => {
+    const { findings } = inspectWorkspace(
+      workspace({
+        'apps/server/src/controller-replay.ts':
+          "import { pinReplayHost } from './services/replay-host.js';\npinReplayHost('x');\n",
+        'apps/server/src/services/replay-host.ts': pin,
+        'apps/server/src/services/workstation.ts':
+          "import { replayHost } from './replay-host.js';\nexport const workstationDigest = () => replayHost() ?? 'live';\n",
+        'apps/server/src/index.ts':
+          "import { workstationDigest } from './services/workstation.js';\nexport const main = workstationDigest;\n",
+        'apps/server/src/services/policy.ts':
+          "import { pinReplayHost } from './replay-host.js';\nexport const policy = () => pinReplayHost('y');\n",
+        'apps/server/src/services/typed.ts':
+          "export type Pin = typeof import('./replay-host.js').pinReplayHost;\n",
+        'apps/server/src/services/again.ts': "export { replayHost } from './replay-host.js';\n",
+        // A test may set the pin.
+        'apps/server/test/replay-host.test.ts':
+          "import { pinReplayHost } from '../src/services/replay-host.js';\npinReplayHost(undefined);\n",
+      }),
+      EMITTED_EXPORTS,
+      [],
+    );
+    expect(findings.filter((finding) => finding.includes('replay host pin')).sort()).toEqual(
+      [
+        pinned('apps/server/src/services/again.ts'),
+        pinned('apps/server/src/services/policy.ts'),
+        pinned('apps/server/src/services/typed.ts'),
+      ].sort(),
+    );
+  });
+});
+
 it('passes on the real repository, having read and classified its modules', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
   const { findings, classes, vocabulary } = inspectWorkspace(root);
@@ -1362,6 +1402,9 @@ it('passes on the real repository, having read and classified its modules', () =
   // Rule 8's exceptions name production modules: one for a moved module would pass vacuously.
   for (const path of EMITTED_EXPORTS.keys()) expect(classes.get(path)).toBe('production');
   expect(classes.get('apps/server/src/index.ts')).toBe('production');
+  // Rule 12 names the pin and its two users: a moved module would pass vacuously.
+  for (const path of [REPLAY_HOST_PIN, ...REPLAY_HOST_USERS.keys()])
+    expect(classes.get(path)).toBe('production');
   // Rule 11 starts from the cycle core's modules: a moved core would pass vacuously.
   expect(classes.get('apps/server/src/services/cycle/core/machine.ts')).toBe('production');
   // Rule 10's listed cycles name the daemon's production modules: a moved one would pass vacuously.

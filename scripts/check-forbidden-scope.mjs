@@ -91,6 +91,10 @@
  *    The core decides; the services act. A finding names the path from the core. The packages are
  *    left alone (the core reaches `@craftingtable/agents`' pure digest), and the rule claims
  *    capabilities only: the core reads storage, through the transaction it is given.
+ * 12. Only the replay tool pins the host a replay runs as (R-B4b): no production module but
+ *    `REPLAY_HOST_USERS` (the replay tool, which sets the pin, and the workstation, which reads
+ *    it) imports `apps/server/src/services/replay-host.ts`, by value, by type or through a
+ *    re-export, so the daemon compares a native approval with the live host digest.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -187,6 +191,13 @@ export const LOADER_AUTHORITY = new Map([
 
 /** The one module that reads a request's path parameters: it parses them for every route (R-H7). */
 export const PARAMETER_PARSER = 'apps/server/src/routes/route-access.ts';
+
+/** The replays' host pin (rule 12, R-B4b), and the only production modules that import it. */
+export const REPLAY_HOST_PIN = 'apps/server/src/services/replay-host.ts';
+export const REPLAY_HOST_USERS = new Map([
+  ['apps/server/src/controller-replay.ts', 'The replay tool: pins the host its goldens name'],
+  ['apps/server/src/services/workstation.ts', 'Reads the pin before the live host digest'],
+]);
 
 /** The pure planning boundary (ADR-012). */
 export const PLANNING_FORBIDDEN_PATTERNS = [
@@ -1952,7 +1963,7 @@ function requestParameterReads(module) {
   return { reads, typed };
 }
 
-/** One module's findings under rules 1-5, 7 and 9. */
+/** One module's findings under rules 1-5, 7, 9 and 12. */
 function moduleFindings(root, module, production, vocabulary) {
   const findings = [];
   const path = posix(relative(root, module.file));
@@ -1973,6 +1984,10 @@ function moduleFindings(root, module, production, vocabulary) {
       );
     const targetPackage = resolved === undefined ? undefined : placeOf(root, resolved);
     const targetPath = resolved === undefined ? undefined : posix(relative(root, resolved));
+    if (targetPath === REPLAY_HOST_PIN && !REPLAY_HOST_USERS.has(path))
+      findings.push(
+        `${path}: imports the replay host pin (${REPLAY_HOST_PIN}); only the replay tool sets it and only the workstation reads it, so the daemon compares native approvals with the live host digest (R-B4b)`,
+      );
     if (owningPackage === 'packages/planning') {
       if (PLANNING_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier)))
         findings.push(`${path}: planning package imports impure module "${specifier}"`);
@@ -2141,6 +2156,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules but the ${KNOWN_IMPORT_CYCLES.length} listed, the cycle core free of services and of file and process access, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules but the ${KNOWN_IMPORT_CYCLES.length} listed, the cycle core free of services and of file and process access, the replays' host pin imported only by the replay tool and the workstation, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
   );
 }

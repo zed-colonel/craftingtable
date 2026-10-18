@@ -19,11 +19,14 @@ const scratch = () => {
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 const HASH = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);
+/** The host a snapshot's goldens were recorded on (R-B4b), which its replays are pinned to. */
+const HOST = 'c'.repeat(64);
 
 const manifest = (snapshots) => ({ root: 'review/replay', schedulerFormat: 1, snapshots });
 const snapshot = (overrides = {}) => ({
   id: '2026-01-01',
   sha256: HASH,
+  hostDigest: HOST,
   cases: [{ mode: 'golden', golden: 'golden.json', goldenSha256: HASH }],
   ...overrides,
 });
@@ -103,8 +106,9 @@ describe('validateManifest', () => {
       '"ignored" must list directories as { "id", "reason" }.',
       'snapshot 2026-01-01: "sha256" must be the snapshot\'s SHA-256 (64 hex digits).',
       'snapshot 2026-01-01: listed twice.',
-      'snapshot 2026-01-03: a snapshot without a golden has no cases and no "sha256".',
+      'snapshot 2026-01-03: a snapshot without a golden has no cases, no "sha256" and no "hostDigest".',
       'snapshot 2026-01-04: "sha256" must be the snapshot\'s SHA-256 (64 hex digits).',
+      'snapshot 2026-01-04: "hostDigest" must be the host digest its goldens were recorded under (64 hex digits).',
       'snapshot 2026-01-04: "cases" must be a non-empty list, or "withoutGolden" must say why not.',
       'snapshot 2026-01-05 cases[1]: mode golden is listed twice.',
       'snapshot 2026-01-05 cases[2]: "goldenSha256" must be the golden\'s SHA-256 (64 hex digits).',
@@ -112,6 +116,26 @@ describe('validateManifest', () => {
       'snapshot 2026-01-05 cases[3] expected[1]: key k listed twice.',
       'snapshot 2026-01-05 cases[3] expected[1]: "nowSha256" must be the SHA-256 of the record\'s new value.',
       'snapshot 2026-01-05 cases[3] expected[1]: "reason" must say why it changed.',
+    ]);
+  });
+});
+
+describe('the replay host (R-B4b)', () => {
+  it('names the host digest the goldens were recorded under, once per snapshot with goldens', () => {
+    expect(
+      validateManifest(
+        manifest([
+          snapshot({ hostDigest: undefined }),
+          snapshot({ id: '2026-01-02', hostDigest: 'abc' }),
+          snapshot({ id: '2026-01-03', hostDigest: HOST.toUpperCase() }),
+          { id: '2026-01-04', withoutGolden: 'No golden was recorded.', hostDigest: HOST },
+        ]),
+      ),
+    ).toEqual([
+      'snapshot 2026-01-01: "hostDigest" must be the host digest its goldens were recorded under (64 hex digits).',
+      'snapshot 2026-01-02: "hostDigest" must be the host digest its goldens were recorded under (64 hex digits).',
+      'snapshot 2026-01-03: "hostDigest" must be the host digest its goldens were recorded under (64 hex digits).',
+      'snapshot 2026-01-04: a snapshot without a golden has no cases, no "sha256" and no "hostDigest".',
     ]);
   });
 });
@@ -189,6 +213,8 @@ describe('a measurement case (R-H4)', () => {
       '-s',
       'controller:replay',
       expect.stringContaining('snapshot.sqlite'),
+      '--host-digest',
+      HOST,
       '--evidence-decode',
       '--report',
       expect.stringContaining('2026-01-01-evidence-decode.report.json'),
@@ -390,8 +416,17 @@ describe('main', () => {
     expect(await exit).toBe(0);
     expect(calls[0]).toEqual(['pnpm', 'exec', 'tsc', '-b']);
     expect(calls.slice(1).map((call) => call.filter((arg) => !arg.startsWith('/')))).toEqual([
-      ['pnpm', '-s', 'controller:replay', '--check', '--report'],
-      ['pnpm', '-s', 'controller:replay', '--scheduler', '--check', '--report'],
+      ['pnpm', '-s', 'controller:replay', '--host-digest', HOST, '--check', '--report'],
+      [
+        'pnpm',
+        '-s',
+        'controller:replay',
+        '--host-digest',
+        HOST,
+        '--scheduler',
+        '--check',
+        '--report',
+      ],
     ]);
     expect(lines.at(-1)).toMatch(
       /^1 of 2 comparisons report 0 changed; 1 differ only as expected; 0 failed\..* Commit: [0-9a-f]{12} \((clean|dirty: \d+ changed paths)\)\./,
@@ -428,6 +463,8 @@ describe('main', () => {
       'pnpm',
       '-s',
       'controller:replay',
+      '--host-digest',
+      HOST,
       '--cycles',
       '--check',
       '--report',

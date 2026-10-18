@@ -1,0 +1,2484 @@
+{
+  "stored: awaiting-merge - obj null - empty-str zero - null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "actions": ["merge", "pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": {
+        "since": "2026-09-20T12:20:00.000Z",
+        "blockers": [
+          {
+            "kind": "dependency",
+            "message": "Slice wi/WI-02/domain must be verified.",
+            "code": "slice-requirement",
+            "refs": {
+              "sliceId": "wi/WI-02/domain"
+            },
+            "resourceKey": null
+          }
+        ]
+      },
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: awaiting-merge obj - null - empty-str zero null null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "actions": ["merge", "pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: awaiting-merge obj - null empty-str empty-str zero null null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "actions": ["merge", "pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: awaiting-merge obj null null - empty-str zero null null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "actions": ["merge", "pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: awaiting-merge obj null null empty-str empty-str zero null null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "actions": ["merge", "pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: awaiting-merge obj obj null - empty-str zero null null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "actions": ["merge", "pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": {
+        "since": "2026-09-20T12:20:00.000Z",
+        "blockers": [
+          {
+            "kind": "dependency",
+            "message": "Slice wi/WI-02/domain must be verified.",
+            "code": "slice-requirement",
+            "refs": {
+              "sliceId": "wi/WI-02/domain"
+            },
+            "resourceKey": null
+          }
+        ]
+      },
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - - - - - - - - - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - - - - empty-str - - - - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": ""
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - - - - empty-str zero - - - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - - - - empty-str zero - - num obj": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0
+    },
+    "retired": {
+      "polishRound": 1,
+      "deferredNits": [
+        {
+          "finding": {
+            "id": "F-1",
+            "severity": "nit",
+            "status": "open",
+            "title": "Name the constant",
+            "explanation": "A bare number.",
+            "recommendation": "Name it."
+          },
+          "sourceRunId": "6a1f0c5e-0000-4000-8000-000000000008",
+          "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "targetSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "reason": "Deferred to the next round.",
+          "createdAt": "2026-09-20T12:10:00.000Z",
+          "createdByUserId": "6a1f0c5e-0000-4000-8000-000000000006"
+        }
+      ]
+    }
+  },
+  "stored: completed - - null - empty-str zero - - - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - - null - empty-str zero - null - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - - null - empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - - null empty-str empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - - null str empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "Keep the existing queue format.",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - null - - - - - - - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - null - - empty-str zero - - - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - null null - empty-str zero - - - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - null null - empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: completed - null null empty-str empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: needs-attention - null null - - zero - - - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "resultContinuations": 0
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: needs-attention obj - - - - - - - - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: needs-attention obj - null empty-str empty-str zero null null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: needs-attention obj null null - empty-str zero null null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: needs-attention obj null null - str zero null null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "Remove the stray notes file.",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: needs-attention obj null null empty-str empty-str zero null null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: needs-attention obj null null str empty-str zero null null - -": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "Keep the existing queue format.",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: paused - - null - empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-paused",
+        "reason": "Automation paused by operator.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: paused - - null str empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-paused",
+        "reason": "Automation paused by operator.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "Keep the existing queue format.",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: paused - null null - empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-paused",
+        "reason": "Automation paused by operator.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: paused - null null - str zero null null - -": {
+    "contract": "valid",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-paused",
+        "reason": "Automation paused by operator.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "Remove the stray notes file.",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: paused - null null str empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-paused",
+        "reason": "Automation paused by operator.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "Keep the existing queue format.",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: running - - null - empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: running - - null - str zero null null - -": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "Remove the stray notes file.",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: running - - null empty-str empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: running - - null str empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "Keep the existing queue format.",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: running - null null - empty-str zero - null - -": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: running - null null - empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: running - null null - str zero null null - -": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "Remove the stray notes file.",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: running - null null str empty-str zero null null - -": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "Keep the existing queue format.",
+      "housekeepingInstructions": "",
+      "resultContinuations": 0,
+      "outputRepair": null,
+      "providerRecovery": null
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "stored: stopped - - null - empty-str zero - - - -": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Automation stopped by operator. Manual flow is available.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "resultContinuations": 0
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a scheduled service retry": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "resultContinuations": 0,
+      "providerRecovery": {
+        "attempts": 1,
+        "sourceRunId": "6a1f0c5e-0000-4000-8000-000000000008",
+        "failure": {
+          "kind": "capacity",
+          "message": "Provider overloaded.",
+          "safeToRetry": true
+        },
+        "profile": {
+          "backend": "claude-code",
+          "permissionMode": "auto",
+          "model": "claude-opus"
+        },
+        "nextRetryAt": "2026-09-20T12:40:00.000Z"
+      }
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a scheduled service retry beside a phase wait": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": {
+        "since": "2026-09-20T12:20:00.000Z",
+        "blockers": [
+          {
+            "kind": "dependency",
+            "message": "Slice wi/WI-02/domain must be verified.",
+            "code": "slice-requirement",
+            "refs": {
+              "sliceId": "wi/WI-02/domain"
+            },
+            "resourceKey": null
+          }
+        ]
+      },
+      "design": null
+    },
+    "attempt": {
+      "providerRecovery": {
+        "attempts": 1,
+        "sourceRunId": "6a1f0c5e-0000-4000-8000-000000000008",
+        "failure": {
+          "kind": "capacity",
+          "message": "Provider overloaded.",
+          "safeToRetry": true
+        },
+        "profile": {
+          "backend": "claude-code",
+          "permissionMode": "auto",
+          "model": "claude-opus"
+        },
+        "nextRetryAt": "2026-09-20T12:40:00.000Z"
+      }
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: an output repair": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "housekeepingInstructions": "",
+      "outputRepair": {
+        "attempts": 1,
+        "sourceRunId": "6a1f0c5e-0000-4000-8000-000000000008",
+        "code": "step-incomplete",
+        "issues": ["No final report."]
+      }
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a completion continuation": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "stepGuidance": "Keep the existing queue format.",
+      "resultContinuations": 1
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a paused service retry": {
+    "contract": "valid",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-paused",
+        "reason": "Automation paused by operator.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {
+      "providerRecovery": {
+        "attempts": 1,
+        "sourceRunId": "6a1f0c5e-0000-4000-8000-000000000008",
+        "failure": {
+          "kind": "capacity",
+          "message": "Provider overloaded.",
+          "safeToRetry": true
+        },
+        "profile": {
+          "backend": "claude-code",
+          "permissionMode": "auto",
+          "model": "claude-opus"
+        },
+        "nextRetryAt": "2026-09-20T12:40:00.000Z"
+      }
+    },
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a design dependency stop keeping its wait": {
+    "contract": "valid",
+    "stop": {
+      "code": "design-dependency-unsupported",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": {
+        "since": "2026-09-20T12:21:00.000Z",
+        "requirements": [
+          {
+            "kind": "slice",
+            "id": "wi/WI-01/domain",
+            "state": "merged"
+          }
+        ]
+      }
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a stop claimed by automation": {
+    "contract": "valid",
+    "stop": {
+      "code": "scope-review-recovery",
+      "owner": "controller",
+      "claim": "scope-recovery",
+      "refs": {
+        "entryId": "wi/WI-01/domain"
+      }
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-waiting",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a stop after output repairs": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator",
+      "repairAttempts": 2
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a merge gate with its unmet requirements": {
+    "contract": "valid",
+    "stop": {
+      "code": "merge-requirements",
+      "owner": "operator",
+      "detail": "Slice wi/WI-02/domain must be verified."
+    },
+    "actions": ["pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": {
+        "since": "2026-09-20T12:20:00.000Z",
+        "blockers": [
+          {
+            "kind": "dependency",
+            "message": "Slice wi/WI-02/domain must be verified.",
+            "code": "slice-requirement",
+            "refs": {
+              "sliceId": "wi/WI-02/domain"
+            },
+            "resourceKey": null
+          }
+        ]
+      },
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a merge gate the controller waits at": {
+    "contract": "valid",
+    "stop": {
+      "code": "controller-wait",
+      "owner": "controller"
+    },
+    "actions": ["pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-waiting",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "written: a pause kept at a stop": {
+    "contract": "valid",
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-paused",
+        "reason": "Automation paused by operator.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": {
+        "since": "2026-09-20T12:21:00.000Z",
+        "requirements": [
+          {
+            "kind": "slice",
+            "id": "wi/WI-01/domain",
+            "state": "merged"
+          }
+        ]
+      }
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Daemon restarted. Inspect the interrupted step.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "restart-resume",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Daemon restarted. Inspect the interrupted step.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Remediation limit reached. Review needs your input.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "review-open-questions-at-limit",
+      "owner": "operator"
+    },
+    "actions": ["authorize-remediation", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Remediation limit reached. Review needs your input.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Remediation limit reached.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "remediation-exhausted",
+      "owner": "operator"
+    },
+    "actions": ["authorize-remediation", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Remediation limit reached.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Two remediation rounds removed no findings.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "remediation-stalled",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Two remediation rounds removed no findings.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Implementation needs your input.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "implementation-open-questions",
+      "owner": "operator"
+    },
+    "actions": ["continue-with-guidance", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Implementation needs your input.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Review needs your input.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "review-open-questions",
+      "owner": "operator"
+    },
+    "actions": ["continue-with-guidance", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Review needs your input.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Workflow report needs correction.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "workflow-report-invalid",
+      "owner": "operator"
+    },
+    "actions": ["continue-with-guidance", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Workflow report needs correction.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Workflow report and Open questions disagree.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "workflow-questions-disagree",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Workflow report and Open questions disagree.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Operator decision required.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "shared-decision-required",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Operator decision required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Operator input required.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "work-item-questions",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Operator input required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Finalization needs your input before promotion.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "finalization-needs-input",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Finalization needs your input before promotion.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Design has open questions.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "design-open-questions",
+      "owner": "operator"
+    },
+    "actions": ["resolve-design", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Design has open questions.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Design needs an operator decision.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "design-decision-required",
+      "owner": "operator"
+    },
+    "actions": ["resolve-design", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Design needs an operator decision.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Design identified a planning conflict.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "design-planning-conflict",
+      "owner": "operator"
+    },
+    "actions": ["resolve-design", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Design identified a planning conflict.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Design investigation finished. Review the evidence and answers.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "design-investigation-finished",
+      "owner": "operator"
+    },
+    "actions": ["resolve-design", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Design investigation finished. Review the evidence and answers.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Scope review requires recovery: the gate is not met.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "scope-review-recovery",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Scope review requires recovery: the gate is not met.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Scope review has open questions.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "scope-review-open-questions",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Scope review has open questions.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"The step did not finish with a complete successful result.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-incomplete",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "The step did not finish with a complete successful result.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Step time limit reached.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "step-time-limit",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Step time limit reached.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Integration refresh limit reached.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "integration-refresh-limit",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Integration refresh limit reached.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: needs-attention \"Something an older release said.\"": {
+    "contract": "valid",
+    "stop": {
+      "code": "legacy-attention",
+      "owner": "operator"
+    },
+    "actions": ["resume", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Something an older release said.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: awaiting-merge while the workflow waits": {
+    "contract": "valid",
+    "stop": {
+      "code": "controller-wait",
+      "owner": "controller"
+    },
+    "actions": ["pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-waiting",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: awaiting-merge with further controller reviews held": {
+    "contract": "valid",
+    "stop": {
+      "code": "scheduling-held",
+      "owner": "controller"
+    },
+    "actions": ["pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-waiting",
+        "reason": "Technical review finished. Further controller reviews are held by the roadmap.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: awaiting-merge at an independent review": {
+    "contract": "valid",
+    "stop": {
+      "code": "record-scope-evidence",
+      "owner": "operator"
+    },
+    "actions": ["record-scope-evidence", "pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Slice wi/WI-02/domain must be verified.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": {
+        "since": "2026-09-20T12:20:00.000Z",
+        "blockers": [
+          {
+            "kind": "dependency",
+            "message": "Slice wi/WI-02/domain must be verified.",
+            "code": "slice-requirement",
+            "refs": {
+              "sliceId": "wi/WI-02/domain"
+            },
+            "resourceKey": null
+          }
+        ]
+      },
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: awaiting-merge at a finalization": {
+    "contract": "valid",
+    "stop": {
+      "code": "final-promotion",
+      "owner": "operator"
+    },
+    "actions": ["approve-promotion", "pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: awaiting-merge": {
+    "contract": "valid",
+    "stop": {
+      "code": "merge-approval",
+      "owner": "operator"
+    },
+    "actions": ["merge", "pause", "stop"],
+    "entry": {
+      "wait": {
+        "code": "cycle-attention",
+        "reason": "Review meets the completion policy. Operator merge approval required.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "uncoded: phase blockers": {
+    "contract": "valid",
+    "actions": ["pause", "stop"],
+    "entry": {
+      "moved": true
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": {
+        "since": "2026-09-20T12:20:00.000Z",
+        "blockers": [
+          {
+            "kind": "authorization",
+            "message": "Resource controlled-native-test-host needs approval.",
+            "code": "environment-approval",
+            "resourceKey": null
+          },
+          {
+            "kind": "authorization",
+            "message": "Resource gpu-host has no managed execution adapter.",
+            "code": "resource-unsupported",
+            "resourceKey": null
+          },
+          {
+            "kind": "evidence",
+            "message": "Checkpoint C-1 must pass.",
+            "code": "checkpoint-evidence",
+            "resourceKey": null
+          },
+          {
+            "kind": "evidence",
+            "message": "Required slice wi/WI-01/domain has not merged.",
+            "code": "required-slice-unmerged",
+            "resourceKey": null
+          },
+          {
+            "kind": "evidence",
+            "message": "Required slice wi/WI-01/domain has not been verified.",
+            "code": "required-slice-unverified",
+            "resourceKey": null
+          },
+          {
+            "kind": "evidence",
+            "message": "Staged approval needs its prerequisite.",
+            "code": "staged-approval-prerequisite",
+            "resourceKey": null
+          },
+          {
+            "kind": "dependency",
+            "message": "Slice wi/WI-02/domain must be verified.",
+            "code": "slice-requirement",
+            "resourceKey": null
+          },
+          {
+            "kind": "resource",
+            "message": "Waiting for local-development: 1/1 reservations occupied.",
+            "code": "resource-busy",
+            "resourceKey": "local-development"
+          },
+          {
+            "kind": "review",
+            "message": "Evidence profile needs reviewers.",
+            "code": "reviewer-assignment",
+            "resourceKey": null
+          }
+        ]
+      },
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "ended: stopped by the operator": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Automation stopped by operator. Manual flow is available.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "ended: wound down with its roadmap": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Roadmap stopped. Manual flow is available.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "ended: retired by an amendment": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "This attempt was retired by a planning amendment.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "ended: integrated": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "ended: merged by the operator, before R-B4": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree merged by operator; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "ended: its independent review recorded": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Independent scope evidence recorded; review cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  },
+  "ended: reviewed again, and recorded again": {
+    "contract": "valid",
+    "actions": [],
+    "entry": {
+      "wait": {
+        "code": "cycle-ended",
+        "reason": "Worktree integrated; cycle complete.",
+        "refs": {
+          "cycleId": "6a1f0c5e-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "keeps": "kept",
+    "waits": {
+      "phase": null,
+      "design": null
+    },
+    "attempt": {},
+    "retired": {
+      "polishRound": null,
+      "deferredNits": null
+    }
+  }
+}

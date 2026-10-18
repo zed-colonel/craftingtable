@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { reviewContinuable } from '../../src/services/agent-run-service.js';
+import { reviewContinuable } from '../../src/services/run/launch.js';
 
 const parent = (fields: Record<string, unknown>) =>
   ({ id: 'run-1', status: 'failed', ...fields }) as Parameters<typeof reviewContinuable>[1];

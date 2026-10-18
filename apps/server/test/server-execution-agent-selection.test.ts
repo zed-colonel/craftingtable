@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AgentLaunchRequest, AgentBackend } from '@craftingtable/agents';
+import type { AgentBackend, AgentLaunchRequest } from '@craftingtable/agents';
 import { runProfilesResponseSchema, workCycleResponseSchema } from '@craftingtable/contracts';
 import {
   type AgentBackendKind,
-  type AgentRun,
   agentSelections,
   asAgentAssignmentId,
   asAgentRunId,
@@ -16,6 +15,7 @@ import {
   type WorkCycle,
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cycleLaunchInput } from '../src/services/run/context/launch-input.js';
 import {
   cleanupExecutionFixtures,
   commitFile,
@@ -33,8 +33,8 @@ import {
   reviewText,
   roadmapControl,
   roadmapId,
-  saveRoadmapRequest,
   ScriptedBackend,
+  saveRoadmapRequest,
   startCycle,
   storedRoadmap,
   useIntegration,
@@ -150,23 +150,14 @@ describe('a cycle’s launch (startForCycle)', () => {
     const design = f.state.context.storage.execution.runs
       .listForWorktree(f.state.workspaceId, f.worktree.id)
       .find((r) => r.role === 'design')!;
-    const runs = f.state.context.services.agentRunService as unknown as {
-      launchAuthorized: (...args: unknown[]) => Promise<AgentRun>;
-      startForCycle: (cycle: WorkCycle) => Promise<AgentRun>;
-    };
-    const calls: unknown[][] = [];
-    vi.spyOn(runs, 'launchAuthorized').mockImplementation(async (...args: unknown[]) => {
-      calls.push(args);
-      return {} as AgentRun;
-    });
+    // What a cycle's launch is given (R-B7: run-context's `cycleLaunchInput`, which
+    // `startForCycle` hands the launch after its checks).
     const launch = async (changes: Partial<WorkCycle>) => {
-      await runs.startForCycle({
+      const { input, provenance } = cycleLaunchInput(f.state.context.storage, {
         ...stored,
         currentRunId: asAgentRunId(randomUUID()),
         ...changes,
       } as WorkCycle);
-      const call = calls.at(-1)!;
-      const input = call[2] as Record<string, unknown>;
       return {
         agent: {
           backend: input.backend,
@@ -174,7 +165,7 @@ describe('a cycle’s launch (startForCycle)', () => {
           reasoningEffort: input.reasoningEffort,
           permissionMode: input.permissionMode,
         },
-        provenance: call[6],
+        provenance,
       };
     };
     return { ...f, stored, design, launch };

@@ -13,10 +13,10 @@ import {
   admit,
   beginFinalization,
   branchCommand,
+  CycleBackend,
   cleanupExecutionFixtures,
   commitFile,
   controlCycle,
-  CycleBackend,
   currentCycle,
   cycleFixture,
   cycleProfiles,
@@ -175,15 +175,20 @@ describe("the delegated user's authority (activeEditor)", () => {
     'refuses a manual review whose starter is %s once its checks ran (launchRefusal)',
     async (how) => {
       const { state, worktree } = await cycleFixture([], () => NOW);
-      const runs = state.context.services.agentRunService as unknown as {
-        launchRefusal(
-          workspaceId: string,
-          runId: AgentRunId,
-          worktreeId: string,
-          userId: string,
-          cycle: WorkCycle | undefined,
-        ): string | undefined;
-      };
+      // The launch's preconditions (R-B7 increment 11a).
+      const runs = (
+        state.context.services.agentRunService as unknown as {
+          preconditions: {
+            launchRefusal(
+              workspaceId: string,
+              runId: AgentRunId,
+              worktreeId: string,
+              userId: string,
+              cycle: WorkCycle | undefined,
+            ): string | undefined;
+          };
+        }
+      ).preconditions;
       const refusal = () =>
         runs.launchRefusal(
           state.workspaceId,

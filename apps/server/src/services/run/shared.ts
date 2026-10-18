@@ -116,3 +116,11 @@ export async function drainUntilExit(items: AsyncIterator<AgentSessionItem>): Pr
   }
   await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS));
 }
+
+/** A controller-run launch's identity, deadline, check and time-limit message. */
+export type ControlledRun = {
+  readonly runId: AgentRunId;
+  readonly deadlineAt: string;
+  readonly check: () => void;
+  readonly limit: string;
+};

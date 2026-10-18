@@ -36,6 +36,7 @@ import { DRAIN_INTERRUPTED_MESSAGE, type RunLog, SHUTDOWN_GRACE_MS } from './sha
 import type { RunState } from './state.js';
 import type { RunJournal } from './journal.js';
 
+/** A run's own directory beneath the agents' temporary root: random bytes, in hex (LIVE-31). */
 const RUN_TEMPORARY_NAME_BYTES = 6;
 
 const RUN_TEMPORARY_NAME = new RegExp(`^[0-9a-f]{${RUN_TEMPORARY_NAME_BYTES * 2}}$`);
@@ -69,6 +70,7 @@ function isRunTemporaryDirectory(root: string, name: string): boolean {
   }
 }
 
+/** Bytes, matching the wire contract and the storage CHECK. */
 const PROCESS_IDENTITY_MAX_BYTES = 4096;
 
 /** How long restart recovery lets a surviving group end on SIGTERM before SIGKILL. */

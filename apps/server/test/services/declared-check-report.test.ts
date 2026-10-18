@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { declaredCheckReport } from '../../src/services/agent-run-service.js';
+import { declaredCheckReport } from '../../src/services/run/context/brief-input.js';
 
 const roots: string[] = [];
 afterEach(() => {

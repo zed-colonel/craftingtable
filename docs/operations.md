@@ -356,7 +356,7 @@ previous daemon left.
   seconds" line Rust's test harness printed, or else the last lines of its log. A check's limit,
   and its launcher's wait, count from when the daemon starts it: one waiting behind another of
   its run (a run's adopted checks and Cargo builds run one at a time) is not cancelled while it
-  waits.
+  waits, unless its run's directory goes or it waits a whole day.
 - **Toolchains.** When `cargo` on the daemon's PATH is rustup's proxy (a link, hard link or copy of
   rustup), each check runs the checked commit's rustup-managed toolchain, with automatic installs
   off: install the toolchains a repository pins, or its checks fail saying so. A shim script in

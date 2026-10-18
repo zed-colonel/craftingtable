@@ -171,6 +171,18 @@ it('once the daemon has started its check, a launcher still gives up at its limi
   expect(existsSync(join(s.directory, `${id}.cancel`))).toBe(true);
 });
 
+it('the day a launcher waits for its check to start no longer counts once it has started (R-C17 LOW-4 re-check)', async () => {
+  const { s, id, closed, stderr } = await launch(5000, { queuedMs: 500 });
+  const reply = new CheckReply(s.directory, s.replies, id);
+  reply.start();
+  // Running past the bound on the wait to start, within its own limit.
+  await new Promise((r) => setTimeout(r, 1000));
+  reply.finish(0);
+  expect(await closed).toBe(0);
+  expect(stderr()).not.toContain('within a day');
+  expect(existsSync(join(s.directory, `${id}.cancel`))).toBe(false);
+});
+
 it('a launcher whose request nobody claims gives up at its pickup limit, whatever its time limit (R-C17 LOW-4 review)', async () => {
   const { closed, stderr } = await launch(600_000, { claimMs: 300, claim: false });
   expect(await closed).toBe(1);

@@ -31,14 +31,6 @@ import type { RuntimeEvidenceService } from '../../runtime-evidence-service.js';
 import type { RunFiles, RunLaunch } from './materialize.js';
 
 /**
- * Starts, supervises, and records agent runs.
- *
- * The backend owns the process; this service owns durable run state, the
- * normalized event journal, audit, and workspace events. Status transitions
- * are guarded by expected-status sets so a late process callback can never
- * regress a run the operator already cancelled.
- */
-/**
  * The repository's adopted checks a run's gates are held to (R-G13), and the command that runs
  * each: the gate counts only the daemon's runs of them, so the agent must know to ask (LIVE-23).
  * The review is the run whose gate needs them; a working run is told to use them early; a design

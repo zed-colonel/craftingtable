@@ -48,6 +48,14 @@ export interface RunCommandResult {
   readonly accepted: boolean;
 }
 
+/**
+ * Starts, supervises, and records agent runs.
+ *
+ * The backend owns the process; this service owns durable run state, the
+ * normalized event journal, audit, and workspace events. Status transitions
+ * are guarded by expected-status sets so a late process callback can never
+ * regress a run the operator already cancelled.
+ */
 export class AgentRunService {
   private readonly state = new RunState();
   private readonly sandbox: RunSandbox;

@@ -100,7 +100,7 @@ export class WorkCycleService {
     mutations: WorktreeMutationGuard,
     branches: BranchService,
     baselines: BaselinePreparationService,
-    private readonly execution: ExecutionService,
+    execution: ExecutionService,
     runtimeEvidence: RuntimeEvidenceService,
   ) {
     this.locks = new CycleLocks(notifier);

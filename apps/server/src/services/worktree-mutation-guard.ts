@@ -2,20 +2,65 @@ import type { WorktreeId } from '@craftingtable/domain';
 import { ExecutionRequestError } from './errors.js';
 
 export class WorktreeMutationBusyError extends ExecutionRequestError {
-  constructor(message = 'A merge or removal is already in progress for this worktree') {
+  // The guard always names its holder; the default is for callers that have none to name.
+  constructor(message = 'Another operation holds this worktree; try again once it has finished.') {
     super('conflict', message);
   }
 }
 
+/**
+ * What holds a worktree's guard (R-B7 decision 3, AGT-12): each `during` names its operation, so
+ * a refusal says what is in the way. One error class and status for all of them, so a retry and
+ * the cycle's contention rule read the class, never the text.
+ */
+export type WorktreeOperation =
+  | 'run-launch'
+  | 'merge'
+  | 'removal'
+  | 'update'
+  | 'scope-receipt'
+  | 'decision-release'
+  | 'cache-cleaning'
+  | 'baseline-preparation'
+  | 'review-again'
+  | 'scope-review-repeat'
+  | 'implementation-checkpoint'
+  | 'integration-resolution';
+
+/** The refusal an operation holding the worktree gives. */
+export const WORKTREE_HELD_BY: Readonly<Record<WorktreeOperation, string>> = {
+  'run-launch': 'A run is being prepared in this worktree; try again once it has started.',
+  merge: 'This worktree is being merged; try again once the merge has finished.',
+  removal: 'This worktree is being removed.',
+  update: 'This worktree is being updated; try again once the update has finished.',
+  'scope-receipt':
+    "This worktree's scope receipt is being recorded; try again once it is recorded.",
+  'decision-release': 'This decision worktree is being released.',
+  'cache-cleaning':
+    "This worktree's build cache is being cleaned; try again once the cleaning has finished.",
+  'baseline-preparation':
+    'A historical baseline is being prepared in this worktree; try again once it is ready.',
+  'review-again':
+    'A fresh review is being prepared in this worktree; try again once it has started.',
+  'scope-review-repeat':
+    'The scope review is being repeated in this worktree; try again once it has started.',
+  'implementation-checkpoint':
+    "This worktree's implementation checkpoint is being recorded; try again once it is recorded.",
+  'integration-resolution':
+    'An integration conflict resolution is changing this worktree; try again once its step has finished.',
+};
+
 /** Keep daemon launches and cycle resumes out of an operator's in-flight merge/removal. */
 export class WorktreeMutationGuard {
-  private readonly busy = new Set<WorktreeId>();
+  /** The worktrees `during` holds, each with the operation holding it. */
+  private readonly busy = new Map<WorktreeId, WorktreeOperation>();
   /** Worktrees a launch still holds after `during` returned: a review's checks (R-G13). */
   private readonly held = new Map<WorktreeId, number>();
   /** Worktrees where an agent process that lost supervision has not yet exited. */
   private readonly terminating = new Map<WorktreeId, number>();
   requireAvailable(id: WorktreeId): void {
-    if (this.busy.has(id)) throw new WorktreeMutationBusyError();
+    const holder = this.busy.get(id);
+    if (holder !== undefined) throw new WorktreeMutationBusyError(WORKTREE_HELD_BY[holder]);
     if (this.held.has(id))
       throw new WorktreeMutationBusyError(
         'A review is starting in this worktree; its adopted checks are running. Wait for the review to start.',
@@ -33,9 +78,13 @@ export class WorktreeMutationGuard {
         'An agent that lost supervision is still being terminated in this worktree; wait for its process to exit',
       );
   }
-  async during<T>(id: WorktreeId, operation: () => Promise<T>): Promise<T> {
+  async during<T>(
+    id: WorktreeId,
+    holder: WorktreeOperation,
+    operation: () => Promise<T>,
+  ): Promise<T> {
     this.requireAvailable(id);
-    this.busy.add(id);
+    this.busy.set(id, holder);
     try {
       return await operation();
     } finally {

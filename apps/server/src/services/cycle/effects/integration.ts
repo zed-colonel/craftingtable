@@ -219,7 +219,7 @@ export class CycleIntegration {
         );
     };
     return this.branches.duringMerge(repository.rootPath, () =>
-      this.mutations.during(tree.id, async () => {
+      this.mutations.during(tree.id, 'integration-resolution', async () => {
         check();
         return operation(check);
       }),

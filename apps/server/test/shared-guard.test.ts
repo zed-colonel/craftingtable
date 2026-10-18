@@ -75,8 +75,9 @@ it("refuses the cycle service's guarded command while a launch holds the worktre
     refused = error;
   }
   expect(refused).toBeInstanceOf(WorktreeMutationBusyError);
+  // The refusal names what holds the worktree (R-B7 decision 3).
   expect((refused as Error).message).toBe(
-    'A merge or removal is already in progress for this worktree',
+    'A run is being prepared in this worktree; try again once it has started.',
   );
   release();
   expect((await launching).statusCode).toBe(200);

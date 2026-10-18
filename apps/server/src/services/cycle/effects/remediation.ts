@@ -399,7 +399,7 @@ export class CycleRemediation {
     };
     try {
       return await this.branches.duringMerge(repo.rootPath, () =>
-        this.mutations.during(tree.id, async () => {
+        this.mutations.during(tree.id, 'implementation-checkpoint', async () => {
           check();
           const inspected = await git.inspectWorktreeChanges(tree.path);
           if (!inspected.ok) throw new ExecutionRequestError('conflict', inspected.failure.message);

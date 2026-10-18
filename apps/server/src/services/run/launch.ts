@@ -169,7 +169,7 @@ export class RunLauncher {
     );
 
     const starting: { workspaceId?: WorkspaceId; runId?: AgentRunId; done?: Promise<unknown> } = {};
-    const launch = this.mutations.during(input.worktreeId, async () => {
+    const launch = this.mutations.during(input.worktreeId, 'run-launch', async () => {
       const { reviewBranchContext, reviewArtifacts } = await this.preflight({
         workspaceId,
         input,

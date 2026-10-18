@@ -709,7 +709,7 @@ export class StorageService {
         this.lastCleanup = { completedAt: this.now().toISOString(), cachesRemoved: count, bytes };
       };
       try {
-        await this.mutations.during(run.worktreeId, remove);
+        await this.mutations.during(run.worktreeId, 'cache-cleaning', remove);
       } catch (error) {
         if (!(error instanceof WorktreeMutationBusyError)) throw error;
       }
@@ -810,7 +810,7 @@ export class StorageService {
       removed = true;
     };
     try {
-      await this.mutations.during(worktreeId, remove);
+      await this.mutations.during(worktreeId, 'cache-cleaning', remove);
     } catch (error) {
       if (!(error instanceof WorktreeMutationBusyError)) throw error;
     }

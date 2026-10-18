@@ -912,7 +912,7 @@ export class BranchService {
       conflict('This worktree is held or retired by a planning amendment.');
     const repository = this.repository(workspaceId, initial.repositoryId);
     return this.duringMerge(repository.rootPath, () =>
-      this.mutations.during(worktreeId, async () => {
+      this.mutations.during(worktreeId, 'update', async () => {
         const worktree = this.worktree(workspaceId, worktreeId);
         delegation?.check();
         this.requireIdle(worktree, input.expectedVersion, delegation?.cycleId);

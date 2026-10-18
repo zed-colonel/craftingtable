@@ -736,7 +736,11 @@ describe('question stop investigations (R-C16)', () => {
       )!.version,
     });
     await waitUntil(() => updating, 'the update holding the worktree');
-    await refusedStart(f, 'A merge or removal is already in progress for this worktree');
+    // The refusal names what holds the worktree (R-B7 decision 3).
+    await refusedStart(
+      f,
+      'This worktree is being updated; try again once the update has finished.',
+    );
     finishUpdate();
     const updated = await update;
     expect(updated.statusCode, updated.body).toBe(200);

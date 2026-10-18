@@ -111,7 +111,7 @@ export class CycleRecovery {
   ) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
     this.gates.requireNoInvestigation(cycle);
-    return this.mutations.during(cycle.worktreeId, async () => {
+    return this.mutations.during(cycle.worktreeId, 'baseline-preparation', async () => {
       const resolved = await this.baselines.resolve(cycle, input);
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
       const preparation = { ...resolved, createdByUserId: context.user.id };

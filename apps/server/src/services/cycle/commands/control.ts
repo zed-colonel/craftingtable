@@ -222,7 +222,7 @@ export class CycleControl {
         true,
         { cycleId: id, check },
       );
-      return this.mutations.during(tree.id, async () => {
+      return this.mutations.during(tree.id, 'review-again', async () => {
         check();
         return this.writer.next(
           cycle,
@@ -306,7 +306,7 @@ export class CycleControl {
         true,
         { cycleId: id, check },
       );
-      return this.mutations.during(tree.id, async () => {
+      return this.mutations.during(tree.id, 'scope-review-repeat', async () => {
         check();
         return this.writer.next(
           cycle,

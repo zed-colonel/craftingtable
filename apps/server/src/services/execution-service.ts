@@ -891,7 +891,7 @@ export class ExecutionService {
     delegation?: { check: () => void },
   ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
-    return this.mutations.during(worktreeId, async () => {
+    return this.mutations.during(worktreeId, 'scope-receipt', async () => {
       const tree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
       if (!tree?.workItemId || !tree.executionScope) throw new NotFoundError();
       delegation?.check();
@@ -1422,7 +1422,7 @@ export class ExecutionService {
     });
     if (this.storage.execution.worktrees.find(workspaceId, worktreeId) === undefined)
       throw new NotFoundError();
-    return this.mutations.during(worktreeId, async () => {
+    return this.mutations.during(worktreeId, 'removal', async () => {
       const { worktree, repository, liveRuns } = this.storage.readTransaction((tx) => {
         const found = tx.execution.worktrees.find(workspaceId, worktreeId);
         if (found === undefined) {
@@ -1544,7 +1544,7 @@ export class ExecutionService {
     worktreeId: WorktreeId,
     preparationId: DecisionPreparationId,
   ): Promise<boolean> {
-    return this.mutations.during(worktreeId, async () => {
+    return this.mutations.during(worktreeId, 'decision-release', async () => {
       const worktree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
       if (worktree?.status !== 'active') return false;
       const repository = this.storage.execution.sourceRepositories.find(
@@ -1647,7 +1647,7 @@ export class ExecutionService {
     readonly workItemCompleted: boolean;
   }> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
-    return this.mutations.during(worktreeId, async () => {
+    return this.mutations.during(worktreeId, 'merge', async () => {
       const git = this.requireGit();
       const worktree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
       const repository =

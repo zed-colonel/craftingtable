@@ -93,9 +93,14 @@ it('writes nothing when the cycle changed while its reconciliation failed', asyn
 it('refuses a write outside the cycle state machine as a programming error (R-B4 increment 6)', async () => {
   const f = await createCycleFixture();
   const cycle = await startCycle(f, f.worktreeId);
-  const service = f.services.workCycleService as unknown as {
-    change: (cycle: WorkCycle, changes: Record<string, unknown>, action?: string) => WorkCycle;
-  };
+  // The cycle's one write path (R-B7 increment 6: the writer).
+  const service = (
+    f.services.workCycleService as unknown as {
+      writer: {
+        change: (cycle: WorkCycle, changes: Record<string, unknown>, action?: string) => WorkCycle;
+      };
+    }
+  ).writer;
   const stopped = service.change(cycle, { status: 'stopped', reason: 'Stopped.' }, 'stop');
   expect(() => service.change(stopped, { status: 'running', reason: 'Again.' }, 'resume')).toThrow(
     CycleTransitionError,
@@ -123,9 +128,14 @@ it('stores a phase gate that does not wait with its blockers named (R-B4 increme
 it('leaves an operator’s stop as it is when an unexpected error meets it (R-B4 increment 2 review, E7)', async () => {
   const f = await createCycleFixture();
   const cycle = await startCycle(f, f.worktreeId);
-  const service = f.services.workCycleService as unknown as {
-    change: (cycle: WorkCycle, changes: Record<string, unknown>, action?: string) => WorkCycle;
-  };
+  // The cycle's one write path (R-B7 increment 6: the writer).
+  const service = (
+    f.services.workCycleService as unknown as {
+      writer: {
+        change: (cycle: WorkCycle, changes: Record<string, unknown>, action?: string) => WorkCycle;
+      };
+    }
+  ).writer;
   const stopped = service.change(cycle, {
     status: 'needs-attention',
     attention: cycleAttention('step-incomplete'),
@@ -189,9 +199,14 @@ it('records the decision, not the failure, when applying it throws', async () =>
 it('keeps a cycle’s waits through a stop and a pause', async () => {
   const f = await createCycleFixture();
   const cycle = await startCycle(f, f.worktreeId);
-  const service = f.services.workCycleService as unknown as {
-    change: (cycle: WorkCycle, changes: Record<string, unknown>, action?: string) => WorkCycle;
-  };
+  // The cycle's one write path (R-B7 increment 6: the writer).
+  const service = (
+    f.services.workCycleService as unknown as {
+      writer: {
+        change: (cycle: WorkCycle, changes: Record<string, unknown>, action?: string) => WorkCycle;
+      };
+    }
+  ).writer;
   const designWait = {
     startedAt: '2026-10-16T00:00:00.000Z',
     requirements: [{ kind: 'slice', id: 'wi/A', state: 'merged' }],

@@ -7,11 +7,8 @@ import {
 import {
   cycleAgents,
   cycleLayers,
-  finalizationAgent,
-  finalizationAgents,
   investigationAgent,
   operatorResolutionProfile,
-  workspaceCycleProfiles,
 } from './agent-profile-policy.js';
 import { resolveAgent, selectionSet } from './agent-resolution.js';
 import {
@@ -39,19 +36,13 @@ import type {
 import {
   type AgentRun,
   asAgentRunId,
-  asAuditEventId,
-  asEventId,
-  type AttentionRefs,
   currentFinalizationStage,
   cycleActions,
   cycleAttention,
-  type CycleAttentionCode,
   type CycleInvestigation,
   type CycleOwner,
   type CycleProjection,
-  type CycleStep,
   type CycleView,
-  effectiveCycleAttention,
   evaluateCycleCompletion,
   type FinalizationProgress,
   type InvestigationWorktree,
@@ -63,8 +54,6 @@ import {
   OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
   parkedFollowUp,
-  type PhaseBlocker,
-  raisesOpenQuestions,
   remediationAllowance,
   remediationUsed,
   sameExecutionScope,
@@ -82,7 +71,6 @@ import type { CommandContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
 import { prioritizeRoadmapCycles } from './cycle-priority.js';
-import { currentCycleAttention } from './cycle/core/attention-policy.js';
 import { collectDesignRecovery } from './design-recovery.js';
 import {
   investigationDocuments,
@@ -109,7 +97,7 @@ import { finalizationForCycle } from './finalization-policy.js';
 import { assessStageReport, recordStageEvidence } from './finalization-stage-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { cycleOwnership } from './cycle-ownership.js';
-import { cycleFacts, type KernelFacts, refreshOwner, requireReady } from './cycle/core/facts.js';
+import { cycleFacts, type KernelFacts, refreshOwner } from './cycle/core/facts.js';
 import {
   type CommandFacts,
   type CommandRefusal,
@@ -128,12 +116,6 @@ import {
   resumeAdopts,
   resumeAtRoundLimit,
 } from './cycle/core/commands.js';
-import { reviewCapture } from './review-capture.js';
-import {
-  type CycleChanges,
-  type CycleFieldChanges,
-  checkTransition,
-} from './cycle/core/transitions.js';
 import {
   type CycleDecision,
   type CycleEffect,
@@ -175,7 +157,6 @@ import {
   workflowAuthorityStop,
   workflowHeldGate,
 } from './cycle/core/effect-decisions.js';
-import { drainInterrupted } from './restart-resume.js';
 import { continuesLineage, latestReviewReport } from './run-lineage.js';
 import type { StepOutcomeDecision } from './cycle/core/step-outcome.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
@@ -193,130 +174,30 @@ import {
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
+import { CycleGates } from './cycle/gates.js';
+import { CycleLocks } from './cycle/locks.js';
+import { CycleSettings } from './cycle/settings.js';
+import {
+  ATTENTION_STATUSES,
+  type CyclePassObserver,
+  latestOutsideLineage,
+  OUTPUT_REPAIR_MINUTES,
+  PREPARING_RECOVERY,
+  type RemediationGrant,
+  RESTORED_CHECK_MS,
+  reviewFacts,
+  reviewNeedsRounds,
+  STUCK_INVESTIGATION_MS,
+  TERMINAL_CYCLE_STATUSES,
+  withoutFindings,
+} from './cycle/shared.js';
+import { CycleWriter } from './cycle/writer.js';
 
-/** The least time an automatic output-format repair turn gets (R-C2). */
-const OUTPUT_REPAIR_MINUTES = 20;
-const PREPARING_RECOVERY = 'Preparing the requested recovery. Existing findings remain available.';
-/** Statuses in which a cycle has ended; the browser treats them as history. */
-const TERMINAL_CYCLE_STATUSES: ReadonlySet<WorkCycle['status']> = new Set(['completed', 'stopped']);
-
-/** The statuses that stop for someone and carry typed attention (R-A3). */
-const ATTENTION_STATUSES: ReadonlySet<WorkCycle['status']> = new Set([
-  'needs-attention',
-  'awaiting-merge',
-]);
-
-/** An operator's grant of more remediation rounds, with its instructions. */
-interface RemediationGrant {
-  readonly additionalRounds: number;
-  readonly instructions: string;
-  readonly agentOverride?: WorkCycle['finalizationAgentOverride'];
-}
-
-/**
- * The tree's newest run is newer than the cycle's own and outside its handoff lineage, so a
- * resume would refuse to adopt it (`decideResumeStep`); a lineage it cannot follow counts too.
- */
-function latestOutsideLineage(
-  tx: StorageRepositories,
-  cycle: WorkCycle,
-  latestRunId: AgentRunId | undefined,
-): boolean {
-  if (!latestRunId || latestRunId === cycle.currentRunId || latestRunId === cycle.parentRunId)
-    return false;
-  const latest = tx.execution.runs.find(cycle.workspaceId, latestRunId);
-  if (!latest) return false;
-  try {
-    return !continuesLineage(tx.execution, cycle, latest);
-  } catch {
-    return true;
-  }
-}
+export type { CyclePassObserver } from './cycle/shared.js';
 
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
-/** How often an open worktree change is compared with its record again (R-C16). */
-const RESTORED_CHECK_MS = 60_000;
-/** How long past its deadline an unfinished investigation run is closed (R-C16 review M3). */
-const STUCK_INVESTIGATION_MS = 2 * 60_000;
-
-/** The workspace-wide list leaves an investigation's proposals to the item's own read (PERF-05). */
-function withoutFindings(cycle: WorkCycle): WorkCycle {
-  const result = cycle.investigation?.result;
-  if (!result?.findings || !cycle.investigation) return cycle;
-  const { findings: _omitted, ...rest } = result;
-  return { ...cycle, investigation: { ...cycle.investigation, result: rest } };
-}
-
-/** What the cycles replay is told as a pass takes up each cycle (R-B4). */
-export interface CyclePassObserver {
-  /** What `decide` chose for this cycle, or the gate that threw and the guard it belongs to. */
-  readonly decided?: (
-    cycle: WorkCycle,
-    result:
-      | { readonly decision: CycleDecision }
-      | { readonly failed: unknown; readonly guard: CycleGuard | undefined },
-  ) => void;
-  /** The pass is done with this cycle: reconciled, skipped, or stopped by an error. */
-  readonly cycle: (cycle: WorkCycle) => void;
-}
-
 export class WorkCycleService {
-  validateAgentSelections(profiles: import('@craftingtable/domain').AgentSelections): void {
-    for (const profile of Object.values(profiles)) {
-      if (!this.runs.hasBackend(profile.backend))
-        throw new ExecutionRequestError(
-          'unavailable',
-          `Agent backend ${profile.backend} is unavailable.`,
-        );
-    }
-  }
-  /**
-   * A submitted model must be a catalog id, not a display name (R-G15, LIVE-34); one the record
-   * already saved (`saved`) is let through. Only command handlers call this: the scheduler's
-   * launches meet the launch check, which stops with `agent-model-misnamed`.
-   */
-  requireModelIds(
-    selections: Iterable<
-      readonly [string, import('@craftingtable/domain').AgentSelection | undefined]
-    >,
-    saved: Iterable<
-      readonly [string, import('@craftingtable/domain').AgentSelection | undefined]
-    > = [],
-  ): void {
-    this.runs.requireModelIds(selections, saved);
-  }
-  private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
-  private readonly ending = new Set<string>();
-  /** Investigations whose launch is in flight (R-C16): settling waits for them. */
-  private readonly launchingInvestigations = new Set<string>();
-  /** Investigations whose worktree is being compared, so one pass settles each (R-C16). */
-  private readonly settlingInvestigations = new Set<string>();
-  /** When each open worktree change was last compared with its record (R-C16). */
-  private readonly restoredChecks = new Map<string, number>();
-  private readonly transitioning = new Set<string>();
-
-  isTransitioning(id: WorkCycleId): boolean {
-    return this.transitioning.has(id);
-  }
-
-  /** A command already owns this recovery. No scheduler takeover or stale alert
-   * may race its asynchronous Git preparation. Restart releases the guard and
-   * leaves the durable checkpoint available for explicit recovery. */
-  private async duringTransition<T>(id: WorkCycleId, operation: () => Promise<T>): Promise<T> {
-    if (this.transitioning.has(id))
-      throw new ExecutionRequestError('conflict', 'Recovery is already being prepared.');
-    this.transitioning.add(id);
-    this.notifier.notify('activity');
-    try {
-      return await operation();
-    } finally {
-      this.transitioning.delete(id);
-      // Real state mutations already wake workflow workers. A transient resource
-      // failure must not wake its own retry loop without a durable state change.
-      this.notifier.notify('activity');
-    }
-  }
 
   constructor(
     private readonly storage: CraftingTableStorage,
@@ -330,7 +211,58 @@ export class WorkCycleService {
     private readonly baselines: BaselinePreparationService,
     private readonly execution: ExecutionService,
     private readonly runtimeEvidence: RuntimeEvidenceService,
-  ) {}
+  ) {
+    this.locks = new CycleLocks(notifier);
+    this.writer = new CycleWriter(
+      storage,
+      workspaceService,
+      runs,
+      git,
+      notifier,
+      now,
+      branches,
+      this.locks,
+    );
+    this.gates = new CycleGates(storage, branches, runtimeEvidence);
+    this.settings = new CycleSettings(storage, runs, git);
+  }
+  private readonly locks: CycleLocks;
+  private readonly writer: CycleWriter;
+  private readonly gates: CycleGates;
+  private readonly settings: CycleSettings;
+
+  // The cycle's settings, gates and transition lock, for callers outside the cycle (R-B7).
+  validateAgentSelections(profiles: import('@craftingtable/domain').AgentSelections): void {
+    this.settings.validateAgentSelections(profiles);
+  }
+  requireModelIds(
+    selections: Iterable<
+      readonly [string, import('@craftingtable/domain').AgentSelection | undefined]
+    >,
+    saved: Iterable<
+      readonly [string, import('@craftingtable/domain').AgentSelection | undefined]
+    > = [],
+  ): void {
+    this.settings.requireModelIds(selections, saved);
+  }
+  workspaceProfiles(
+    workspaceId: WorkspaceId,
+    permissions?: import('@craftingtable/contracts').StepPermissions,
+  ): import('@craftingtable/domain').CycleProfiles {
+    return this.settings.workspaceProfiles(workspaceId, permissions);
+  }
+  finalizationAgentsView(value: import('@craftingtable/domain').Finalization, cycle?: WorkCycle) {
+    return this.settings.finalizationAgentsView(value, cycle);
+  }
+  validateSettings(input: Pick<StartWorkCycleRequest, 'profiles'>): void {
+    this.settings.validateSettings(input);
+  }
+  resumeNeedsGuidance(cycle: WorkCycle): boolean {
+    return this.gates.resumeNeedsGuidance(cycle);
+  }
+  isTransitioning(id: WorkCycleId): boolean {
+    return this.locks.isTransitioning(id);
+  }
 
   /** The stored cycle, for the access guard's step-up check (R-G9), as `RoadmapService.storedWork`. */
   storedWork(workspaceId: WorkspaceId, cycleId: WorkCycleId): unknown {
@@ -390,9 +322,9 @@ export class WorkCycleService {
         agents,
         actions: [],
         // A completed cycle can be reviewed again; its preparation still shows.
-        ...(this.isTransitioning(c.id) ? { scopeReviewWait: PREPARING_RECOVERY } : {}),
+        ...(this.locks.isTransitioning(c.id) ? { scopeReviewWait: PREPARING_RECOVERY } : {}),
       };
-    const wait = this.isTransitioning(c.id)
+    const wait = this.locks.isTransitioning(c.id)
       ? PREPARING_RECOVERY
       : (automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c));
     const mergeWait = scopeMergeWait(tx, c);
@@ -449,10 +381,9 @@ export class WorkCycleService {
     const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
     if (current?.version !== cycle.version || current.owner !== null || !current.scopeRepair)
       throw new ConcurrentModificationError('Repair cycle changed; adoption is retried.');
-    return this.change(current, { owner }, 'adopt-roadmap-round');
+    return this.writer.change(current, { owner }, 'adopt-roadmap-round');
   }
 
-  private readonly repairing = new Set<string>();
   async delegateScopeRepair(
     context: CommandContext,
     workspaceId: WorkspaceId,
@@ -476,7 +407,7 @@ export class WorkCycleService {
         'conflict',
         'An idle scope review is required for source remediation.',
       );
-    this.requireNoInvestigation(source);
+    this.gates.requireNoInvestigation(source);
     const check = () => {
       delegation?.check();
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -519,12 +450,12 @@ export class WorkCycleService {
         'Open the existing slice repair cycle before delegating another.',
       );
     const key = `${workspaceId}:${source.workItemId}:${input.sourceId}`;
-    if (this.repairing.has(key))
+    if (this.locks.repairing.has(key))
       throw new ExecutionRequestError('conflict', 'Slice repair is already being prepared.');
-    return this.duringTransition(id, async () => {
-      this.repairing.add(key);
+    return this.locks.duringTransition(id, async () => {
+      this.locks.repairing.add(key);
       try {
-        this.validateSettings({ profiles: delegation?.profiles ?? selected.profiles! });
+        this.settings.validateSettings({ profiles: delegation?.profiles ?? selected.profiles! });
         const resolved = requireScope(
           this.storage,
           workspaceId,
@@ -587,7 +518,7 @@ export class WorkCycleService {
             sequence: s.sequence,
             label: s.label,
           }));
-          const repaired = this.change(
+          const repaired = this.writer.change(
             started,
             {
               step: 'remediate',
@@ -602,7 +533,7 @@ export class WorkCycleService {
           return repaired;
         });
       } finally {
-        this.repairing.delete(key);
+        this.locks.repairing.delete(key);
       }
     });
   }
@@ -643,7 +574,7 @@ export class WorkCycleService {
       );
     if (this.storage.execution.merges.latest(workspaceId, cycle.worktreeId)?.status === 'reserved')
       throw new ExecutionRequestError('conflict', 'A merge operation owns this worktree.');
-    this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
+    this.gates.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     return cycle;
   }
 
@@ -663,7 +594,7 @@ export class WorkCycleService {
     if (!cycle) throw new NotFoundError();
     if (cycle.version !== input.expectedVersion)
       throw new ConcurrentModificationError('Cycle changed; refresh and try again.');
-    this.requireNoInvestigation(cycle);
+    this.gates.requireNoInvestigation(cycle);
     const asked = stopQuestions(this.storage, cycle);
     const code = stopCode(cycle);
     if (!asked || code === undefined)
@@ -722,12 +653,17 @@ export class WorkCycleService {
       asked.questions,
     );
     // Settling waits for this launch; a record with neither a run nor a launch is over (M3).
-    this.launchingInvestigations.add(record.id);
+    this.locks.launchingInvestigations.add(record.id);
     let updated: WorkCycle;
     try {
-      updated = this.change(cycle, { investigation: record }, 'investigation-started', context);
+      updated = this.writer.change(
+        cycle,
+        { investigation: record },
+        'investigation-started',
+        context,
+      );
     } catch (error) {
-      this.launchingInvestigations.delete(record.id);
+      this.locks.launchingInvestigations.delete(record.id);
       throw error;
     }
     const check = () => {
@@ -754,7 +690,7 @@ export class WorkCycleService {
         !current.investigation.result &&
         !this.storage.execution.runs.find(workspaceId, record.runId)
       )
-        this.change(
+        this.writer.change(
           current,
           {
             investigation: {
@@ -773,7 +709,7 @@ export class WorkCycleService {
         );
       throw error;
     } finally {
-      this.launchingInvestigations.delete(record.id);
+      this.locks.launchingInvestigations.delete(record.id);
     }
     return this.storage.execution.cycles.find(workspaceId, id) ?? updated;
   }
@@ -807,7 +743,7 @@ export class WorkCycleService {
     if (investigation.worktree && run && !stopping) {
       // Recorded, with who asked, for the stop and the audit; a run that has already ended is
       // compared now, a live one at its exit.
-      const requested = this.change(
+      const requested = this.writer.change(
         cycle,
         {
           investigation: {
@@ -830,7 +766,7 @@ export class WorkCycleService {
             outcome: 'cancelled' as const,
             message: 'Ended by the operator.',
           };
-    return this.change(
+    return this.writer.change(
       cycle,
       { investigation: { ...investigation, result: ended } },
       'investigation-ended',
@@ -846,14 +782,14 @@ export class WorkCycleService {
   private async settleInvestigation(cycle: WorkCycle): Promise<void> {
     const investigation = cycle.investigation;
     if (!investigation || investigation.result) return;
-    if (this.launchingInvestigations.has(investigation.id)) return;
-    if (this.settlingInvestigations.has(investigation.id)) return;
+    if (this.locks.launchingInvestigations.has(investigation.id)) return;
+    if (this.locks.settlingInvestigations.has(investigation.id)) return;
     const run = this.storage.execution.runs.find(cycle.workspaceId, investigation.runId);
     const now = this.now();
     if (!run) {
       // No launch is in flight and none recorded its run: the daemon restarted, or the launch
       // failed before its record. Either way it is over, now (R-C16 review M3).
-      this.change(cycle, {
+      this.writer.change(cycle, {
         investigation: {
           ...investigation,
           result: {
@@ -880,11 +816,11 @@ export class WorkCycleService {
     let current = cycle;
     if (investigation.worktree) {
       if (this.mutations.agentTerminating(cycle.worktreeId)) return;
-      this.settlingInvestigations.add(investigation.id);
+      this.locks.settlingInvestigations.add(investigation.id);
       try {
         change = worktreeChange(investigation.worktree, await this.investigatedTree(cycle));
       } finally {
-        this.settlingInvestigations.delete(investigation.id);
+        this.locks.settlingInvestigations.delete(investigation.id);
       }
       // The inspection awaited Git: settle what the cycle holds now.
       const reread = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
@@ -892,7 +828,7 @@ export class WorkCycleService {
       current = reread;
     }
     const result = investigationResult(this.storage, run, this.now().toISOString());
-    this.change(
+    this.writer.change(
       current,
       {
         investigation: {
@@ -921,15 +857,15 @@ export class WorkCycleService {
   private async checkWorktreeRestored(cycle: WorkCycle): Promise<void> {
     const investigation = cycle.investigation;
     if (!investigation?.worktree || !investigation.result) return;
-    const last = this.restoredChecks.get(investigation.id) ?? 0;
+    const last = this.locks.restoredChecks.get(investigation.id) ?? 0;
     if (this.now().getTime() - last < RESTORED_CHECK_MS) return;
-    this.restoredChecks.set(investigation.id, this.now().getTime());
+    this.locks.restoredChecks.set(investigation.id, this.now().getTime());
     if (worktreeChange(investigation.worktree, await this.investigatedTree(cycle))) return;
     const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
     if (!current?.investigation?.result || current.investigation.id !== investigation.id) return;
     if (!worktreeChangeOpen(current)) return;
-    this.restoredChecks.delete(investigation.id);
-    this.change(
+    this.locks.restoredChecks.delete(investigation.id);
+    this.writer.change(
       current,
       {
         investigation: {
@@ -962,8 +898,8 @@ export class WorkCycleService {
         'conflict',
         'No worktree change of this stop’s investigation is waiting to be acknowledged.',
       );
-    this.restoredChecks.delete(cycle.investigation.id);
-    return this.change(
+    this.locks.restoredChecks.delete(cycle.investigation.id);
+    return this.writer.change(
       cycle,
       {
         investigation: {
@@ -981,34 +917,11 @@ export class WorkCycleService {
   }
 
   /**
-   * While a stop's investigation runs, the stop accepts no command but ending it; once it
-   * found the worktree changed, none that would continue on that tree but acknowledging the
-   * change, until the tree matches its record again (R-C16). Stopping the cycle is allowed.
-   */
-  private requireNoInvestigation(cycle: WorkCycle, ending = false): void {
-    if (investigationLive(cycle))
-      throw new ExecutionRequestError(
-        'conflict',
-        'An investigation of this stop is running. Wait for it, or end it, first.',
-      );
-    // Ending the cycle never builds on the changed tree, so the change does not hold it.
-    if (!ending && worktreeChangeOpen(cycle))
-      throw new ExecutionRequestError(
-        'conflict',
-        'The worktree changed while this stop’s investigation ran. Inspect it, then acknowledge the change first.',
-        {
-          reason: 'investigation-worktree-changed',
-          paths: cycle.investigation?.result?.worktreeChange?.paths ?? [],
-        },
-      );
-  }
-
-  /**
    * Reminders for this cycle's item wait: a command is preparing its transition, or an
    * investigation is gathering what the operator needs to answer (R-C16).
    */
   holdsReminders(workspaceId: WorkspaceId, id: WorkCycleId): boolean {
-    if (this.isTransitioning(id)) return true;
+    if (this.locks.isTransitioning(id)) return true;
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     return !!cycle && investigationLive(cycle);
   }
@@ -1036,12 +949,12 @@ export class WorkCycleService {
     input: PrepareBaselineRequest,
   ) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
-    this.requireNoInvestigation(cycle);
+    this.gates.requireNoInvestigation(cycle);
     return this.mutations.during(cycle.worktreeId, async () => {
       const resolved = await this.baselines.resolve(cycle, input);
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
       const preparation = { ...resolved, createdByUserId: context.user.id };
-      const reserved = this.change(
+      const reserved = this.writer.change(
         cycle,
         { baselinePreparation: preparation },
         'baseline-preparation-reserved',
@@ -1051,7 +964,7 @@ export class WorkCycleService {
         this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
         if (this.storage.execution.cycles.find(workspaceId, id)?.version !== reserved.version)
           throw new ExecutionRequestError('conflict', 'Cycle changed during baseline preparation.');
-        this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
+        this.gates.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
         this.baselines.assertCurrent(cycle, preparation);
       };
       try {
@@ -1059,7 +972,7 @@ export class WorkCycleService {
           this.branches.duringMerge(path, fn),
         );
         guard();
-        return this.change(
+        return this.writer.change(
           reserved,
           {
             baselinePreparation: {
@@ -1075,7 +988,7 @@ export class WorkCycleService {
       } catch (error) {
         const current = this.storage.execution.cycles.find(workspaceId, id);
         if (current?.baselinePreparation?.id === preparation.id)
-          this.change(
+          this.writer.change(
             current,
             {
               baselinePreparation: {
@@ -1102,7 +1015,7 @@ export class WorkCycleService {
     input: RecoverDesignRequest,
   ) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
-    this.requireNoInvestigation(cycle);
+    this.gates.requireNoInvestigation(cycle);
     if (cycle.version !== input.expectedVersion)
       throw new ExecutionRequestError('conflict', 'Cycle changed; refresh design recovery.');
     const preview = this.storage.readTransaction((tx) => collectDesignRecovery(tx, cycle));
@@ -1126,7 +1039,7 @@ export class WorkCycleService {
       );
     const runId = asAgentRunId(randomUUID());
     // One explicitly authorized same-step run, with its ordinary timeout. No retry loop.
-    return this.change(
+    return this.writer.change(
       cycle,
       {
         status: 'running',
@@ -1139,7 +1052,7 @@ export class WorkCycleService {
         resultContinuations: 0,
         providerRecovery: null,
         outputRepair: null,
-        runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+        runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
         designRecovery: {
           runId,
           sourceRunId: preview.sourceRunId,
@@ -1180,7 +1093,7 @@ export class WorkCycleService {
     if (!this.runs.hasBackend(design.backend))
       throw new ExecutionRequestError('unavailable', 'The design backend is unavailable.');
     const runId = asAgentRunId(randomUUID());
-    return this.change(
+    return this.writer.change(
       cycle,
       {
         status: 'running',
@@ -1195,7 +1108,7 @@ export class WorkCycleService {
         providerRecovery: null,
         outputRepair: null,
         stepGuidance: undefined,
-        runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+        runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
         designRecovery: {
           runId,
           sourceRunId: investigation.id,
@@ -1215,38 +1128,6 @@ export class WorkCycleService {
   }
 
   /**
-   * The profiles a new roadmap entry or map settings level stores: the workspace's defaults now,
-   * with the save's permissions (R-E5b).
-   */
-  workspaceProfiles(
-    workspaceId: WorkspaceId,
-    permissions?: import('@craftingtable/contracts').StepPermissions,
-  ): import('@craftingtable/domain').CycleProfiles {
-    return workspaceCycleProfiles(
-      this.runs.workspaceLayerIn(this.storage, workspaceId),
-      permissions,
-    );
-  }
-
-  /** A finalization's agents with their sources (R-E5a, E5-3), for its view. */
-  finalizationAgentsView(value: import('@craftingtable/domain').Finalization, cycle?: WorkCycle) {
-    return {
-      ...finalizationAgents(
-        value,
-        cycle,
-        this.runs.workspaceLayerIn(this.storage, value.workspaceId),
-      ),
-      ...(cycle ? { conflict: cycleAgents(this.storage, cycle).conflict } : {}),
-    };
-  }
-
-  validateSettings(input: Pick<StartWorkCycleRequest, 'profiles'>): void {
-    this.validateAgentSelections(input.profiles);
-    if (this.git === undefined)
-      throw new ExecutionRequestError('unavailable', 'Git is required for an automated cycle');
-  }
-
-  /**
    * The operator's own start: a display name in its profiles is refused, after the role check
    * (R-G15). A roadmap's starts meet the launch check instead.
    */
@@ -1257,7 +1138,7 @@ export class WorkCycleService {
     input: StartWorkCycleRequest,
   ): WorkCycle {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
-    this.requireModelIds(Object.entries(input.profiles));
+    this.settings.requireModelIds(Object.entries(input.profiles));
     return this.start(context, workspaceId, workItemId, input);
   }
 
@@ -1271,7 +1152,7 @@ export class WorkCycleService {
     owner: CycleOwner | null = null,
   ): WorkCycle {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
-    this.validateSettings(input);
+    this.settings.validateSettings(input);
     const worktree = this.storage.execution.worktrees.find(workspaceId, input.worktreeId);
     if (!worktree || worktree.workItemId !== workItemId) throw new NotFoundError();
     this.mutations.requireAvailable(input.worktreeId);
@@ -1282,7 +1163,7 @@ export class WorkCycleService {
         'Parent acceptance uses a review run, not an implementation cycle.',
       );
     requireTreeScope(this.storage, worktree, 'start');
-    const item = this.requireReady(workspaceId, workItemId, worktree.executionScope);
+    const item = this.gates.requireReady(workspaceId, workItemId, worktree.executionScope);
     if (worktree.status !== 'active')
       throw new ExecutionRequestError('conflict', 'Worktree has been removed');
     if (
@@ -1329,18 +1210,14 @@ export class WorkCycleService {
       instructions: input.instructions,
       currentRunId: asAgentRunId(randomUUID()),
       ...(prior[0] === undefined ? {} : { parentRunId: prior[0].id }),
-      runDeadlineAt: this.deadline(input.policy.maxRunMinutes),
+      runDeadlineAt: this.writer.deadline(input.policy.maxRunMinutes),
       remediationRounds: 0,
       stalledReviews: 0,
       reason: reviewOnly
         ? 'Starting independent scope review. Findings and questions require operator recovery; approval records evidence only.'
         : 'Starting design. Automation pauses at unresolved design questions or merge approval.',
     };
-    this.storage.transaction((tx) => {
-      tx.execution.cycles.insert(cycle);
-      this.record(tx, cycle, 'start', context);
-    });
-    this.notifier.notify();
+    this.writer.insert(cycle, 'start', context);
     return cycle;
   }
 
@@ -1364,7 +1241,7 @@ export class WorkCycleService {
       remediate: stage.implement,
       review: stage.review,
     };
-    this.validateSettings({ profiles });
+    this.settings.validateSettings({ profiles });
     const cycle: WorkCycle = {
       id: value.cycleId,
       // A plan finalization is its own subject; no roadmap attempt owns it.
@@ -1386,7 +1263,7 @@ export class WorkCycleService {
       profiles,
       instructions: '',
       currentRunId: asAgentRunId(randomUUID()),
-      runDeadlineAt: this.deadline(stage.policy.maxRunMinutes),
+      runDeadlineAt: this.writer.deadline(stage.policy.maxRunMinutes),
       remediationRounds: 0,
       stalledReviews: 0,
       polishPhase: 'verify',
@@ -1415,13 +1292,9 @@ export class WorkCycleService {
 
       reason: 'Starting plan-wide conformance review.',
     };
-    const head = await this.cleanHead(cycle);
+    const head = await this.writer.cleanHead(cycle);
     finalizationForCycle(this.storage, cycle);
-    this.storage.transaction((tx) => {
-      tx.execution.cycles.insert({ ...cycle, reviewHeadSha: head });
-      this.record(tx, cycle, 'start-finalization', context);
-    });
-    this.notifier.notify();
+    this.writer.insert({ ...cycle, reviewHeadSha: head }, 'start-finalization', context, cycle);
     return { ...cycle, reviewHeadSha: head };
   }
 
@@ -1432,7 +1305,7 @@ export class WorkCycleService {
     agentOverride?: WorkCycle['finalizationAgentOverride'],
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
-    this.requireNoInvestigation(cycle);
+    this.gates.requireNoInvestigation(cycle);
     finalizationForCycle(this.storage, cycle);
     if (
       this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
@@ -1458,7 +1331,7 @@ export class WorkCycleService {
         'conflict',
         'End the current session before resuming with guidance.',
       );
-    return this.next(cycle, cycle.step, runs[0], context, {
+    return this.writer.next(cycle, cycle.step, runs[0], context, {
       stepGuidance: instructions,
       ...(agentOverride === undefined ? {} : { finalizationAgentOverride: agentOverride }),
     });
@@ -1524,7 +1397,7 @@ export class WorkCycleService {
   ): Promise<WorkCycle> {
     const check = () => {
       this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
-      this.requireNoInvestigation(cycle);
+      this.gates.requireNoInvestigation(cycle);
       finalizationForCycle(this.storage, cycle);
       this.mutations.requireAvailable(cycle.worktreeId);
       if (
@@ -1576,7 +1449,7 @@ export class WorkCycleService {
         'invalid-request',
         'Authorize 1–20 additional remediation attempts.',
       );
-    return this.next(
+    return this.writer.next(
       cycle,
       'remediate',
       run,
@@ -1702,7 +1575,7 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
-    this.requireNoInvestigation(cycle);
+    this.gates.requireNoInvestigation(cycle);
     if (cycle.version !== input.expectedVersion)
       throw new ExecutionRequestError(
         'conflict',
@@ -1713,7 +1586,7 @@ export class WorkCycleService {
         'conflict',
         'Use finalization recovery for a plan finalization.',
       );
-    this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
+    this.gates.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     this.mutations.requireAvailable(cycle.worktreeId);
     if (!validExtraRounds(input.additionalRounds, { min: 1, base: remediationAllowance(cycle) }))
       throw new ExecutionRequestError(
@@ -1738,7 +1611,7 @@ export class WorkCycleService {
     agentOverride?: WorkCycle['finalizationAgentOverride'],
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
-    this.requireNoInvestigation(cycle);
+    this.gates.requireNoInvestigation(cycle);
     finalizationForCycle(this.storage, cycle);
     if (
       !validExtraRounds(additionalRounds, {
@@ -1766,7 +1639,7 @@ export class WorkCycleService {
   retireForAmendment(context: CommandContext, cycle: WorkCycle, amendmentId: MapAmendmentId): void {
     this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
     // Retiring stops the cycle; it never builds on a changed tree (R-C16 review L1).
-    this.requireNoInvestigation(cycle, true);
+    this.gates.requireNoInvestigation(cycle, true);
     this.mutations.requireAvailable(cycle.worktreeId);
     if (
       this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0 ||
@@ -1778,7 +1651,7 @@ export class WorkCycleService {
         'conflict',
         'Wait for active sessions and Git operations before applying the amendment.',
       );
-    this.change(
+    this.writer.change(
       cycle,
       {
         status: 'stopped',
@@ -1801,7 +1674,7 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
-    this.requireNoInvestigation(cycle);
+    this.gates.requireNoInvestigation(cycle);
     const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
     const unstarted =
       ['paused', 'needs-attention'].includes(cycle.status) &&
@@ -1828,7 +1701,7 @@ export class WorkCycleService {
       if (currentTree?.status !== 'active')
         throw new ExecutionRequestError('conflict', 'The review worktree is no longer active.');
       requireTreeScope(this.storage, currentTree, 'start');
-      this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
+      this.gates.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
       const runs = this.storage.execution.runs.listForWorktree(workspaceId, tree.id);
       if (
         (unstarted ? runs.length !== 0 : runs[0]?.id !== cycle.currentRunId) ||
@@ -1848,7 +1721,7 @@ export class WorkCycleService {
     check();
     // Existing branch authority rejects dirty, diverged, retired or busy snapshots. It only
     // fast-forwards review worktrees, and invalidates older branch-context evidence first.
-    return this.duringTransition(id, async () => {
+    return this.locks.duringTransition(id, async () => {
       await this.branches.changeWorktree(
         context,
         workspaceId,
@@ -1859,7 +1732,7 @@ export class WorkCycleService {
       );
       return this.mutations.during(tree.id, async () => {
         check();
-        return this.next(
+        return this.writer.next(
           cycle,
           'review',
           this.storage.execution.runs.find(workspaceId, cycle.currentRunId),
@@ -1891,7 +1764,7 @@ export class WorkCycleService {
     );
     if (decided.kind === 'none') return current;
     if (decided.kind === 'refuse') throw new ExecutionRequestError(decided.status, decided.message);
-    const stopped = this.change(current, decided.changes, 'roadmap-wound-down', context);
+    const stopped = this.writer.change(current, decided.changes, 'roadmap-wound-down', context);
     this.runs.finishCycleTurn(stopped, true);
     return stopped;
   }
@@ -1910,7 +1783,7 @@ export class WorkCycleService {
     delegationCheck?.();
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
-    this.requireNoInvestigation(cycle, action === 'stop');
+    this.gates.requireNoInvestigation(cycle, action === 'stop');
     // The command through the core (R-B4 increment 6): each stage decides from the cycle and
     // its facts, and the gates that are effects run between the stages, in today's order.
     const facts = this.commandFacts(cycle);
@@ -1926,8 +1799,8 @@ export class WorkCycleService {
           },
     );
     if (decided.kind !== 'resume') return this.applyCommand(cycle, decided, action, context);
-    await this.assertPinsRefreshed(cycle);
-    this.assertDecisionsSettled(cycle);
+    await this.gates.assertPinsRefreshed(cycle);
+    this.gates.assertDecisionsSettled(cycle);
     const resumed = decideResume(cycle, facts, reviewGuidance);
     if (resumed.kind === 'resolution')
       // resolveIntegration runs the launch gates itself.
@@ -1937,19 +1810,20 @@ export class WorkCycleService {
       });
     if (resumed.kind !== 'gates') return this.applyCommand(cycle, resumed, action, context);
     this.mutations.requireAvailable(cycle.worktreeId);
-    if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
+    if (cycle.workItemId)
+      this.gates.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
     else finalizationForCycle(this.storage, cycle);
     // Adopting a newer manual run launches nothing, so the launch gates do not apply.
-    if (!resumeAdopts(cycle, facts.newestRun())) await this.transitionGate(cycle);
+    if (!resumeAdopts(cycle, facts.newestRun())) await this.gates.transitionGate(cycle);
     const step = decideResumeStep(cycle, facts, reviewGuidance);
-    if (step.clearsEnding) this.ending.delete(cycle.currentRunId);
+    if (step.clearsEnding) this.locks.ending.delete(cycle.currentRunId);
     const run = facts.newestRun();
     switch (step.kind) {
       case 'refuse':
       case 'write':
         return this.applyCommand(cycle, step, action, context);
       case 'launch':
-        return this.next(cycle, step.step, step.parent, context, step.changes, step.action);
+        return this.writer.next(cycle, step.step, step.parent, context, step.changes, step.action);
       case 'remediate':
         return this.reviewRemediation(cycle, run!, context, step.grant);
       case 'review-scope':
@@ -1981,12 +1855,12 @@ export class WorkCycleService {
       },
       runCount: () => runs().length,
       amendmentRetired: () => this.storage.amendments.retired(ws, cycle.worktreeId),
-      attestationInputsChanged: () => this.attestationInputsChanged(cycle),
-      needsGuidance: () => this.resumeNeedsGuidance(cycle),
+      attestationInputsChanged: () => this.gates.attestationInputsChanged(cycle),
+      needsGuidance: () => this.gates.resumeNeedsGuidance(cycle),
       liveRuns: () => this.storage.execution.runs.liveForWorktree(ws, cycle.worktreeId),
       continuesLineage: (run) => continuesLineage(this.storage.execution, cycle, run),
       ...reviewFacts(this.storage, cycle),
-      deadline: () => this.deadline(cycle.policy.maxRunMinutes),
+      deadline: () => this.writer.deadline(cycle.policy.maxRunMinutes),
     };
   }
 
@@ -2000,7 +1874,7 @@ export class WorkCycleService {
     if (decision.kind === 'refuse')
       throw new ExecutionRequestError(decision.status, decision.message);
     if (decision.cancelChecks) this.runs.cancelStartingChecks(cycle.currentRunId);
-    const written = this.change(cycle, decision.changes, action, context);
+    const written = this.writer.change(cycle, decision.changes, action, context);
     if (decision.endTurn) this.runs.finishCycleTurn(written, true);
     return written;
   }
@@ -2032,9 +1906,9 @@ export class WorkCycleService {
       reservation.check?.();
       if (this.storage.execution.cycles.find(workspaceId, id)?.version !== expectedVersion)
         throw new ExecutionRequestError('conflict', 'Cycle changed; refresh before resuming.');
-      this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
+      this.gates.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
     };
-    return this.duringTransition(id, async () => {
+    return this.locks.duringTransition(id, async () => {
       await this.branches.changeWorktree(
         context,
         workspaceId,
@@ -2045,7 +1919,7 @@ export class WorkCycleService {
       );
       return this.mutations.during(tree.id, async () => {
         check();
-        return this.next(
+        return this.writer.next(
           cycle,
           'review',
           run,
@@ -2069,10 +1943,10 @@ export class WorkCycleService {
     for (let cycle of this.storage.execution.cycles.listActive()) {
       const { baseline } = decideRestart(cycle, !!options.cleanStop);
       if (baseline)
-        cycle = this.change(cycle, baseline.changes, 'baseline-preparation-interrupted');
+        cycle = this.writer.change(cycle, baseline.changes, 'baseline-preparation-interrupted');
       const { stop } = decideRestart(cycle, !!options.cleanStop);
       if (stop) {
-        this.change(cycle, stop.changes);
+        this.writer.change(cycle, stop.changes);
         stopped.push(cycle.id);
       }
     }
@@ -2094,19 +1968,19 @@ export class WorkCycleService {
    * interrupts them afterwards and records them for resume (AgentRunService).
    */
   async shutdown(): Promise<void> {
-    this.abort.abort();
+    this.locks.stop();
     this.passes?.unregister('cycles');
     await this.task;
   }
   private async loop(): Promise<void> {
-    while (!this.abort.signal.aborted) {
+    while (!this.locks.stopping()) {
       const generation = this.notifier.workflowGeneration;
       await this.tick();
       await this.notifier.waitForChangeOrTimeout({
         channel: 'workflow',
         generation,
         timeoutMs: 1000,
-        signal: this.abort.signal,
+        signal: this.locks.signal,
       });
     }
   }
@@ -2136,7 +2010,7 @@ export class WorkCycleService {
   declareAttention(): void {
     this.attentionGeneration = this.notifier.workflowGeneration;
     for (const cycle of this.storage.execution.cycles.listActive())
-      if (ATTENTION_STATUSES.has(cycle.status)) this.refreshAttention(cycle);
+      if (ATTENTION_STATUSES.has(cycle.status)) this.writer.refreshAttention(cycle);
   }
 
   private async pass(): Promise<void> {
@@ -2151,7 +2025,7 @@ export class WorkCycleService {
       this.storage.execution.cycles.listActive(),
       (cycle) => cycleOwnership(snapshot, cycle),
     )) {
-      if (this.abort.signal.aborted) break;
+      if (this.locks.stopping()) break;
       try {
         await this.passCycle(cycle, () => cycleOwnership(snapshot, cycle), settling);
       } finally {
@@ -2192,62 +2066,14 @@ export class WorkCycleService {
       !['running', 'awaiting-merge'].includes(current.status)
     )
       return;
-    if (failure.kind === 'phase-wait') this.waitForPhase(current, failure.blockers, failure.reason);
-    else this.attention(current, failure.code, failure.message, failure.refs);
+    if (failure.kind === 'phase-wait')
+      this.writer.waitForPhase(current, failure.blockers, failure.reason);
+    else this.writer.attention(current, failure.code, failure.message, failure.refs);
   }
 
-  /**
-   * Brings a stopped cycle's declared attention up to date: whether automation claims it,
-   * and whether a merge is blocked by unmet requirements (NOTIF-02). A policy that cannot
-   * be evaluated keeps the declared attention; reconcile reports real errors.
-   */
-  private refreshAttention(cycle: WorkCycle): WorkCycle {
-    try {
-      const current = currentCycleAttention(this.storage, cycle);
-      if (!current || JSON.stringify(current) === JSON.stringify(cycle.attention)) return cycle;
-      // A derived annotation, not a transition: written in place so an operator command
-      // holding this version stays valid, with an event so open browsers show the owner.
-      const updated: WorkCycle = { ...cycle, attention: current };
-      const at = this.now().toISOString();
-      const written = this.storage.transaction((tx) => {
-        if (!tx.execution.cycles.replace(updated, cycle.version)) return false;
-        this.appendCycleEvent(tx, updated, at);
-        // A change of owner or code changes who the stop waits on, so it is audited like a
-        // transition for operator-wait measurement (R-C1); claim details alone are not.
-        if (current.code !== cycle.attention?.code || current.owner !== cycle.attention?.owner)
-          this.record(tx, { ...updated, updatedAt: at }, 'attention-refreshed');
-        return true;
-      });
-      if (!written) return cycle;
-      this.notifier.notify();
-      return updated;
-    } catch {
-      return cycle;
-    }
-  }
-
-  /**
-   * Record a phase wait, and refresh it when the blocker set changes so the explanation
-   * stays current. The original start is kept: it measures the whole wait.
-   */
-  private waitForPhase(cycle: WorkCycle, blockers: readonly PhaseBlocker[], reason: string): void {
-    if (cycle.phaseWait && JSON.stringify(cycle.phaseWait.blockers) === JSON.stringify(blockers))
-      return;
-    this.change(cycle, {
-      phaseWait: { startedAt: cycle.phaseWait?.startedAt ?? this.now().toISOString(), blockers },
-      reason,
-    });
-  }
-
-  /**
-   * A controller-started reassessment that cannot be prepared is shown to the operator
-   * once. It is retried only after the cycle changes (an operator command, a new run),
-   * never silently on every loop pass. Transient contention is retried normally.
-   */
-  private readonly failedReassessments = new Map<string, number>();
   private async reassess(cycle: WorkCycle, source: AgentRun): Promise<void> {
-    if (this.failedReassessments.get(cycle.id) === cycle.version) return;
-    this.failedReassessments.delete(cycle.id);
+    if (this.locks.failedReassessments.get(cycle.id) === cycle.version) return;
+    this.locks.failedReassessments.delete(cycle.id);
     try {
       await this.startWorkflowReview(cycle, source, 'reassessment');
     } catch (error) {
@@ -2255,12 +2081,12 @@ export class WorkCycleService {
       if (!failed) throw error;
       const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
       if (current?.version !== cycle.version) return;
-      const updated = this.change(current, {
+      const updated = this.writer.change(current, {
         status: 'needs-attention',
         attention: cycleAttention(failed.code),
         reason: failed.message,
       });
-      this.failedReassessments.set(cycle.id, updated.version);
+      this.locks.failedReassessments.set(cycle.id, updated.version);
     }
   }
 
@@ -2306,7 +2132,7 @@ export class WorkCycleService {
   /** What this process is doing with the cycle right now (R-B4); R-B5's kernel replaces it. */
   private kernelFacts(cycle: WorkCycle): KernelFacts {
     return {
-      refreshing: () => this.refreshing.has(cycle.id),
+      refreshing: () => this.locks.refreshing.has(cycle.id),
       cleaningRun: () => this.runs.isCleaningRun(cycle.worktreeId),
       draining: () => this.runs.isDraining(),
     };
@@ -2318,24 +2144,24 @@ export class WorkCycleService {
       case 'idle':
         return;
       case 'complete':
-        this.change(cycle, { status: 'completed', reason: decision.reason });
+        this.writer.change(cycle, { status: 'completed', reason: decision.reason });
         return;
       case 'attention':
         if (decision.endTurn) this.runs.finishCycleTurn(cycle, true);
-        this.attention(cycle, decision.code, decision.message, decision.refs);
+        this.writer.attention(cycle, decision.code, decision.message, decision.refs);
         return;
       case 'wait':
         if (decision.wait.change === 'record-phase')
-          this.waitForPhase(cycle, decision.wait.blockers, decision.wait.reason);
+          this.writer.waitForPhase(cycle, decision.wait.blockers, decision.wait.reason);
         else
-          this.change(cycle, {
+          this.writer.change(cycle, {
             phaseWait: null,
             runDeadlineAt: decision.wait.runDeadlineAt,
             reason: decision.wait.reason,
           });
         return;
       case 'launch':
-        await this.next(
+        await this.writer.next(
           cycle,
           decision.step,
           decision.parent,
@@ -2397,7 +2223,8 @@ export class WorkCycleService {
         await this.resumeAfterRestart(cycle, run);
         return;
       case 'end-turn':
-        if (!this.ending.has(run.id) && this.runs.finishCycleTurn(cycle)) this.ending.add(run.id);
+        if (!this.locks.ending.has(run.id) && this.runs.finishCycleTurn(cycle))
+          this.locks.ending.add(run.id);
         return;
       case 'attention':
         // A drain stops the loop before it interrupts runs; this only guards a late pass.
@@ -2406,17 +2233,23 @@ export class WorkCycleService {
       default:
         break;
     }
-    this.ending.delete(run.id);
-    if (decision.workflow) cycle = this.change(cycle, { workflow: decision.workflow });
+    this.locks.ending.delete(run.id);
+    if (decision.workflow) cycle = this.writer.change(cycle, { workflow: decision.workflow });
     switch (decision.kind) {
       case 'attention':
-        this.attention(cycle, decision.code, decision.message, undefined, decision.repairAttempts);
+        this.writer.attention(
+          cycle,
+          decision.code,
+          decision.message,
+          undefined,
+          decision.repairAttempts,
+        );
         return;
       case 'repair-output':
         await this.repairOutput(cycle, run, decision);
         return;
       case 'schedule-service-retry':
-        this.change(
+        this.writer.change(
           cycle,
           {
             providerRecovery: decision.providerRecovery,
@@ -2427,7 +2260,14 @@ export class WorkCycleService {
         );
         return;
       case 'next-step':
-        await this.next(cycle, decision.step, run, undefined, decision.changes, decision.action);
+        await this.writer.next(
+          cycle,
+          decision.step,
+          run,
+          undefined,
+          decision.changes,
+          decision.action,
+        );
         return;
       case 'advance-resolution':
         await this.advanceResolution(cycle);
@@ -2438,11 +2278,11 @@ export class WorkCycleService {
         } catch (error) {
           // The investigation's stop stays the operator's, with its results panel.
           const stopped = continueDesignFailure(error);
-          this.attention(cycle, stopped.code, stopped.message);
+          this.writer.attention(cycle, stopped.code, stopped.message);
         }
         return;
       case 'design-wait':
-        this.change(cycle, { designWait: decision.designWait, reason: decision.reason });
+        this.writer.change(cycle, { designWait: decision.designWait, reason: decision.reason });
         return;
       case 'finalize-implementation': {
         const finalized = await this.finalizeImplementation(cycle, run);
@@ -2451,7 +2291,7 @@ export class WorkCycleService {
         let head: string | undefined;
         if (finalized.step === 'remediate')
           try {
-            head = await this.cleanHead(finalized);
+            head = await this.writer.cleanHead(finalized);
           } catch {
             head = undefined;
           }
@@ -2460,10 +2300,10 @@ export class WorkCycleService {
           unchangedTwice: !!head && this.remediatedNothingTwice(finalized, run, head),
         });
         if (reviewed.kind === 'attention') {
-          this.attention(finalized, reviewed.code, reviewed.message);
+          this.writer.attention(finalized, reviewed.code, reviewed.message);
           return;
         }
-        await this.next(finalized, 'review', run);
+        await this.writer.next(finalized, 'review', run);
         return;
       }
       case 'advance-finalization-stage':
@@ -2471,7 +2311,7 @@ export class WorkCycleService {
         return;
       case 'remediate-review':
         if (decision.clearActiveReview && cycle.workflow)
-          cycle = this.change(cycle, {
+          cycle = this.writer.change(cycle, {
             workflow: { ...cycle.workflow, activeReview: null, waiting: null },
           });
         await this.reviewRemediation(cycle, run);
@@ -2500,16 +2340,16 @@ export class WorkCycleService {
     });
     if (checked.kind === 'refuse') throw new TypedRefusalError('worktree-state', checked.message);
     if (checked.kind === 'attention') {
-      this.attention(cycle, checked.code, checked.message);
+      this.writer.attention(cycle, checked.code, checked.message);
       return;
     }
     if (checked.kind === 'housekeeping') {
       await this.housekeeping(cycle, run, checked.reason);
       return;
     }
-    const head = decideApprovedHead(await this.cleanHead(cycle), cycle.reviewHeadSha);
+    const head = decideApprovedHead(await this.writer.cleanHead(cycle), cycle.reviewHeadSha);
     if (head.kind === 'attention') {
-      this.attention(cycle, head.code, head.message);
+      this.writer.attention(cycle, head.code, head.message);
       return;
     }
     if (await this.refreshIntegration(cycle, run, true)) return;
@@ -2527,7 +2367,7 @@ export class WorkCycleService {
       repositoryId: reviewedWorktree.repositoryId,
       reason: approval.reason,
     });
-    this.change(cycle, {
+    this.writer.change(cycle, {
       status: 'awaiting-merge',
       attention: cycleAttention(gate.code, gate.refs),
       reason: gate.reason,
@@ -2629,7 +2469,7 @@ export class WorkCycleService {
       (!delegation && kind !== 'security')
     )
       return;
-    this.requireReady(cycle.workspaceId, cycle.workItemId!, cycle.executionScope);
+    this.gates.requireReady(cycle.workspaceId, cycle.workItemId!, cycle.executionScope);
     const checkpoint = context.checkpoints.find((c) => c.id === checkpointId);
     if (
       kind === 'checkpoint' &&
@@ -2648,7 +2488,7 @@ export class WorkCycleService {
       !(securityRole && delegation.roles.includes(securityRole))
     ) {
       const unassigned = securityReviewerStop();
-      this.attention(cycle, unassigned.code, unassigned.message);
+      this.writer.attention(cycle, unassigned.code, unassigned.message);
       return;
     }
     // The rule's status half here; its role half is the request context's, with its audit row.
@@ -2660,7 +2500,7 @@ export class WorkCycleService {
       );
     this.workspaceService.requireRole({ user }, cycle.workspaceId, ['owner', 'editor']);
     const workflow = cycle.workflow ?? { reassessments: 0, questions: [] };
-    await this.next(
+    await this.writer.next(
       cycle,
       'review',
       source,
@@ -2712,13 +2552,13 @@ export class WorkCycleService {
     const unauthorized = reviewAuthorityMissing(this.storage, cycle);
     if (unauthorized) {
       const stopped = workflowAuthorityStop(unauthorized);
-      this.attention(cycle, stopped.code, stopped.message);
+      this.writer.attention(cycle, stopped.code, stopped.message);
       return true;
     }
     if (!controllerReviewRunnable(this.storage, cycle)) {
       const held = workflowHeldGate(cycle.status);
       if (held)
-        this.change(cycle, {
+        this.writer.change(cycle, {
           status: 'awaiting-merge',
           attention: cycleAttention(held.code),
           reason: held.reason,
@@ -2744,7 +2584,7 @@ export class WorkCycleService {
       active?.kind === 'checkpoint' &&
       (!reviewed?.supported || !reviewed.assigned || reviewed.pending.length)
     ) {
-      cycle = this.change(cycle, {
+      cycle = this.writer.change(cycle, {
         workflow: { ...cycle.workflow, activeReview: null, waiting: null },
         reason: `${active.checkpointId}: the checkpoint changed during its review; deciding its obligation again.`,
       });
@@ -2754,7 +2594,7 @@ export class WorkCycleService {
       if (active.kind === 'checkpoint') {
         await this.runtimeEvidence.acceptWorkflowCheckpoint(cycle);
       }
-      cycle = this.change(
+      cycle = this.writer.change(
         cycle,
         {
           workflow: {
@@ -2779,7 +2619,7 @@ export class WorkCycleService {
       // only be repeated without end; its inputs need the operator.
       if (active?.kind === 'security') {
         const stale = securityReviewNotCurrent();
-        this.attention(cycle, stale.code, stale.message);
+        this.writer.attention(cycle, stale.code, stale.message);
         return true;
       }
       await this.startWorkflowReview(cycle, run, 'security');
@@ -2797,12 +2637,12 @@ export class WorkCycleService {
         await this.startWorkflowReview(cycle, run, 'checkpoint', obligations.checkpointId);
         return true;
       case 'attention':
-        cycle = this.change(cycle, { workflow: obligations.workflow });
-        this.attention(cycle, obligations.code, obligations.message, obligations.refs);
+        cycle = this.writer.change(cycle, { workflow: obligations.workflow });
+        this.writer.attention(cycle, obligations.code, obligations.message, obligations.refs);
         return true;
       case 'gate':
         if (!obligations.unchanged)
-          this.change(
+          this.writer.change(
             cycle,
             {
               status: 'awaiting-merge',
@@ -2814,7 +2654,7 @@ export class WorkCycleService {
           );
         return true;
       case 'clear-waiting':
-        cycle = this.change(cycle, { workflow: { ...cycle.workflow!, waiting: null } });
+        cycle = this.writer.change(cycle, { workflow: { ...cycle.workflow!, waiting: null } });
         break;
       case 'done':
         break;
@@ -2835,13 +2675,13 @@ export class WorkCycleService {
     const raw = latestReviewReport(this.storage.execution, run);
     if (!value || !progress || !stage || !raw || !baseline) {
       const invalid = stageReportInvalid();
-      this.attention(cycle, invalid.code, invalid.message);
+      this.writer.attention(cycle, invalid.code, invalid.message);
       return;
     }
     const assessment = assessStageReport(value, cycle, raw, baseline);
     if (assessment.status !== 'complete' || !assessment.report.finalization) {
       const invalid = stageReportInvalid(assessment.issues);
-      this.attention(cycle, invalid.code, invalid.message);
+      this.writer.attention(cycle, invalid.code, invalid.message);
       return;
     }
     const report = assessment.report;
@@ -2865,13 +2705,13 @@ export class WorkCycleService {
     updated = { ...updated, followUps: [...followUps.values()] };
     if (updated.obligations.length > 2000 || updated.followUps.length > 500) {
       const full = ledgerFull();
-      this.attention(cycle, full.code, full.message);
+      this.writer.attention(cycle, full.code, full.message);
       return;
     }
-    cycle = this.change(cycle, { finalizationProgress: updated }, 'stage-evidence');
+    cycle = this.writer.change(cycle, { finalizationProgress: updated }, 'stage-evidence');
     const input = decideStageInput(noQuestions, evidence.obligations);
     if (input) {
-      this.attention(cycle, input.code, input.message);
+      this.writer.attention(cycle, input.code, input.message);
       return;
     }
     const findings = stageFindings(cycle, report, evidence);
@@ -2908,10 +2748,10 @@ export class WorkCycleService {
       updated = { ...updated, followUps: [...updated.followUps, ...required] };
       if (updated.followUps.length > 500) {
         const full = ledgerFull();
-        this.attention(cycle, full.code, full.message);
+        this.writer.attention(cycle, full.code, full.message);
         return;
       }
-      cycle = this.change(
+      cycle = this.writer.change(
         cycle,
         {
           finalizationProgress: updated,
@@ -2942,11 +2782,11 @@ export class WorkCycleService {
           followUps: updated.followUps,
         });
         if (found.kind === 'attention') {
-          this.attention(cycle, found.code, found.message);
+          this.writer.attention(cycle, found.code, found.message);
           return;
         }
         if (found.kind === 'follow-ups') {
-          cycle = this.change(
+          cycle = this.writer.change(
             cycle,
             {
               finalizationProgress: { ...updated, followUps: found.followUps },
@@ -2956,7 +2796,7 @@ export class WorkCycleService {
           );
           await this.completeFinalizationStage(cycle, run);
         } else if (found.kind === 'select')
-          this.change(
+          this.writer.change(
             cycle,
             {
               status: 'needs-attention',
@@ -2978,7 +2818,7 @@ export class WorkCycleService {
         await this.reviewRemediation(cycle, run);
         return;
       case 'attention':
-        this.attention(cycle, outcome.code, outcome.message);
+        this.writer.attention(cycle, outcome.code, outcome.message);
         return;
       case 'complete':
         if (!(await this.stageReviewIsCurrent(cycle, run))) return;
@@ -3020,7 +2860,7 @@ export class WorkCycleService {
     const stage = value?.stages?.[progress.stageIndex];
     if (!stage) throw new ExecutionRequestError('conflict', 'Unknown finalization stage.');
     const state = progress.stages[progress.stageIndex];
-    return this.next(
+    return this.writer.next(
       cycle,
       'review',
       run,
@@ -3060,7 +2900,7 @@ export class WorkCycleService {
     );
     const completed = decideStageCompletion(stages);
     if (completed.kind === 'gate')
-      return this.change(
+      return this.writer.change(
         cycle,
         {
           finalizationProgress: { ...progress, stages },
@@ -3085,7 +2925,7 @@ export class WorkCycleService {
   ) {
     const check = () => {
       this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
-      this.requireNoInvestigation(cycle);
+      this.gates.requireNoInvestigation(cycle);
       const value = finalizationForCycle(this.storage, cycle);
       this.mutations.requireAvailable(cycle.worktreeId);
       if (
@@ -3189,7 +3029,7 @@ export class WorkCycleService {
               },
         ),
       };
-      return this.next(
+      return this.writer.next(
         cycle,
         'review',
         run,
@@ -3285,7 +3125,7 @@ export class WorkCycleService {
       );
     // Persist selection and reservation atomically. Empty selection runs a bounded verification
     // that records the follow-ups and advances, rather than reopening discovery on resume.
-    return this.next(
+    return this.writer.next(
       cycle,
       selected.length ? 'remediate' : 'review',
       run,
@@ -3330,7 +3170,7 @@ export class WorkCycleService {
         throw new ExecutionRequestError('conflict', 'Operator authorization is required.');
       this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
       if (cycle.workItemId)
-        this.requireReady(cycle.workspaceId, cycle.workItemId, cycle.executionScope);
+        this.gates.requireReady(cycle.workspaceId, cycle.workItemId, cycle.executionScope);
       else finalizationForCycle(this.storage, cycle);
       this.mutations.requireAvailable(cycle.worktreeId);
       if (
@@ -3381,12 +3221,12 @@ export class WorkCycleService {
     if (remediation.kind === 'refuse')
       throw new ExecutionRequestError('conflict', remediation.message);
     if (remediation.kind === 'attention') {
-      this.attention(cycle, remediation.code, remediation.message);
+      this.writer.attention(cycle, remediation.code, remediation.message);
       return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
     }
     if (remediation.kind === 'none') return cycle;
     const { stalledReviews } = remediation;
-    return this.next(
+    return this.writer.next(
       cycle,
       'remediate',
       run,
@@ -3456,10 +3296,10 @@ export class WorkCycleService {
       if (blocker) throw new ExecutionRequestError('conflict', blocker);
     }
     if (decided.kind === 'attention') {
-      this.attention(cycle, decided.code, decided.message);
+      this.writer.attention(cycle, decided.code, decided.message);
       return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
     }
-    return this.next(
+    return this.writer.next(
       cycle,
       'remediate',
       run,
@@ -3548,7 +3388,7 @@ export class WorkCycleService {
     const check = () => {
       const saved = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
       if (
-        this.abort.signal.aborted ||
+        this.locks.stopping() ||
         saved?.version !== current.version ||
         saved.status !== 'running' ||
         !activeEditor(this.storage, cycle.createdByUserId, cycle.workspaceId)
@@ -3589,7 +3429,7 @@ export class WorkCycleService {
               : undefined;
           if (pending || state.paths.length) {
             if (!pending)
-              current = this.change(
+              current = this.writer.change(
                 current,
                 {
                   checkpoint: {
@@ -3616,7 +3456,7 @@ export class WorkCycleService {
             });
             if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
             check();
-            current = this.change(
+            current = this.writer.change(
               current,
               {
                 checkpoint: { ...checkpoint, commitSha: result.value.commitSha },
@@ -3642,29 +3482,26 @@ export class WorkCycleService {
       if (
         latest?.version === current.version &&
         latest.status === 'running' &&
-        !this.abort.signal.aborted &&
+        !this.locks.stopping() &&
         failed
       )
-        this.attention(latest, failed.code, failed.message);
+        this.writer.attention(latest, failed.code, failed.message);
       return;
     }
   }
 
-  private readonly refreshing = new Set<string>();
-  /** Cycles and commits already sent back for their adopted checks (LIVE-24). */
-  private readonly declaredReviews = new Set<string>();
   /** `launching`: a review is about to start; see `refreshOwner`. */
   async refreshIntegration(
     cycle: WorkCycle,
     parent?: AgentRun,
     launching = false,
   ): Promise<boolean> {
-    if (this.refreshing.has(cycle.id)) return true;
-    this.refreshing.add(cycle.id);
+    if (this.locks.refreshing.has(cycle.id)) return true;
+    this.locks.refreshing.add(cycle.id);
     try {
       return await this.performIntegrationRefresh(cycle, parent, launching);
     } finally {
-      this.refreshing.delete(cycle.id);
+      this.locks.refreshing.delete(cycle.id);
     }
   }
   private async performIntegrationRefresh(
@@ -3689,7 +3526,7 @@ export class WorkCycleService {
     // Reserve a bounded attempt before Git. A restart cannot silently retry a partial update.
     const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
     if (
-      this.abort.signal.aborted ||
+      this.locks.stopping() ||
       current?.version !== cycle.version ||
       !refreshOwner(this.storage, cycle, launching)
     )
@@ -3699,14 +3536,14 @@ export class WorkCycleService {
       owner.settings.maxIntegrationRefreshes,
     );
     if (allowed.kind === 'attention') {
-      this.attention(cycle, allowed.code, allowed.message);
+      this.writer.attention(cycle, allowed.code, allowed.message);
       return true;
     }
-    const reserved = this.change(cycle, decideRefreshReservation(cycle).changes);
+    const reserved = this.writer.change(cycle, decideRefreshReservation(cycle).changes);
     const check = () => {
       const latest = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
       if (
-        this.abort.signal.aborted ||
+        this.locks.stopping() ||
         latest?.version !== reserved.version ||
         latest.status !== 'running' ||
         !refreshOwner(this.storage, reserved, launching)
@@ -3732,7 +3569,7 @@ export class WorkCycleService {
         { cycleId: cycle.id, check },
       );
       check();
-      await this.next(reserved, 'review', parent);
+      await this.writer.next(reserved, 'review', parent);
     } catch (error) {
       const latest = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
       const failed = refreshFailure(error);
@@ -3740,15 +3577,15 @@ export class WorkCycleService {
       if (failed.kind === 'restore') {
         // Contention is controller-owned: undo the reservation exactly, keeping the status
         // and explanation the operator saw, and retry on a later pass.
-        this.change(latest, {
+        this.writer.change(latest, {
           ...restoredStatus(cycle),
           integrationRefreshes: cycle.integrationRefreshes,
           reason: cycle.reason,
         });
         return true;
       }
-      if (!this.abort.signal.aborted)
-        this.change(latest, {
+      if (!this.locks.stopping())
+        this.writer.change(latest, {
           status: 'needs-attention',
           attention: cycleAttention(failed.code),
           reason: failed.message,
@@ -3784,22 +3621,22 @@ export class WorkCycleService {
     const key = `${cycle.id}:${head}`;
     const decided = decideDeclaredChecksReview(cycle, {
       review,
-      alreadyAsked: this.declaredReviews.has(key),
-      stopping: this.abort.signal.aborted,
+      alreadyAsked: this.locks.declaredReviews.has(key),
+      stopping: this.locks.stopping(),
       live: this.storage.execution.runs.liveForWorktree(ws, cycle.worktreeId).length > 0,
     });
     if (decided.kind === 'none' || !review) return false;
     check();
     const current = this.storage.execution.cycles.find(ws, cycle.id);
     if (current?.version !== cycle.version) return false;
-    this.declaredReviews.add(key);
-    const reserved = this.change(cycle, decided.changes);
+    this.locks.declaredReviews.add(key);
+    const reserved = this.writer.change(cycle, decided.changes);
     try {
-      await this.next(reserved, 'review', review, undefined, {}, 'advance', { check });
+      await this.writer.next(reserved, 'review', review, undefined, {}, 'advance', { check });
     } catch (error) {
       const latest = this.storage.execution.cycles.find(ws, cycle.id);
       if (latest?.version === reserved.version && latest.status === 'running')
-        this.change(latest, { ...restoredStatus(cycle), reason: cycle.reason });
+        this.writer.change(latest, { ...restoredStatus(cycle), reason: cycle.reason });
       throw error;
     }
     return true;
@@ -3812,7 +3649,7 @@ export class WorkCycleService {
    */
   leaveMergeToOperator(cycle: WorkCycle, repositoryId: SourceRepositoryId): void {
     const decided = decideLeaveMerge(cycle, repositoryId, mergeAdoptsChecks(cycle.attention));
-    if (decided.kind === 'write') this.change(cycle, decided.changes);
+    if (decided.kind === 'write') this.writer.change(cycle, decided.changes);
   }
 
   /** The owned merge's worktree; aborting it needs no binding, only the worktree (R-B11 N2). */
@@ -3852,7 +3689,7 @@ export class WorkCycleService {
     const check = () => {
       const saved = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
       if (
-        this.abort.signal.aborted ||
+        this.locks.stopping() ||
         saved?.version !== cycle.version ||
         !activeEditor(this.storage, actingFor, cycle.workspaceId)
       )
@@ -3885,7 +3722,7 @@ export class WorkCycleService {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
-    this.requireNoInvestigation(cycle);
+    this.gates.requireNoInvestigation(cycle);
     if (
       cycle.version !== input.expectedVersion ||
       !['paused', 'needs-attention'].includes(cycle.status)
@@ -3900,7 +3737,8 @@ export class WorkCycleService {
     // Abandoning only discards the owned merge: no readiness gate holds it, so a wind-down can
     // always end a resolution (R-B11 review F16).
     if (input.action !== 'abandon') {
-      if (cycle.workItemId) this.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
+      if (cycle.workItemId)
+        this.gates.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
       else finalizationForCycle(this.storage, cycle);
     }
     const actingFor = input.action === 'abandon' ? context.user.id : cycle.createdByUserId;
@@ -3933,7 +3771,7 @@ export class WorkCycleService {
             'conflict',
             'No textual conflicts found. Use Update from integration, then resume for review.',
           );
-        return this.change(
+        return this.writer.change(
           cycle,
           {
             integrationResolution: {
@@ -3969,7 +3807,7 @@ export class WorkCycleService {
           if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
         }
         check();
-        return this.change(
+        return this.writer.change(
           cycle,
           {
             integrationResolution: { ...resolution, status: 'abandoned' },
@@ -4025,7 +3863,7 @@ export class WorkCycleService {
           attempts: 1,
           runIds: [runId],
         };
-        return this.change(
+        return this.writer.change(
           cycle,
           {
             integrationResolution: resolution,
@@ -4033,7 +3871,7 @@ export class WorkCycleService {
             step: 'remediate',
             parentRunId: source.id,
             currentRunId: runId,
-            runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+            runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
             reason: 'Preparing the pinned integration merge for agent resolution.',
           },
           'resolution-started',
@@ -4051,11 +3889,11 @@ export class WorkCycleService {
         input.profile === undefined
       ) {
         check();
-        return this.change(
+        return this.writer.change(
           cycle,
           {
             status: 'running',
-            runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+            runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
             reason: 'Resuming verification of the completed resolution run.',
           },
           'resolution-resumed',
@@ -4078,7 +3916,7 @@ export class WorkCycleService {
           throw new ExecutionRequestError('unavailable', 'Resolution agent is unavailable');
         check();
         const runId = asAgentRunId(randomUUID());
-        return this.change(
+        return this.writer.change(
           cycle,
           {
             integrationResolution: {
@@ -4091,7 +3929,7 @@ export class WorkCycleService {
             status: 'running',
             parentRunId: run.id,
             currentRunId: runId,
-            runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+            runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
             reason: 'Resuming conflict resolution with the existing edits and handoff.',
           },
           'resolution-resumed',
@@ -4099,11 +3937,11 @@ export class WorkCycleService {
         );
       }
       check();
-      return this.change(
+      return this.writer.change(
         cycle,
         {
           status: 'running',
-          runDeadlineAt: this.deadline(cycle.policy.maxRunMinutes),
+          runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
           reason: 'Resuming the reserved integration operation.',
         },
         'resolution-resumed',
@@ -4121,7 +3959,7 @@ export class WorkCycleService {
         const result = await git.prepareIntegrationResolution(input);
         if (!result.ok) throw new TypedRefusalError('worktree-state', result.failure.message);
         check();
-        this.change(
+        this.writer.change(
           cycle,
           {
             integrationResolution: {
@@ -4151,7 +3989,7 @@ export class WorkCycleService {
             'Resolution is not ready: resolve and stage all changes, clear generated files, and keep the pinned merge pending. Resume with guidance.',
           );
         check();
-        this.change(
+        this.writer.change(
           cycle,
           {
             integrationResolution: {
@@ -4176,7 +4014,7 @@ export class WorkCycleService {
         });
         if (!result.ok) throw new TypedRefusalError('worktree-state', result.failure.message);
         check();
-        const changed = this.change(
+        const changed = this.writer.change(
           cycle,
           {
             integrationResolution: {
@@ -4190,7 +4028,7 @@ export class WorkCycleService {
           'resolution-completed',
         );
         const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
-        await this.next(changed, 'review', run);
+        await this.writer.next(changed, 'review', run);
       }
     });
   }
@@ -4203,7 +4041,7 @@ export class WorkCycleService {
    */
   private async resumeAfterRestart(cycle: WorkCycle, run: AgentRun): Promise<void> {
     if (this.runs.isDraining()) return;
-    await this.next(
+    await this.writer.next(
       cycle,
       cycle.step,
       run,
@@ -4234,7 +4072,7 @@ export class WorkCycleService {
   ): Promise<void> {
     if (this.runs.isDraining()) return;
     const floor = this.now().getTime() + OUTPUT_REPAIR_MINUTES * 60_000;
-    await this.next(
+    await this.writer.next(
       cycle,
       cycle.step,
       run,
@@ -4259,561 +4097,4 @@ export class WorkCycleService {
       'repair-output',
     );
   }
-
-  private async next(
-    cycle: WorkCycle,
-    step: CycleStep,
-    parent?: AgentRun,
-    context?: CommandContext,
-    changes: CycleFieldChanges = {},
-    action = context === undefined ? 'advance' : 'resume',
-    reservation?: { check?: () => void; attach?: () => void },
-  ): Promise<WorkCycle> {
-    const ended =
-      parent &&
-      this.storage.execution.runEvents.latestOfKind(cycle.workspaceId, parent.id, 'run-finished');
-    const resumingReview =
-      step === 'review' &&
-      cycle.step === 'review' &&
-      parent?.role === 'review' &&
-      parent.id === cycle.currentRunId &&
-      (drainInterrupted(this.storage.execution, parent) ||
-        changes.outputRepair?.sourceRunId === parent.id);
-    const collectingReview =
-      resumingReview ||
-      (step === 'review' &&
-        cycle.step === 'review' &&
-        parent !== undefined &&
-        (parent.id === cycle.currentRunId ||
-          ((cycle.resultContinuations ?? 0) > 0 &&
-            parent.id === cycle.parentRunId &&
-            !this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId))) &&
-        parent.role === 'review' &&
-        parent.status === 'failed' &&
-        !ownsIntegrationResolution(cycle) &&
-        ended?.kind === 'run-finished' &&
-        ((ended.payload.reason === 'background-work-incomplete' &&
-          (!!context || (changes.resultContinuations ?? 0) > 0)) ||
-          (changes.providerRecovery?.sourceRunId === parent.id &&
-            changes.providerRecovery.failure.safeToRetry &&
-            (changes.providerRecovery.attempts ?? 0) > 0)));
-    // A checkpoint review that runs again attests the checkpoint's current inputs, so a later
-    // failure compares against them; a session that continues keeps the inputs it was given.
-    const active = cycle.workflow?.activeReview;
-    if (
-      step === 'review' &&
-      !collectingReview &&
-      active?.kind === 'checkpoint' &&
-      changes.workflow === undefined
-    ) {
-      const digest = workflowContext(this.storage, cycle)?.contextDigest;
-      if (digest && digest !== active.contextDigest)
-        changes = {
-          ...changes,
-          workflow: { ...cycle.workflow!, activeReview: { ...active, contextDigest: digest } },
-        };
-    }
-    let reviewHeadSha: string | undefined;
-    if (collectingReview) {
-      const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-      if (!tree || !parent.reviewBranchContext)
-        throw new TypedRefusalError(
-          'review-capture-failed',
-          'Review continuation requires its original branch checkpoint.',
-        );
-      reviewHeadSha = (
-        await reviewCapture(() =>
-          this.branches.captureReviewContinuation(tree, parent.reviewBranchContext!),
-        )
-      ).context.headSha;
-    } else if (step === 'review') reviewHeadSha = await this.cleanHead(cycle);
-    if (
-      this.abort.signal.aborted ||
-      this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !== cycle.version
-    )
-      return cycle;
-    if (context) this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
-    if (cycle.finalizationId) finalizationForCycle(this.storage, cycle);
-    if (changes.finalizationAgentOverride !== undefined) {
-      if (!context || !cycle.finalizationId)
-        throw new ExecutionRequestError(
-          'conflict',
-          'Agent changes require an operator finalization recovery command.',
-        );
-      const value = finalizationForCycle(this.storage, cycle);
-      if (
-        !value ||
-        !this.runs.hasBackend(
-          finalizationAgent(value, { ...cycle, ...changes, step }).selection.backend,
-        )
-      )
-        throw new ExecutionRequestError(
-          'unavailable',
-          'The selected finalization backend is unavailable.',
-        );
-    }
-    const nextRunId = asAgentRunId(randomUUID());
-    // Operator guidance is one-shot: it belongs to the step it was given for. It survives a
-    // re-reservation of that step before its run launched (e.g. an integration refresh), and
-    // same-step service retries and completion continuations (ADR-062); every other transition
-    // drops it.
-    const sameStepAttempt =
-      step === cycle.step &&
-      (!this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId) ||
-        (changes.providerRecovery?.attempts ?? 0) > 0 ||
-        (changes.resultContinuations ?? 0) > 0 ||
-        !!changes.outputRepair);
-    reservation?.check?.();
-    return this.storage.transaction(() => {
-      const result = this.change(
-        cycle,
-        {
-          housekeepingInstructions: '',
-          designWait: null,
-          ...(context ? { designDependencyContinuations: 0 } : {}),
-          ...(step === 'design' && cycle.designRecovery?.runId === cycle.currentRunId
-            ? { designRecovery: { ...cycle.designRecovery, runId: nextRunId } }
-            : {}),
-          // An explicit resume grants a fresh recovery window; automatic attempts retain their count/deadline.
-          resultContinuations: collectingReview && context ? 1 : 0,
-          providerRecovery: null,
-          outputRepair: null,
-          stepGuidance: sameStepAttempt ? cycle.stepGuidance : undefined,
-          // Legacy finalization records kept resume guidance here; it belonged to that attempt.
-          ...(cycle.finalizationId && parent?.id === cycle.currentRunId
-            ? { instructions: '' }
-            : {}),
-          ...changes,
-          status: 'running',
-          step,
-          currentRunId: nextRunId,
-          ...(parent === undefined ? {} : { parentRunId: parent.id }),
-          ...(reviewHeadSha === undefined ? {} : { reviewHeadSha }),
-          runDeadlineAt:
-            changes.runDeadlineAt ?? this.deadline((changes.policy ?? cycle.policy).maxRunMinutes),
-          reason: changes.reason ?? `Starting ${step}.`,
-        },
-        action,
-        context,
-      );
-      reservation?.attach?.();
-      return result;
-    });
-  }
-
-  private async cleanHead(cycle: WorkCycle): Promise<string> {
-    const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    if (worktree?.status !== 'active' || !this.git)
-      throw new TypedRefusalError(
-        worktree?.status !== 'active' ? 'worktree-inactive' : 'service-unavailable',
-        'The active worktree or Git is unavailable',
-      );
-    const result = await this.git.inspectRepository(worktree.path);
-    if (!result.ok || !result.value.clean || result.value.branch !== worktree.branchName) {
-      throw new TypedRefusalError(
-        'worktree-state',
-        'Review requires a clean worktree on its managed branch. Commit or resolve the changes manually, then resume.',
-      );
-    }
-    return result.value.headSha;
-  }
-  private requireReady(
-    workspaceId: WorkspaceId,
-    workItemId: WorkItemId,
-    scope?: import('@craftingtable/domain').ExecutionScope,
-  ) {
-    return requireReady(this.storage, workspaceId, workItemId, scope);
-  }
-  private deadline(minutes: number): string {
-    return new Date(this.now().getTime() + minutes * 60_000).toISOString();
-  }
-  /**
-   * The launch gates a resumed step must pass, checked before the command is accepted so
-   * the operator sees the real blocker instead of a resume that bounces seconds later
-   * (R-A7, CTRL-12). The launch checks them again at the mutation boundary.
-   */
-  private async transitionGate(cycle: WorkCycle): Promise<void> {
-    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    // An owned integration resolution is gated by resolveIntegration itself.
-    if (tree?.status !== 'active' || !cycle.workItemId) return;
-    // Only a resume that relaunches the same step goes straight to launch; a finished
-    // step first refreshes integration, which can bring the predecessors in.
-    const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
-    if (
-      cycle.step !== 'review' &&
-      (!run || ['failed', 'cancelled', 'interrupted'].includes(run.status))
-    )
-      await this.branches.validateLaunch(tree);
-  }
-
-  /**
-   * An `upstream-pin-moved` stop resumes only once the dependency refresh has pinned what moved
-   * (LIVE-15): until then a resume would meet the same pin, with or without guidance. A pause
-   * taken at the stop keeps its code, so it is held to the same rule.
-   */
-  private async assertPinsRefreshed(cycle: WorkCycle): Promise<void> {
-    const stop = cycle.status === 'paused' ? cycle.attention : effectiveCycleAttention(cycle);
-    if (stop?.code !== 'upstream-pin-moved') return;
-    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    if (!tree) return;
-    const recorded = new Set((stop.refs?.pins ?? []).map((p) => p.alias));
-    const stale = (await this.runtimeEvidence.movedPins(tree)).filter(
-      (p) => recorded.size === 0 || recorded.has(p.alias),
-    );
-    if (stale.length)
-      throw new ExecutionRequestError(
-        'conflict',
-        `${stale.map((p) => p.alias).join(', ')} still differs from its saved pin. Preview and save the dependency refresh in the dependency environment, then resume.`,
-      );
-  }
-
-  /**
-   * A step whose report still has open questions resumes only with guidance that answers them:
-   * a plain resume would reclassify the same report. The roadmap skips such a cycle when it
-   * resumes, rather than failing (LIVE-18 review).
-   */
-  resumeNeedsGuidance(cycle: WorkCycle): boolean {
-    if (
-      cycle.finalizationId ||
-      (cycle.executionScope && cycle.executionScope.kind !== 'slice') ||
-      !['implement', 'remediate', 'review'].includes(cycle.step)
-    )
-      return false;
-    const run = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId)[0];
-    const turn =
-      run &&
-      this.storage.execution.runEvents.latestOfKind(cycle.workspaceId, run.id, 'turn-completed');
-    return turn?.kind === 'turn-completed' && raisesOpenQuestions(turn.payload.resultText);
-  }
-
-  /**
-   * A `shared-decision-required` stop resumes, plain or guided, only once every shared decision
-   * the slice's merge needs is settled (LIVE-18): until then a resume only reviews again into
-   * the same gate. A pause taken at the stop keeps its code, so it is held to the same rule.
-   */
-  private assertDecisionsSettled(cycle: WorkCycle): void {
-    const unsettled = unsettledDecisionsAt(this.storage, cycle);
-    if (unsettled.length)
-      throw new ExecutionRequestError(
-        'conflict',
-        `${unsettled.join(', ')} ${unsettled.length === 1 ? 'is' : 'are'} not approved for this slice yet. Prepare and approve ${unsettled.length === 1 ? 'it' : 'them'} in Shared architecture decisions (approval needs the roadmap paused), then resume.`,
-      );
-  }
-
-  /**
-   * A checkpoint attestation stop whose inputs changed since its review ran: a plain resume
-   * reviews new evidence, so it is not redirected (R-C13). Unchanged inputs would only
-   * repeat the same failed attestation (LIVE-07). A pause taken at the stop keeps its code.
-   */
-  private attestationInputsChanged(cycle: WorkCycle): boolean {
-    const active = cycle.workflow?.activeReview;
-    const stop = cycle.status === 'paused' ? cycle.attention : effectiveCycleAttention(cycle);
-    return (
-      stop?.code === 'checkpoint-attestation-failed' &&
-      active?.kind === 'checkpoint' &&
-      workflowContext(this.storage, cycle)?.contextDigest !== active.contextDigest
-    );
-  }
-
-  /** Stops for someone to act: the code says what the stop is, the reason says it in words. */
-  private attention(
-    cycle: WorkCycle,
-    code: CycleAttentionCode,
-    reason: string,
-    refs?: AttentionRefs,
-    repairAttempts?: number,
-  ): void {
-    this.change(cycle, {
-      status: 'needs-attention',
-      reason,
-      attention: cycleAttention(code, refs, repairAttempts ? { repairAttempts } : {}),
-    });
-  }
-  private change(
-    cycle: WorkCycle,
-    input: CycleChanges,
-    action = 'advance',
-    context?: CommandContext,
-  ): WorkCycle {
-    // Entering a stop declares its attention (enforced by CycleChanges); a pause keeps the
-    // stop it was taken at (R-A7); any other status clears it, so attention always describes
-    // the current state (R-A3).
-    const { attention: declared, ...fields } = input;
-    const nextStatus = fields.status ?? cycle.status;
-    let attention =
-      ATTENTION_STATUSES.has(nextStatus) || (nextStatus === 'paused' && cycle.status === 'paused')
-        ? (declared ?? cycle.attention)
-        : nextStatus === 'paused'
-          ? declared
-          : undefined;
-    // A new stop is declared complete in the same write: whether automation claims it and
-    // whether its merge requirements are met (NOTIF-02).
-    if (declared && fields.status !== undefined)
-      try {
-        attention =
-          currentCycleAttention(this.storage, { ...cycle, ...fields, attention: declared }) ??
-          declared;
-      } catch {
-        attention = declared;
-      }
-    // A repair budget belongs to the run it repairs (R-C2). Leaving automation (a stop, a
-    // pause, an end) or an operator command ends it, so a later run never inherits spent
-    // repairs; the stop itself records them in `attention.repairAttempts`.
-    const repairEnded =
-      !!cycle.outputRepair &&
-      !('outputRepair' in fields) &&
-      (nextStatus !== 'running' || context !== undefined);
-    // An investigation belongs to the stop it was started at (R-C16): leaving that stop, for
-    // another status or another run, ends it.
-    const investigationEnded =
-      !!cycle.investigation &&
-      !('investigation' in fields) &&
-      (!['needs-attention', 'paused'].includes(nextStatus) ||
-        (fields.currentRunId !== undefined && fields.currentRunId !== cycle.currentRunId) ||
-        (attention !== undefined && attention.code !== cycle.investigation.code));
-    let changes: Partial<WorkCycle> = {
-      ...fields,
-      ...(attention ? { attention } : {}),
-      ...(repairEnded ? { outputRepair: null } : {}),
-    };
-    // Keep lifetime totals and independent stage allowance/usage together in the same transaction.
-    if (
-      cycle.finalizationProgress &&
-      (changes.remediationRounds !== undefined || changes.additionalRemediationRounds !== undefined)
-    ) {
-      changes = {
-        ...changes,
-        finalizationProgress: {
-          ...(changes.finalizationProgress ?? cycle.finalizationProgress),
-          stages: (changes.finalizationProgress ?? cycle.finalizationProgress).stages.map((s, i) =>
-            i !== cycle.finalizationProgress?.stageIndex
-              ? s
-              : {
-                  ...s,
-                  remediationRounds:
-                    s.remediationRounds +
-                    ((changes.remediationRounds ?? cycle.remediationRounds) -
-                      cycle.remediationRounds),
-                  additionalRemediationRounds:
-                    s.additionalRemediationRounds +
-                    ((changes.additionalRemediationRounds ??
-                      cycle.additionalRemediationRounds ??
-                      0) -
-                      (cycle.additionalRemediationRounds ?? 0)),
-                },
-          ),
-        },
-      };
-    }
-    const merged: WorkCycle = {
-      ...cycle,
-      ...changes,
-      reason: (changes.reason ?? cycle.reason).slice(0, 4000),
-      version: cycle.version + 1,
-      updatedAt: this.now().toISOString(),
-    };
-    const { attention: _cleared, ...unattended } = merged;
-    const attended: WorkCycle = attention ? merged : unattended;
-    const { investigation: ended, ...uninvestigated } = attended;
-    const updated: WorkCycle = investigationEnded ? uninvestigated : attended;
-    // The one write path checks every write against the state machine (R-B4 increment 6).
-    checkTransition(cycle, updated, action);
-    // A controller write that changes nothing is not a transition: no version, audit entry
-    // or work-cycle-changed event (each event costs every open browser a refetch round).
-    // Operator commands are always recorded, and a stale snapshot still fails below.
-    if (
-      context === undefined &&
-      JSON.stringify({ ...updated, version: cycle.version, updatedAt: cycle.updatedAt }) ===
-        JSON.stringify(cycle) &&
-      this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version === cycle.version
-    )
-      return cycle;
-    this.storage.transaction((tx) => {
-      if (!tx.execution.cycles.replace(updated, cycle.version))
-        throw new ConcurrentModificationError('Cycle changed while this operation was in progress');
-      this.record(tx, updated, action, context);
-    });
-    // The run is read-only, so ending it loses nothing; left live, it would hold the worktree.
-    if (investigationEnded && ended && !ended.result)
-      this.runs.cancelInvestigation(
-        cycle.workspaceId,
-        ended.runId,
-        'The cycle left the stop this investigation was for.',
-      );
-    this.notifier.notify();
-    return updated;
-  }
-  private record(
-    tx: StorageRepositories,
-    cycle: WorkCycle,
-    action: string,
-    context?: CommandContext,
-  ): void {
-    tx.audit.append({
-      id: asAuditEventId(randomUUID()),
-      occurredAt: cycle.updatedAt,
-      actorKind: context?.session === undefined ? 'system' : 'user',
-      actorUserId: context?.user.id ?? cycle.createdByUserId,
-      ...(context?.session === undefined ? {} : { sessionId: context.session.id }),
-      workspaceId: cycle.workspaceId,
-      action: 'work-cycle.updated',
-      targetType: 'work-cycle',
-      targetId: cycle.id,
-      outcome: 'succeeded',
-      resultingVersion: cycle.version,
-      metadata: {
-        action,
-        ...(action.startsWith('baseline-preparation') && cycle.baselinePreparation
-          ? {
-              baselinePreparation: {
-                ...cycle.baselinePreparation,
-                sources: cycle.baselinePreparation.sources.map((source) => ({ ...source })),
-              },
-            }
-          : {}),
-        status: cycle.status,
-        step: cycle.step,
-        reason: cycle.reason,
-        runId: cycle.currentRunId,
-        // The stop this transition entered, so operator wait can be measured by code (R-C1).
-        ...(cycle.attention
-          ? {
-              attention: {
-                code: cycle.attention.code,
-                owner: cycle.attention.owner,
-                ...(cycle.attention.claim ? { claim: cycle.attention.claim } : {}),
-              },
-            }
-          : {}),
-        ...(action === 'approve-plan-change' && cycle.finalizationProgress
-          ? {
-              approvedObligations: cycle.finalizationProgress.obligations
-                .filter((o) => o.approvedChange)
-                .map((o) => ({
-                  id: o.id,
-                  source: o.source,
-                  requirement: o.requirement,
-                  approvedChange: { ...o.approvedChange },
-                })),
-            }
-          : {}),
-        ...(cycle.finalizationProgress
-          ? {
-              stageIndex: cycle.finalizationProgress.stageIndex,
-              stageState: { ...currentFinalizationStage(cycle) },
-              stageDecisions: cycle.finalizationProgress.decisions.map((d) => ({
-                ...d,
-                selectedIds: [...d.selectedIds],
-              })),
-            }
-          : {}),
-        ...(cycle.finalizationId
-          ? {
-              finalizationAgentOverride: cycle.finalizationAgentOverride
-                ? { ...cycle.finalizationAgentOverride }
-                : null,
-            }
-          : {}),
-        ...(action === 'authorize-remediation' || action === 'remediate-findings'
-          ? {
-              instructions: cycle.stepGuidance ?? '',
-              initialRemediationAllowance: cycle.policy.maxRemediationRounds,
-              additionalRemediationRounds: cycle.additionalRemediationRounds ?? 0,
-              remediationAllowance: remediationAllowance(cycle),
-              remediationRounds: cycle.remediationRounds,
-            }
-          : {}),
-        ...(action === 'remediate-findings'
-          ? {
-              findingFocus: cycle.findingFocus ?? [],
-              instructions: cycle.stepGuidance ?? '',
-            }
-          : {}),
-        ...(cycle.integrationResolution
-          ? {
-              integrationResolution: {
-                ...cycle.integrationResolution,
-                paths: [...cycle.integrationResolution.paths],
-              },
-            }
-          : {}),
-        ...(cycle.checkpoint
-          ? { checkpoint: { ...cycle.checkpoint, paths: [...cycle.checkpoint.paths] } }
-          : {}),
-      },
-    });
-    this.appendCycleEvent(tx, cycle, cycle.updatedAt, context);
-  }
-  private appendCycleEvent(
-    tx: StorageRepositories,
-    cycle: WorkCycle,
-    occurredAt: string,
-    context?: CommandContext,
-  ): void {
-    tx.workspaceEvents.appendEvent({
-      id: asEventId(randomUUID()),
-      occurredAt,
-      workspaceId: cycle.workspaceId,
-      actorUserId: context?.user.id ?? cycle.createdByUserId,
-      projectId: cycle.projectId,
-      workItemId: cycle.workItemId,
-      kind: 'work-cycle-changed',
-      payload: {
-        ...(cycle.planVersionId ? { planVersionId: cycle.planVersionId } : {}),
-        cycleId: cycle.id,
-        status: cycle.status,
-        step: cycle.step,
-        reason: cycle.reason,
-      },
-    });
-  }
-}
-
-/**
- * What a finished review's report asks, and whether its turn can carry a grant, for the resume's
- * round-limit rule (R-B4, decision 14; NIT-4's turn half).
- */
-function reviewFacts(
-  tx: StorageRepositories,
-  cycle: WorkCycle,
-): Pick<CommandFacts, 'reviewAsksRemediation' | 'reviewScopeIssue' | 'reviewTurnSucceeded'> {
-  return {
-    reviewAsksRemediation: (run) => {
-      const assessment = latestReviewReport(tx.execution, run);
-      return (
-        assessment?.status === 'complete' &&
-        evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
-      );
-    },
-    reviewScopeIssue: (run) => {
-      const tree = tx.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-      return !!tree && !!scopedReviewIssue(tx, tree, latestReviewReport(tx.execution, run));
-    },
-    reviewTurnSucceeded: (run) =>
-      turnTakesGrant(
-        tx.execution.runEvents.latestOfKind(cycle.workspaceId, run.id, 'turn-completed'),
-      ),
-  };
-}
-
-/**
- * A stopped or paused review whose well-formed report asks for remediation the allowance has
- * spent: only Authorize more remediation can continue it (LIVE-33).
- */
-function reviewNeedsRounds(tx: StorageRepositories, cycle: WorkCycle, run?: AgentRun): boolean {
-  if (
-    !['needs-attention', 'paused'].includes(cycle.status) ||
-    cycle.step !== 'review' ||
-    run?.role !== 'review' ||
-    run.status !== 'finished' ||
-    remediationUsed(cycle) < remediationAllowance(cycle)
-  )
-    return false;
-  const assessment = latestReviewReport(tx.execution, run);
-  if (assessment?.status !== 'complete') return false;
-  const tree = tx.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-  return (
-    !(tree && scopedReviewIssue(tx, tree, assessment)) &&
-    evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
-  );
 }

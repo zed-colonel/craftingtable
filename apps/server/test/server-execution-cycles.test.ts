@@ -547,7 +547,8 @@ it('refreshes a phase wait when its blockers change and records nothing for a co
   const { PhaseGateError } = await import('../src/services/phase-resources.js');
   const service = state.context.services.workCycleService as unknown as {
     apply: (cycle: WorkCycle) => Promise<void>;
-    change: (cycle: WorkCycle, changes: Partial<WorkCycle>) => WorkCycle;
+    // The cycle's one write path (R-B7 increment 6: the writer).
+    writer: { change: (cycle: WorkCycle, changes: Partial<WorkCycle>) => WorkCycle };
   };
   let blockers: import('@craftingtable/domain').PhaseBlocker[] = [
     { kind: 'resource', message: 'Resource build capacity is in use.' },
@@ -577,7 +578,7 @@ it('refreshes a phase wait when its blockers change and records nothing for a co
   });
   const events = cycleEvents();
   expect(
-    service.change(refreshed, { reason: refreshed.reason, phaseWait: refreshed.phaseWait }),
+    service.writer.change(refreshed, { reason: refreshed.reason, phaseWait: refreshed.phaseWait }),
   ).toBe(refreshed);
   expect(currentCycle(state, cycle).version).toBe(refreshed.version);
   expect(cycleEvents()).toBe(events);

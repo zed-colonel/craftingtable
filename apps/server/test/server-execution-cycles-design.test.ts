@@ -152,9 +152,12 @@ describe('single work-item automation', () => {
     });
     const gate = vi
       .spyOn(
-        state.context.services.workCycleService as unknown as {
-          transitionGate: () => Promise<void>;
-        },
+        // The gate the resume asks (R-B7 increment 6: the cycle's gates).
+        (
+          state.context.services.workCycleService as unknown as {
+            gates: { transitionGate: () => Promise<void> };
+          }
+        ).gates,
         'transitionGate',
       )
       .mockRejectedValue(new ExecutionRequestError('conflict', 'A launch would be refused.'));

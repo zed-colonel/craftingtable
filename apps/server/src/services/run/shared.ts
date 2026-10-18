@@ -1,3 +1,8 @@
+/**
+ * The run side's shared types and helpers (R-B7): what the agent run service and the modules it
+ * is made of all read, in a leaf no service imports back, so the services that only need a
+ * run's log or launch input import no service for it.
+ */
 import type { AgentBackend, AgentSession, AgentSessionItem } from '@craftingtable/agents';
 import {
   type AgentBackendKind,
@@ -13,12 +18,6 @@ import {
   type WorktreeId,
 } from '@craftingtable/domain';
 import type { OutputContext } from '../brief-output.js';
-
-/**
- * The run side's shared types and helpers (R-B7): what the agent run service and the modules it
- * is made of all read, in a leaf no service imports back, so the services that only need a
- * run's log or launch input import no service for it.
- */
 
 export interface StartRunInput {
   readonly backend?: AgentBackendKind;
@@ -103,6 +102,11 @@ export function summarise(text: string): string {
   return truncateUtf8Bytes(text, OUTCOME_SUMMARY_LIMIT_BYTES);
 }
 
+/**
+ * Reads a killed session until it reports its exit. If the stream ends or fails
+ * without one, the backend's SIGTERM-then-SIGKILL escalation is given time to
+ * finish before the worktree is released.
+ */
 export async function drainUntilExit(items: AsyncIterator<AgentSessionItem>): Promise<void> {
   try {
     for (let next = await items.next(); next.done !== true; next = await items.next())

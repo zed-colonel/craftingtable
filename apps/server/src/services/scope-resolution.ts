@@ -1,3 +1,8 @@
+/**
+ * A work item's execution scope resolved against its imported map: the leaf the scope gates, the
+ * phase resources and the transition gate all read, so none of them imports `execution-scope.ts`
+ * for it (R-B7: no import cycles).
+ */
 import {
   type ExecutionScope,
   executionScopeKey,
@@ -7,12 +12,6 @@ import {
 import type { StorageRepositories } from '@craftingtable/storage';
 import { ExecutionRequestError, NotFoundError } from './errors.js';
 import { mapAdopted } from './map-adoption-policy.js';
-
-/**
- * A work item's execution scope resolved against its imported map: the leaf the scope gates, the
- * phase resources and the transition gate all read, so none of them imports `execution-scope.ts`
- * for it (R-B7: no import cycles).
- */
 
 function conflict(message: string): never {
   throw new ExecutionRequestError('conflict', message);

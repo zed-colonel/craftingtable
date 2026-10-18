@@ -1,11 +1,10 @@
-import type { UserId, WorkspaceId, WorkspaceRole } from '@craftingtable/domain';
-import type { StorageRepositories } from '@craftingtable/storage';
-
 /**
  * Whether a user may still act for work they started or delegated (CTRL-14, R-B7): active, and an
  * owner or editor of the workspace. One rule, which every site asks; each site keeps its own
  * refusal (operator decision 4, 2026-10-17).
  */
+import type { UserId, WorkspaceId, WorkspaceRole } from '@craftingtable/domain';
+import type { StorageRepositories } from '@craftingtable/storage';
 
 /** The roles that may run or delegate work in a workspace. */
 const EDITING_ROLES: readonly WorkspaceRole[] = ['owner', 'editor'];

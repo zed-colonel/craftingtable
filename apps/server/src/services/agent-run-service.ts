@@ -575,8 +575,8 @@ export class AgentRunService {
     private readonly notifier: WorkspaceEventNotifier,
     private readonly backends: ReadonlyMap<AgentBackendKind, AgentBackend>,
     private readonly config: ExecutionConfig,
-    private readonly log: RunLog = { warn: () => undefined },
-    private readonly now: () => Date = () => new Date(),
+    private readonly log: RunLog,
+    private readonly now: () => Date,
     private readonly mutations: WorktreeMutationGuard,
     private readonly branches: BranchService,
     private readonly storageService: StorageService,
@@ -3434,11 +3434,6 @@ export class AgentRunService {
   }
 }
 
-/**
- * Reads a killed session until it reports its exit. If the stream ends or fails
- * without one, the backend's SIGTERM-then-SIGKILL escalation is given time to
- * finish before the worktree is released.
- */
 /**
  * What the daemon records of a run's agent process group (R-G11): who the group is, whose run
  * it is, and which installation wrote it (the database file's device and inode).

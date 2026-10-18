@@ -322,7 +322,7 @@ export async function createServices(
     notifier,
     backends,
     storageService.executionConfig,
-    overrides.runLog,
+    overrides.runLog ?? { warn: () => undefined },
     now,
     worktreeMutations,
     executionService.branches,

@@ -638,8 +638,8 @@ describe('the fail-open gaps the independent review found', () => {
         capability('apps/server/src/cycle-a.ts', 'node:child_process'),
         'packages/planning/src/cycle-a.ts: planning package imports impure module "node:fs"',
         // Rule 10 finds the daemon's two cycles; the planning package's is outside it.
-        'apps/server/src/cycle-a.ts: import cycle among 2 modules (apps/server/src/cycle-a.ts → apps/server/src/cycle-b.ts → apps/server/src/cycle-a.ts); move what they share into a module none of them imports back (R-B7)',
-        'apps/server/src/self.ts: import cycle among 1 module (apps/server/src/self.ts → apps/server/src/self.ts); move what they share into a module none of them imports back (R-B7)',
+        'apps/server/src/cycle-a.ts: import cycle among 2 modules (apps/server/src/cycle-a.ts, apps/server/src/cycle-b.ts), one path round it apps/server/src/cycle-a.ts → apps/server/src/cycle-b.ts → apps/server/src/cycle-a.ts; move what they share into a module none of them imports back (R-B7)',
+        'apps/server/src/self.ts: import cycle among 1 module (apps/server/src/self.ts), one path round it apps/server/src/self.ts → apps/server/src/self.ts; move what they share into a module none of them imports back (R-B7)',
       ].sort(),
     );
   });
@@ -1107,8 +1107,8 @@ describe('domain, contracts and storage export only what another module takes (r
 });
 
 describe("the daemon's modules import one another without cycles (rule 10, R-B7)", () => {
-  const cycle = (path, modules, round) =>
-    `${path}: import cycle among ${modules} modules (${round.join(' → ')}); move what they share into a module none of them imports back (R-B7)`;
+  const cycle = (members, round) =>
+    `${members[0]}: import cycle among ${members.length} module${members.length === 1 ? '' : 's'} (${members.join(', ')}), one path round it ${round.join(' → ')}; move what they share into a module none of them imports back (R-B7)`;
   const inspect = (files, known = []) => inspectWorkspace(workspace(files), EMITTED_EXPORTS, known);
 
   it('finds a cycle through value imports, type-only imports and import() types, with a path round it', () => {
@@ -1121,12 +1121,38 @@ describe("the daemon's modules import one another without cycles (rule 10, R-B7)
       'apps/server/src/c.ts': "export type C = import('./a.js').A;\n",
     });
     expect(exceptRule8(typed.findings)).toEqual([
-      cycle('apps/server/src/a.ts', 3, [
-        'apps/server/src/a.ts',
-        'apps/server/src/b.ts',
-        'apps/server/src/c.ts',
-        'apps/server/src/a.ts',
-      ]),
+      cycle(
+        ['apps/server/src/a.ts', 'apps/server/src/b.ts', 'apps/server/src/c.ts'],
+        [
+          'apps/server/src/a.ts',
+          'apps/server/src/b.ts',
+          'apps/server/src/c.ts',
+          'apps/server/src/a.ts',
+        ],
+      ),
+    ]);
+  });
+
+  it('names every module of a cycle, and the shortest path round it from the first', () => {
+    // a → b → a is the shortest of the paths round a; c and d are in the cycle too.
+    const { findings } = inspect({
+      'apps/server/src/index.ts': "import { a } from './a.js';\nexport const main = a;\n",
+      'apps/server/src/a.ts':
+        "import { b } from './b.js';\nimport { c } from './c.js';\nexport const a = () => b() + c();\n",
+      'apps/server/src/b.ts': "import { a } from './a.js';\nexport const b = () => (a ? 1 : 0);\n",
+      'apps/server/src/c.ts': "import { d } from './d.js';\nexport const c = () => d();\n",
+      'apps/server/src/d.ts': "import { a } from './a.js';\nexport const d = () => (a ? 1 : 0);\n",
+    });
+    expect(exceptRule8(findings)).toEqual([
+      cycle(
+        [
+          'apps/server/src/a.ts',
+          'apps/server/src/b.ts',
+          'apps/server/src/c.ts',
+          'apps/server/src/d.ts',
+        ],
+        ['apps/server/src/a.ts', 'apps/server/src/b.ts', 'apps/server/src/a.ts'],
+      ),
     ]);
   });
 
@@ -1158,18 +1184,19 @@ describe("the daemon's modules import one another without cycles (rule 10, R-B7)
     );
     expect(exceptRule8(grown.findings).sort()).toEqual(
       [
-        cycle('apps/server/src/a.ts', 3, [
-          'apps/server/src/a.ts',
-          'apps/server/src/b.ts',
-          'apps/server/src/a.ts',
-        ]),
+        cycle(
+          ['apps/server/src/a.ts', 'apps/server/src/b.ts', 'apps/server/src/d.ts'],
+          ['apps/server/src/a.ts', 'apps/server/src/b.ts', 'apps/server/src/a.ts'],
+        ),
         'apps/server/src/a.ts: KNOWN_IMPORT_CYCLES lists apps/server/src/a.ts, apps/server/src/b.ts, which no longer form exactly one import cycle; update the list (R-B7)',
       ].sort(),
     );
   });
 
-  it("leaves the packages' cycles and the tests' imports alone", () => {
+  it("leaves the packages', the browser's and the tests' cycles alone", () => {
     const { findings } = inspect({
+      'apps/web/src/a.ts': "import { b } from './b.js';\nexport const a = () => b();\n",
+      'apps/web/src/b.ts': "import { a } from './a.js';\nexport const b = () => (a ? 1 : 0);\n",
       'apps/server/src/index.ts': 'export const main = 1;\n',
       'apps/server/test/a.test.ts':
         "import { b } from './b.js';\nimport { it } from 'vitest';\nit('a', () => b);\nexport const a = 1;\n",

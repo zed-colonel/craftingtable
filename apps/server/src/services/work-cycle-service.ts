@@ -315,7 +315,7 @@ export class WorkCycleService {
     private readonly runs: AgentRunService,
     private readonly git: GitOperations | undefined,
     private readonly notifier: WorkspaceEventNotifier,
-    private readonly now: () => Date = () => new Date(),
+    private readonly now: () => Date,
     private readonly mutations: WorktreeMutationGuard,
     private readonly branches: BranchService,
     private readonly baselines: BaselinePreparationService,
@@ -1028,10 +1028,8 @@ export class WorkCycleService {
   ) {
     const cycle = this.requireDesignRecovery(context, workspaceId, id);
     this.requireNoInvestigation(cycle);
-    const service = this.baselines;
-    const branches = this.branches;
     return this.mutations.during(cycle.worktreeId, async () => {
-      const resolved = await service.resolve(cycle, input);
+      const resolved = await this.baselines.resolve(cycle, input);
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
       const preparation = { ...resolved, createdByUserId: context.user.id };
       const reserved = this.change(
@@ -1045,11 +1043,11 @@ export class WorkCycleService {
         if (this.storage.execution.cycles.find(workspaceId, id)?.version !== reserved.version)
           throw new ExecutionRequestError('conflict', 'Cycle changed during baseline preparation.');
         this.requireReady(workspaceId, cycle.workItemId!, cycle.executionScope);
-        service.assertCurrent(cycle, preparation);
+        this.baselines.assertCurrent(cycle, preparation);
       };
       try {
-        await service.prepare(cycle, preparation, guard, (path, fn) =>
-          branches.duringMerge(path, fn),
+        await this.baselines.prepare(cycle, preparation, guard, (path, fn) =>
+          this.branches.duringMerge(path, fn),
         );
         guard();
         return this.change(

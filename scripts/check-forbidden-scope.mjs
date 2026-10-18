@@ -78,7 +78,8 @@
  * 10. The daemon's modules import one another without cycles (R-B7, CTRL-13): no production
  *    module of `apps/server/src` reaches itself through what it imports, a type-only import
  *    (`import type`, an `import('…')` type) included, since a type cycle still ties the modules
- *    together. A finding names the cycle's modules and one path round it. The cycles still
+ *    together. A finding names every module of the cycle and the shortest path round it from
+ *    the first. The cycles still
  *    allowed are listed by their modules (`KNOWN_IMPORT_CYCLES`): R-B7's scheduler half removes
  *    the last, `roadmap-service` and `cross-project-service`. A listed cycle whose modules no
  *    longer form exactly one cycle is a finding too, so the list only shrinks (the self-test
@@ -1747,7 +1748,7 @@ function cycleFindings(root, modules, production, known) {
     found.add(key);
     if (listed.has(key)) continue;
     findings.push(
-      `${name(set[0])}: import cycle among ${set.length} module${set.length === 1 ? '' : 's'} (${round(set).join(' → ')}); move what they share into a module none of them imports back (R-B7)`,
+      `${name(set[0])}: import cycle among ${set.length} module${set.length === 1 ? '' : 's'} (${set.map(name).join(', ')}), one path round it ${round(set).join(' → ')}; move what they share into a module none of them imports back (R-B7)`,
     );
   }
   // A listing whose modules this workspace does not have is another workspace's (the self-test's

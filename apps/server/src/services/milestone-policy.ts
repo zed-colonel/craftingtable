@@ -1,3 +1,8 @@
+/**
+ * Whether a map milestone (a checkpoint, a work item's acceptance, a slice started, merged or
+ * verified) is met: policy over the read snapshot, outside every service, so the services that
+ * ask it import no service for it (R-B7: no import cycles).
+ */
 import {
   type ConcurrencyDefinition,
   type ConcurrencyRequirement,
@@ -12,12 +17,6 @@ import {
   parentAccepted,
 } from './runtime-evidence-policy.js';
 import { integratedSlice } from './scope-lineage.js';
-
-/**
- * Whether a map milestone (a checkpoint, a work item's acceptance, a slice started, merged or
- * verified) is met: policy over the read snapshot, outside every service, so the services that
- * ask it import no service for it (R-B7: no import cycles).
- */
 
 export function milestoneSatisfied(
   tx: StorageRepositories,

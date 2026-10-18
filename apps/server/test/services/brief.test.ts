@@ -814,6 +814,18 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
     expect(cut).toContain(`\`${long.slice(0, 300)}…\``);
     expect(cut).not.toContain(long);
     expect(files()).not.toContain('ended without completing a turn');
+    // A parent whose last turn ended in error (R-C17 part 2 L-4).
+    expect(
+      files({
+        path,
+        messages: 2,
+        headSha: 'f'.repeat(40),
+        uncommitted: { paths: [], total: 0 },
+        endedInError: true,
+      }),
+    ).toContain(
+      `The previous run's last turn ended in error, so its final-message file holds only that turn's result. Where it stopped is in \`${path}\`: its last 2 assistant messages; the worktree as this run starts: head commit \`${'f'.repeat(12)}\`, with nothing uncommitted. Read it and check the worktree before redoing its work.`,
+    );
   });
 });
 

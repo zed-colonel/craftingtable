@@ -185,6 +185,62 @@ it("hands a resumed step the cut-off run's last messages, head commit and uncomm
   );
 });
 
+it("hands a service retry after a turn that ended in error the run's last messages and worktree, and keeps the warnings as they were (R-C17 part 2 L-4)", async () => {
+  let now = new Date('2026-10-17T12:00:00Z');
+  const { state, backend, worktree } = await cycleFixture(
+    [
+      designDone,
+      // The turn completes, in error: the provider is at capacity, and its final message is only
+      // the turn's result.
+      {
+        resultText: 'Turn ended: error_during_execution',
+        messages: ['Found the slow test: flow_capacity is quadratic.', 'Rewriting the loop now.'],
+        providerFailure: {
+          kind: 'capacity',
+          message: 'The selected model is at capacity.',
+          safeToRetry: true,
+        },
+      },
+      { resultText: 'Implemented and checks passed.' },
+    ],
+    () => now,
+  );
+  let implementations = 0;
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model' && ++implementations === 1)
+      writeFileSync(join(request.cwd, 'wip.txt'), 'half done\n');
+  };
+  const cycle = await startCycle(state, worktree.id);
+  await waitFor(() => !!currentCycle(state, cycle).providerRecovery?.nextRetryAt, 'the backoff');
+  const failed = backend.launches.length === 2 && currentCycle(state, cycle).currentRunId;
+  expect(failed).toBeTruthy();
+  const head = git(['rev-parse', 'HEAD'], worktree.path).trim();
+  now = new Date('2026-10-17T12:01:01Z');
+  await waitFor(() => backend.launches.length === 3, 'the service retry');
+  expect(backend.launches[2]!.prompt).toContain('service retry 1 of 3');
+  const root = runDirectory(backend.launches[2]!);
+  const handoff = join(root, 'handoff');
+  const manifest = JSON.parse(readFileSync(join(handoff, 'manifest.json'), 'utf8'));
+  expect(manifest.sources[0]).toMatchObject({ runId: failed, cutOff: '0000-cut-off.md' });
+  // The warnings stay as they were: the run completed a turn, so none says it did not.
+  expect(manifest.warnings).toEqual([]);
+  expect(readFileSync(join(handoff, '0000-final.md'), 'utf8')).toBe(
+    'Turn ended: error_during_execution',
+  );
+  const record = readFileSync(join(handoff, '0000-cut-off.md'), 'utf8');
+  expect(record).toContain('its last turn ended in error');
+  expect(record).not.toContain('without completing a turn');
+  expect(record).toContain('Found the slow test: flow_capacity is quadratic.');
+  expect(record).toContain('Rewriting the loop now.');
+  expect(record).toContain(head);
+  expect(record).toContain('wip.txt (untracked)');
+  const brief = readFileSync(join(root, 'brief.md'), 'utf8');
+  expect(brief).toContain(
+    "The previous run's last turn ended in error, so its final-message file holds only that turn's result. Where it stopped is in `handoff/0000-cut-off.md`: its last 2 assistant messages;",
+  );
+  expect(brief).toContain('`wip.txt` (untracked)');
+});
+
 describe('the cut-off record (R-C17 part 2)', () => {
   const run = {
     id: asAgentRunId('run-1'),
@@ -280,6 +336,22 @@ describe('the cut-off record (R-C17 part 2)', () => {
       headSha: 'a'.repeat(40),
       unreadable: 'output exceeds 16 MiB',
     });
+  });
+
+  it('says when the last turn ended in error rather than never completing (R-C17 part 2 L-4)', () => {
+    const { text, summary } = cutOffRecord(
+      { ...run, status: 'failed' },
+      [message(3, 'Working.')],
+      1,
+      { headSha: 'b'.repeat(40), changed: [], untracked: [] },
+      true,
+    );
+    expect(text).toContain(
+      "The implement run ended (failed) after its last turn ended in error, so its final message holds only that turn's result.",
+    );
+    expect(text).not.toContain('without completing a turn');
+    expect(summary).toMatchObject({ messages: 1, endedInError: true });
+    expect(cutOffRecord(run, [], 0, undefined).summary).not.toHaveProperty('endedInError');
   });
 
   it('records why the worktree could not be read, on one line', () => {

@@ -1714,9 +1714,12 @@ export class AgentRunService {
               this.storage.execution,
               prepared.parentRun,
               join(runDirectory, 'handoff'),
-              // A parent cut off with no completed turn left its work in the worktree: where it
-              // stopped goes into the handoff (R-C17 part 2).
-              parentTurn ? undefined : await this.whereStopped(prepared.worktree),
+              // A parent cut off with no completed turn, or whose last turn ended in error, left
+              // its work in the worktree: where it stopped goes into the handoff (R-C17 part 2
+              // and its L-4).
+              parentTurn?.kind === 'turn-completed' && parentTurn.payload.outcome !== 'error'
+                ? undefined
+                : await this.whereStopped(prepared.worktree),
             );
       const parentAssessment =
         prepared.parentRun && latestReviewReport(this.storage.execution, prepared.parentRun);

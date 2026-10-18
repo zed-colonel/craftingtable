@@ -250,6 +250,8 @@ export interface CutOffRecord {
   readonly unreadable?: string;
   /** Git reported conflicts or an operation in progress (a merge, cherry-pick, revert or rebase). */
   readonly conflicted?: boolean;
+  /** The run completed its last turn in error (R-C17 part 2 L-4); absent when it never did. */
+  readonly endedInError?: true;
 }
 
 export interface HandoffFiles {
@@ -260,7 +262,7 @@ export interface HandoffFiles {
   readonly findingsPath?: string;
   /** The immediate parent's review report, when it has one. */
   readonly reportPath?: string;
-  /** Where the immediate parent stopped, when it ended with no completed turn. */
+  /** Where the immediate parent stopped, when its last turn never completed or ended in error. */
   readonly cutOff?: CutOffRecord;
 }
 
@@ -284,8 +286,9 @@ function fencedMessage(text: string): string {
 }
 
 /**
- * The record of where a run that ended with no completed turn stopped: its head commit and the
- * worktree's uncommitted files, as the handoff found them, and its last assistant messages.
+ * The record of where a run stopped that ended with no completed turn, or whose last turn ended
+ * in error (a provider failure or quota; R-C17 part 2 L-4): its head commit and the worktree's
+ * uncommitted files, as the handoff found them, and its last assistant messages.
  */
 export function cutOffRecord(
   run: Pick<AgentRun, 'id' | 'role' | 'status'>,
@@ -296,16 +299,23 @@ export function cutOffRecord(
   }[],
   total: number,
   worktree: StoppedWorktree | undefined,
+  endedInError = false,
 ): { readonly text: string; readonly summary: Omit<CutOffRecord, 'path'> } {
+  const ended = endedInError
+    ? `ended (${run.status}) after its last turn ended in error, so its final message holds only that turn's result`
+    : `ended (${run.status}) without completing a turn, so it left no final message`;
   const lines = [
     `# Where run ${run.id} stopped`,
     '',
-    `The ${run.role} run ended (${run.status}) without completing a turn, so it left no final message. Below: the worktree as this handoff was written, which the next run starts from (it can hold changes made after the run stopped, by the operator or CraftingTable), and the run's last assistant messages.`,
+    `The ${run.role} run ${ended}. Below: the worktree as this handoff was written, which the next run starts from (it can hold changes made after the run stopped, by the operator or CraftingTable), and the run's last assistant messages.`,
     '',
     '## The worktree as this handoff was written',
     '',
   ];
-  let summary: Omit<CutOffRecord, 'path'> = { messages: messages.length };
+  let summary: Omit<CutOffRecord, 'path'> = {
+    messages: messages.length,
+    ...(endedInError ? { endedInError: true } : {}),
+  };
   const state = worktree ?? { unreadable: 'it was not read' };
   if ('unreadable' in state) {
     if (state.headSha)
@@ -416,6 +426,7 @@ export function writeRunHandoff(
     let messageCount = 0;
     let lastFinal = limit === undefined ? (run.outcomeSummary ?? '') : '';
     let hasFinal = false;
+    let endedInError = false;
     let truncatedMessages = 0;
     // The immediate parent's last assistant messages, in case it never completed a turn.
     const lastMessages: { sequence: number; occurredAt: string; text: string }[] = [];
@@ -441,6 +452,7 @@ export function writeRunHandoff(
       if (event.kind === 'turn-completed') {
         lastFinal = text;
         hasFinal = true;
+        endedInError = event.payload.outcome === 'error';
       }
       if (
         (event.kind !== 'user-message' && event.payload.truncated === true) ||
@@ -460,10 +472,12 @@ export function writeRunHandoff(
         `${run.id}: no completed turn; the final-message file contains only the available summary.`,
       );
     // A parent cut off with no completed turn (at the step limit, or interrupted) left no final
-    // message: its record gives where it stopped (R-C17 part 2).
-    const record = index === 0 && !hasFinal ? `${prefix}-cut-off.md` : undefined;
+    // message, and one whose last turn ended in error (a provider failure or quota) left only that
+    // turn's result: its record gives where it stopped (R-C17 part 2 and its L-4). The warnings
+    // stay as they were: only a run with no completed turn has one.
+    const record = index === 0 && (!hasFinal || endedInError) ? `${prefix}-cut-off.md` : undefined;
     if (record !== undefined) {
-      const made = cutOffRecord(run, lastMessages, assistantMessages, stopped);
+      const made = cutOffRecord(run, lastMessages, assistantMessages, stopped, endedInError);
       write(join(directory, record), made.text);
       cutOff = { path: join(directory, record), ...made.summary };
     }

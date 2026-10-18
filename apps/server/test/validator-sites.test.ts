@@ -46,7 +46,7 @@ import {
  * one row per site with the refusal it gives today, written before the rule moved into one
  * function each. Every site keeps its own refusal: class, code, status and message (and
  * `startWorkflowReview`'s audit row). The pure sites' rows are in `cycle-commands.test.ts`,
- * `typed-refusal-sites.test.ts`, `typed-refusal-bindings.test.ts` and `cycle-facts.test.ts`.
+ * `typed-refusal-sites.test.ts` (with `creatorAuthorized`'s table) and `typed-refusal-bindings.test.ts`.
  */
 
 /**
@@ -283,8 +283,13 @@ describe("the delegated user's authority in the cycle's effects", () => {
               audited: 0,
             }
           : how === 'viewer'
-            ? { class: 'ForbiddenError', stop: undefined, message: expect.any(String), audited: 0 }
-            : { class: 'NotFoundError', stop: undefined, message: expect.any(String), audited: 1 },
+            ? { class: 'ForbiddenError', stop: undefined, message: 'Request forbidden', audited: 0 }
+            : {
+                class: 'NotFoundError',
+                stop: undefined,
+                message: 'Resource not found',
+                audited: 1,
+              },
       );
     },
   );
@@ -601,6 +606,22 @@ describe('the instruction bound and extra rounds in a staged finalization', () =
         code: 'invalid-request',
         message: 'Authorize at most 20 additional stage attempts.',
       });
+    // None and twenty extra attempts pass the bound (the site's minimum is 0; review NIT-2).
+    for (const additionalRounds of [0, 20]) {
+      const answer = await refusalOf(() =>
+        state.context.services.workCycleService.decideFinalizationStage(
+          { user },
+          finalizationCycle(state, value),
+          {
+            action: 'select-stage-findings',
+            selectedFindingIds: [idea.id],
+            rationale: 'Keep this change focused.',
+            additionalRounds,
+          } as never,
+        ),
+      );
+      expect(answer?.message).not.toBe('Authorize at most 20 additional stage attempts.');
+    }
   });
 
   it("refuses a finalization's Authorize more remediation with 0 or 21 rounds (authorizeFinalizationRemediation)", async () => {

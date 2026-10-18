@@ -1,28 +1,14 @@
-import { activeEditor, activeUser } from './authority-policy.js';
 import { validExtraRounds, withinInstructionLimit } from './command-bounds.js';
-import {
-  type CheckDefinitionDiagnosis,
-  definitionChangeReason,
-} from './repository-checks-service.js';
-import {
-  cycleAgents,
-  cycleLayers,
-  investigationAgent,
-  operatorResolutionProfile,
-} from './agent-profile-policy.js';
-import { resolveAgent, selectionSet } from './agent-resolution.js';
+import { cycleAgents, investigationAgent } from './agent-profile-policy.js';
+import { selectionSet } from './agent-resolution.js';
 import {
   asCycleInvestigationId,
   asWorkCycleId,
-  type CheckpointId,
-  mapCapabilities,
   type SourceRepositoryId,
-  V03_VOCABULARY,
   type WorkCycleId,
-  type AgentRunId,
   type MapAmendmentId,
 } from '@craftingtable/domain';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type {
   AuthorizeWorkCycleRemediationRequest,
   ControlFinalizationRequest,
@@ -38,12 +24,10 @@ import {
   asAgentRunId,
   currentFinalizationStage,
   cycleActions,
-  cycleAttention,
   type CycleInvestigation,
   type CycleOwner,
   type CycleProjection,
   type CycleView,
-  evaluateCycleCompletion,
   type FinalizationProgress,
   type InvestigationWorktree,
   type InvestigationWorktreeChange,
@@ -51,7 +35,6 @@ import {
   mergeAdoptsChecks,
   noOpenQuestions,
   optionalFinding,
-  OUTPUT_REPAIR_LIMIT,
   ownsIntegrationResolution,
   parkedFollowUp,
   remediationAllowance,
@@ -83,21 +66,14 @@ import {
   worktreeChange,
   worktreeChangeOpen,
 } from './investigation.js';
-import {
-  ConcurrentModificationError,
-  ExecutionRequestError,
-  NotFoundError,
-  TypedRefusalError,
-  CheckDefinitionChangedError,
-  DeclaredChecksMissingError,
-} from './errors.js';
-import { requireScope, requireTreeScope, scopedReviewIssue } from './execution-scope.js';
+import { ConcurrentModificationError, ExecutionRequestError, NotFoundError } from './errors.js';
+import { requireScope, requireTreeScope } from './execution-scope.js';
 import type { ExecutionService } from './execution-service.js';
 import { finalizationForCycle } from './finalization-policy.js';
-import { assessStageReport, recordStageEvidence } from './finalization-stage-policy.js';
+import { assessStageReport } from './finalization-stage-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { cycleOwnership } from './cycle-ownership.js';
-import { cycleFacts, type KernelFacts, refreshOwner } from './cycle/core/facts.js';
+import { cycleFacts, type KernelFacts } from './cycle/core/facts.js';
 import {
   type CommandFacts,
   type CommandRefusal,
@@ -105,7 +81,6 @@ import {
   decideCommand,
   decideDeclaredChecksReview,
   decideLeaveMerge,
-  decideRefreshReservation,
   decideRestart,
   decideResume,
   decideResumeStep,
@@ -123,54 +98,19 @@ import {
   decide,
 } from './cycle/core/machine.js';
 import {
-  approvalGate,
-  commitFailure,
   continueDesignFailure,
-  decideApproval,
-  decideApprovedHead,
-  decideDiscovery,
   decideFailure,
   decideLaunch,
   decideRefusal,
   decideFinalized,
-  decideGrant,
-  decideHousekeeping,
-  decideObligations,
-  decideRefresh,
-  decideRemediation,
-  decideStageCompletion,
-  decideStageInput,
-  decideStageOutcome,
-  FILES_REMAIN_AFTER_FINALIZATION,
-  ledgerFull,
-  nitsParked,
-  questionsHoldGrant,
-  reassessmentFailure,
   type RefusalDecision,
-  refreshFailure,
-  securityReviewNotCurrent,
-  securityReviewerStop,
-  stageFindings,
-  STAGE_REVIEW_CHANGED_WORKTREE,
-  stageReportInvalid,
-  turnTakesGrant,
-  workflowAuthorityStop,
-  workflowHeldGate,
 } from './cycle/core/effect-decisions.js';
 import { continuesLineage, latestReviewReport } from './run-lineage.js';
 import type { StepOutcomeDecision } from './cycle/core/step-outcome.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
 import { collectScopeRepair, scopeMergeWait, scopeReviewWait } from './scope-repair.js';
-import {
-  operatorQuestionRoutes,
-  securityReviewCurrent,
-  workflowContext,
-  workflowDelegation,
-  controllerReviewRunnable,
-  reviewAuthorityMissing,
-  unsettledDecisionsAt,
-} from './workflow-policy.js';
+import { operatorQuestionRoutes, unsettledDecisionsAt } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -181,9 +121,7 @@ import {
   ATTENTION_STATUSES,
   type CyclePassObserver,
   latestOutsideLineage,
-  OUTPUT_REPAIR_MINUTES,
   PREPARING_RECOVERY,
-  type RemediationGrant,
   RESTORED_CHECK_MS,
   reviewFacts,
   reviewNeedsRounds,
@@ -192,6 +130,11 @@ import {
   withoutFindings,
 } from './cycle/shared.js';
 import { CycleWriter } from './cycle/writer.js';
+import { CycleRemediation } from './cycle/effects/remediation.js';
+import { CycleIntegration } from './cycle/effects/integration.js';
+import { CycleWorkflow } from './cycle/effects/workflow.js';
+import { CycleFinalizationStage } from './cycle/effects/finalization-stage.js';
+import { CycleRestart } from './cycle/effects/restart.js';
 
 export type { CyclePassObserver } from './cycle/shared.js';
 
@@ -210,7 +153,8 @@ export class WorkCycleService {
     private readonly branches: BranchService,
     private readonly baselines: BaselinePreparationService,
     private readonly execution: ExecutionService,
-    private readonly runtimeEvidence: RuntimeEvidenceService,
+    // Read by the gates and the effects the constructor builds, not by the service itself.
+    runtimeEvidence: RuntimeEvidenceService,
   ) {
     this.locks = new CycleLocks(notifier);
     this.writer = new CycleWriter(
@@ -225,11 +169,61 @@ export class WorkCycleService {
     );
     this.gates = new CycleGates(storage, branches, runtimeEvidence);
     this.settings = new CycleSettings(storage, runs, git);
+    this.remediation = new CycleRemediation(
+      storage,
+      workspaceService,
+      git,
+      mutations,
+      branches,
+      now,
+      this.writer,
+      this.gates,
+      this.locks,
+    );
+    this.integration = new CycleIntegration(
+      storage,
+      workspaceService,
+      runs,
+      git,
+      mutations,
+      branches,
+      now,
+      this.writer,
+      this.gates,
+      this.locks,
+    );
+    this.workflow = new CycleWorkflow(
+      storage,
+      workspaceService,
+      git,
+      branches,
+      execution,
+      runtimeEvidence,
+      this.writer,
+      this.gates,
+      this.locks,
+      this.remediation,
+      this.integration,
+    );
+    this.finalizationStage = new CycleFinalizationStage(
+      storage,
+      git,
+      branches,
+      this.writer,
+      this.remediation,
+      this.integration,
+    );
+    this.restart = new CycleRestart(storage, runs, now, this.writer);
   }
   private readonly locks: CycleLocks;
   private readonly writer: CycleWriter;
   private readonly gates: CycleGates;
   private readonly settings: CycleSettings;
+  private readonly remediation: CycleRemediation;
+  private readonly integration: CycleIntegration;
+  private readonly workflow: CycleWorkflow;
+  private readonly finalizationStage: CycleFinalizationStage;
+  private readonly restart: CycleRestart;
 
   // The cycle's settings, gates and transition lock, for callers outside the cycle (R-B7).
   validateAgentSelections(profiles: import('@craftingtable/domain').AgentSelections): void {
@@ -259,6 +253,21 @@ export class WorkCycleService {
   }
   resumeNeedsGuidance(cycle: WorkCycle): boolean {
     return this.gates.resumeNeedsGuidance(cycle);
+  }
+  finalizationRemediationBlocker(cycle: WorkCycle): string | undefined {
+    return this.remediation.finalizationRemediationBlocker(cycle);
+  }
+  refreshIntegration(cycle: WorkCycle, parent?: AgentRun, launching = false): Promise<boolean> {
+    return this.integration.refreshIntegration(cycle, parent, launching);
+  }
+  resolveIntegration(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: WorkCycleId,
+    input: IntegrationResolutionRequest,
+    delegatedCheck?: () => void,
+  ): Promise<WorkCycle> {
+    return this.integration.resolveIntegration(context, workspaceId, id, input, delegatedCheck);
   }
   isTransitioning(id: WorkCycleId): boolean {
     return this.locks.isTransitioning(id);
@@ -1075,59 +1084,6 @@ export class WorkCycleService {
   }
 
   /**
-   * The controller's one continue after an investigation that answered every question
-   * (R-C3a): the same bounded run the operator would start with Resolve design questions,
-   * from the investigation's evidence and the operator's guidance, on the design agent.
-   */
-  private continueDesign(cycle: WorkCycle, investigation: AgentRun, reason: string): WorkCycle {
-    const recovery = cycle.designRecovery;
-    if (recovery?.mode !== 'investigate' || recovery.runId !== investigation.id)
-      throw new ExecutionRequestError('conflict', 'Only an investigation continues automatically.');
-    const preview = this.storage.readTransaction((tx) =>
-      collectDesignRecovery(tx, cycle, investigation.id),
-    );
-    const design = resolveAgent({
-      purpose: 'design',
-      ...cycleLayers(this.storage, cycle),
-    }).selection;
-    if (!this.runs.hasBackend(design.backend))
-      throw new ExecutionRequestError('unavailable', 'The design backend is unavailable.');
-    const runId = asAgentRunId(randomUUID());
-    return this.writer.change(
-      cycle,
-      {
-        status: 'running',
-        step: 'design',
-        currentRunId: runId,
-        parentRunId: investigation.id,
-        phaseWait: null,
-        designWait: null,
-        designDependencyContinuations: 0,
-        resultContinuations: 0,
-        // A new step: the investigation's service retries, repairs and guidance end with it.
-        providerRecovery: null,
-        outputRepair: null,
-        stepGuidance: undefined,
-        runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
-        designRecovery: {
-          runId,
-          sourceRunId: investigation.id,
-          mode: 'continue',
-          automatic: true,
-          profile: design,
-          instructions: recovery.instructions,
-          attachments: recovery.attachments,
-          snapshotDigest: preview.snapshotDigest,
-          facts: preview.facts,
-          sources: preview.sources.map((entry) => entry.source),
-        },
-        reason,
-      },
-      'design-continue',
-    );
-  }
-
-  /**
    * The operator's own start: a display name in its profiles is refused, after the role check
    * (R-G15). A roadmap's starts meet the launch check instead.
    */
@@ -1474,96 +1430,11 @@ export class WorkCycleService {
             }
           : {}),
         stepGuidance: instructions,
-        housekeepingInstructions: this.housekeepingGuidance(),
+        housekeepingInstructions: this.remediation.housekeepingGuidance(),
         reason: `Authorized focused remediation for ${input.findingIds.join(', ')}.`,
       },
       'remediate-findings',
     );
-  }
-
-  /** Read-only eligibility for the recovery control; command checks repeat after Git inspection. */
-  finalizationRemediationBlocker(cycle: WorkCycle): string | undefined {
-    if (!cycle.finalizationId) return 'Additional remediation requires a finalization review.';
-    return this.remediationBlocker(cycle);
-  }
-
-  private remediationBlocker(cycle: WorkCycle, guidedContinuation = false): string | undefined {
-    // Housekeeping's limit stop at an implement or remediate step takes the grant too (R-B4,
-    // decision 4): its current run is the implementation the checkpoint left untidy.
-    const housekeeping =
-      (cycle.step === 'implement' || cycle.step === 'remediate') &&
-      stopCode(cycle) === 'remediation-exhausted';
-    if (
-      !['paused', 'needs-attention'].includes(cycle.status) ||
-      (cycle.step !== 'review' && !housekeeping)
-    )
-      return 'Additional remediation requires a paused review.';
-    if (cycle.executionScope && cycle.executionScope.kind !== 'slice')
-      return 'Address findings through the owning slice, not this review-only snapshot.';
-    if (
-      cycle.integrationResolution &&
-      !['completed', 'abandoned'].includes(cycle.integrationResolution.status)
-    )
-      return 'Resolve the pending integration conflict before authorizing remediation.';
-    if (
-      this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status ===
-      'reserved'
-    )
-      return 'Recover the pending promotion before authorizing remediation.';
-    if (currentFinalizationStage(cycle)?.status === 'selecting')
-      return 'Select this stage’s improvement batch before authorizing remediation.';
-    if (cycle.finalizationProgress?.obligations.some((o) => o.status === 'change-requested'))
-      return 'Decide the proposed plan change or resume with guidance before authorizing remediation.';
-    if (!guidedContinuation && remediationUsed(cycle) < remediationAllowance(cycle))
-      return 'The remediation allowance is not exhausted; use Resume.';
-    const runs = this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId);
-    const run = runs[0];
-    if (
-      this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0 ||
-      run?.id !== cycle.currentRunId ||
-      run.role !== (housekeeping ? 'implement' : 'review') ||
-      run.status !== 'finished'
-    )
-      return housekeeping
-        ? 'The current implementation must finish before authorizing remediation.'
-        : 'The current review must finish before authorizing remediation.';
-    if (housekeeping)
-      return this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId)?.status ===
-        'active'
-        ? undefined
-        : 'The managed worktree must be active before authorizing remediation.';
-    const turn = this.storage.execution.runEvents.latestOfKind(
-      cycle.workspaceId,
-      run.id,
-      'turn-completed',
-    );
-    if (
-      turn?.kind !== 'turn-completed' ||
-      !turnTakesGrant(turn) ||
-      (!guidedContinuation && questionsHoldGrant(turn.payload.resultText, !!cycle.finalizationId))
-    )
-      return 'Resolve the questions or incomplete outcome before authorizing remediation.';
-    const assessment = latestReviewReport(this.storage.execution, run);
-    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    // Scope evidence is checked only on a well-formed report, as the step outcome does (LIVE-32).
-    const scopeIssue =
-      tree && assessment?.status === 'complete'
-        ? scopedReviewIssue(this.storage, tree, assessment)
-        : undefined;
-    if (tree?.status !== 'active' || scopeIssue)
-      return scopeIssue ?? 'The managed worktree must be active before authorizing remediation.';
-    if (assessment?.status !== 'complete')
-      return 'A valid review requiring remediation is needed before extending the allowance.';
-    // A complete report that asks for no remediation, stopped at the limit, is housekeeping's
-    // limit stop after the review passed (an approval or a stage completion that found the
-    // worktree untidy): the grant relaunches that housekeeping, as at an implement or remediate
-    // step (R-B4, decision 4; operator decision 2026-10-16).
-    if (
-      evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action !== 'remediate' &&
-      stopCode(cycle) !== 'remediation-exhausted'
-    )
-      return 'A valid review requiring remediation is needed before extending the allowance.';
-    return undefined;
   }
 
   async authorizeWorkItemRemediation(
@@ -1593,11 +1464,11 @@ export class WorkCycleService {
         'conflict',
         'Authorize between 1 and 20 additional remediation attempts.',
       );
-    const blocker = this.remediationBlocker(cycle, !!input.instructions.trim());
+    const blocker = this.remediation.remediationBlocker(cycle, !!input.instructions.trim());
     if (blocker) throw new ExecutionRequestError('conflict', blocker);
     const run = this.storage.execution.runs.find(workspaceId, cycle.currentRunId);
     if (!run) throw new NotFoundError();
-    return this.grantRemediation(cycle, run, context, {
+    return this.remediation.grantRemediation(cycle, run, context, {
       additionalRounds: input.additionalRounds,
       instructions: input.instructions.trim(),
     });
@@ -1624,11 +1495,11 @@ export class WorkCycleService {
         'Authorize between 1 and 20 additional remediation attempts.',
       );
     this.mutations.requireAvailable(cycle.worktreeId);
-    const blocker = this.finalizationRemediationBlocker(cycle);
+    const blocker = this.remediation.finalizationRemediationBlocker(cycle);
     if (blocker) throw new ExecutionRequestError('conflict', blocker);
     const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
     if (!run) throw new NotFoundError();
-    return this.grantRemediation(cycle, run, context, {
+    return this.remediation.grantRemediation(cycle, run, context, {
       additionalRounds,
       instructions,
       agentOverride,
@@ -1804,7 +1675,7 @@ export class WorkCycleService {
     const resumed = decideResume(cycle, facts, reviewGuidance);
     if (resumed.kind === 'resolution')
       // resolveIntegration runs the launch gates itself.
-      return this.resolveIntegration(context, workspaceId, id, {
+      return this.integration.resolveIntegration(context, workspaceId, id, {
         action: 'resume',
         expectedVersion,
       });
@@ -1825,7 +1696,7 @@ export class WorkCycleService {
       case 'launch':
         return this.writer.next(cycle, step.step, step.parent, context, step.changes, step.action);
       case 'remediate':
-        return this.reviewRemediation(cycle, run!, context, step.grant);
+        return this.remediation.reviewRemediation(cycle, run!, context, step.grant);
       case 'review-scope':
         return this.reviewScopeAgain(context, cycle, run, step, expectedVersion, {
           ...(delegationCheck ? { check: delegationCheck } : {}),
@@ -2071,25 +1942,6 @@ export class WorkCycleService {
     else this.writer.attention(current, failure.code, failure.message, failure.refs);
   }
 
-  private async reassess(cycle: WorkCycle, source: AgentRun): Promise<void> {
-    if (this.locks.failedReassessments.get(cycle.id) === cycle.version) return;
-    this.locks.failedReassessments.delete(cycle.id);
-    try {
-      await this.startWorkflowReview(cycle, source, 'reassessment');
-    } catch (error) {
-      const failed = reassessmentFailure(error);
-      if (!failed) throw error;
-      const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-      if (current?.version !== cycle.version) return;
-      const updated = this.writer.change(current, {
-        status: 'needs-attention',
-        attention: cycleAttention(failed.code),
-        reason: failed.message,
-      });
-      this.locks.failedReassessments.set(cycle.id, updated.version);
-    }
-  }
-
   private providerRoadmapPaused(cycle: WorkCycle): boolean {
     const owner = cycleOwnership(this.storage, cycle);
     return !!owner && owner.roadmap.status !== 'running';
@@ -2172,7 +2024,7 @@ export class WorkCycleService {
         return;
       case 'start-run':
         if (decision.refreshFirst) {
-          if (await this.refreshIntegration(cycle, decision.parent, true)) return;
+          if (await this.integration.refreshIntegration(cycle, decision.parent, true)) return;
           // A drain admits no launches; the reservation survives the restart and launches then.
           if (this.runs.isDraining()) return;
         }
@@ -2199,13 +2051,13 @@ export class WorkCycleService {
       case 'check-worktree-restored':
         return this.checkWorktreeRestored(cycle);
       case 'reassess':
-        return this.reassess(cycle, effect.source);
+        return this.workflow.reassess(cycle, effect.source);
       case 'merge-boundary':
-        if (effect.review && (await this.advanceWorkflow(cycle, effect.review))) return;
-        await this.refreshIntegration(cycle, effect.review);
+        if (effect.review && (await this.workflow.advanceWorkflow(cycle, effect.review))) return;
+        await this.integration.refreshIntegration(cycle, effect.review);
         return;
       case 'advance-resolution':
-        return this.advanceResolution(cycle);
+        return this.integration.advanceResolution(cycle);
     }
   }
 
@@ -2220,7 +2072,7 @@ export class WorkCycleService {
       case 'wait-for-run':
         return;
       case 'resume-after-restart':
-        await this.resumeAfterRestart(cycle, run);
+        await this.restart.resumeAfterRestart(cycle, run);
         return;
       case 'end-turn':
         if (!this.locks.ending.has(run.id) && this.runs.finishCycleTurn(cycle))
@@ -2246,7 +2098,7 @@ export class WorkCycleService {
         );
         return;
       case 'repair-output':
-        await this.repairOutput(cycle, run, decision);
+        await this.restart.repairOutput(cycle, run, decision);
         return;
       case 'schedule-service-retry':
         this.writer.change(
@@ -2270,11 +2122,11 @@ export class WorkCycleService {
         );
         return;
       case 'advance-resolution':
-        await this.advanceResolution(cycle);
+        await this.integration.advanceResolution(cycle);
         return;
       case 'continue-design':
         try {
-          this.continueDesign(cycle, run, decision.reason);
+          this.restart.continueDesign(cycle, run, decision.reason);
         } catch (error) {
           // The investigation's stop stays the operator's, with its results panel.
           const stopped = continueDesignFailure(error);
@@ -2285,9 +2137,9 @@ export class WorkCycleService {
         this.writer.change(cycle, { designWait: decision.designWait, reason: decision.reason });
         return;
       case 'finalize-implementation': {
-        const finalized = await this.finalizeImplementation(cycle, run);
+        const finalized = await this.remediation.finalizeImplementation(cycle, run);
         if (!finalized) return;
-        if (await this.refreshIntegration(finalized, run, true)) return;
+        if (await this.integration.refreshIntegration(finalized, run, true)) return;
         let head: string | undefined;
         if (finalized.step === 'remediate')
           try {
@@ -2297,7 +2149,7 @@ export class WorkCycleService {
           }
         const reviewed = decideFinalized({
           step: finalized.step,
-          unchangedTwice: !!head && this.remediatedNothingTwice(finalized, run, head),
+          unchangedTwice: !!head && this.remediation.remediatedNothingTwice(finalized, run, head),
         });
         if (reviewed.kind === 'attention') {
           this.writer.attention(finalized, reviewed.code, reviewed.message);
@@ -2307,615 +2159,21 @@ export class WorkCycleService {
         return;
       }
       case 'advance-finalization-stage':
-        await this.advanceFinalizationStage(cycle, run, decision.noQuestions);
+        await this.finalizationStage.advanceFinalizationStage(cycle, run, decision.noQuestions);
         return;
       case 'remediate-review':
         if (decision.clearActiveReview && cycle.workflow)
           cycle = this.writer.change(cycle, {
             workflow: { ...cycle.workflow, activeReview: null, waiting: null },
           });
-        await this.reviewRemediation(cycle, run);
+        await this.remediation.reviewRemediation(cycle, run);
         return;
       case 'approve-review':
-        await this.approveReview(cycle, run, worktree, decision);
+        await this.workflow.approveReview(cycle, run, worktree, decision);
         return;
       default:
         return;
     }
-  }
-
-  /** A review met the completion policy: confirm the reviewed state, then await merge. */
-  private async approveReview(
-    cycle: WorkCycle,
-    run: AgentRun,
-    worktree: Worktree,
-    approval: Extract<StepOutcomeDecision, { kind: 'approve-review' }>,
-  ): Promise<void> {
-    const changes = await this.git?.inspectWorktreeChanges(worktree.path);
-    const checked = decideApproval({
-      reviewOnly: approval.reviewOnly,
-      reviewHeadSha: cycle.reviewHeadSha,
-      managedBranch: worktree.branchName,
-      changes: changes?.ok ? changes.value : undefined,
-    });
-    if (checked.kind === 'refuse') throw new TypedRefusalError('worktree-state', checked.message);
-    if (checked.kind === 'attention') {
-      this.writer.attention(cycle, checked.code, checked.message);
-      return;
-    }
-    if (checked.kind === 'housekeeping') {
-      await this.housekeeping(cycle, run, checked.reason);
-      return;
-    }
-    const head = decideApprovedHead(await this.writer.cleanHead(cycle), cycle.reviewHeadSha);
-    if (head.kind === 'attention') {
-      this.writer.attention(cycle, head.code, head.message);
-      return;
-    }
-    if (await this.refreshIntegration(cycle, run, true)) return;
-    const reviewedWorktree = this.storage.execution.worktrees.find(
-      cycle.workspaceId,
-      cycle.worktreeId,
-    );
-    if (reviewedWorktree === undefined) throw new NotFoundError();
-    await this.branches.assertReview(reviewedWorktree, run);
-    const adopts = await this.declaredDefinitions(reviewedWorktree, run, !approval.reviewOnly);
-    if (await this.advanceWorkflow(cycle, run)) return;
-    const gate = approvalGate({
-      reviewOnly: approval.reviewOnly,
-      adopts,
-      repositoryId: reviewedWorktree.repositoryId,
-      reason: approval.reason,
-    });
-    this.writer.change(cycle, {
-      status: 'awaiting-merge',
-      attention: cycleAttention(gate.code, gate.refs),
-      reason: gate.reason,
-    });
-  }
-
-  /**
-   * A review held to adopted checks stops as check-definition-changed at approval when its
-   * checks ran with other definitions (R-G13), unless the slice itself made the change and its
-   * merge can adopt it (increment 5, operator decision 2026-09-30): it then returns true, and
-   * the merge is a person's to approve, with the definitions shown. The stop says whether the
-   * slice or its integration branch changed the definition (LIVE-30).
-   */
-  private async declaredDefinitions(
-    tree: Worktree,
-    run: AgentRun,
-    merges: boolean,
-  ): Promise<boolean> {
-    const checks = this.execution.repositoryChecks;
-    const environment = this.storage.runtimeEvidence.run(tree.workspaceId, run.id);
-    if (
-      !checks ||
-      !run.reviewBranchContext ||
-      !environment?.checkDeclarationId ||
-      // Adoption at merge is a scoped slice's (increment 5): a check-only run (increment 4)
-      // whose definitions changed stops, and the operator adopts on the Repositories page.
-      environment.runtimeId === undefined
-    ) {
-      this.runtimeEvidence.assertDeclaredDefinitions(tree, run.id);
-      return false;
-    }
-    let diagnosis: CheckDefinitionDiagnosis | undefined;
-    try {
-      diagnosis = await checks.diagnose(tree, run.reviewBranchContext);
-    } catch {
-      // Git could not say who changed what: the gate still holds, with its own message.
-      this.runtimeEvidence.assertDeclaredDefinitions(tree, run.id);
-      return false;
-    }
-    const merge = diagnosis?.merge;
-    const adoptable =
-      merges && merge?.proposal && !merge.unchanged && !merge.issues.length ? merge : undefined;
-    try {
-      this.runtimeEvidence.assertDeclaredDefinitions(
-        tree,
-        run.id,
-        adoptable?.proposal?.definitionDigests,
-      );
-    } catch (error) {
-      if (error instanceof CheckDefinitionChangedError && diagnosis)
-        throw new CheckDefinitionChangedError(
-          error.repositoryId,
-          error.checkId,
-          definitionChangeReason(diagnosis, merges),
-        );
-      throw error;
-    }
-    if (diagnosis && merge && !merge.unchanged && !adoptable)
-      throw new CheckDefinitionChangedError(
-        tree.repositoryId,
-        merge.checks[0]?.id ?? diagnosis.declaration.id,
-        definitionChangeReason(diagnosis, merges),
-      );
-    if (!adoptable) return false;
-    // Offered as an adoption only when the whole gate is met (review F3). When the adopted
-    // checks did not all pass with the definitions the slice proposes, the stop says so and
-    // names the exit; any other gap stays the merge gate's to report.
-    try {
-      this.runtimeEvidence.assertRun(
-        tree,
-        run.id,
-        this.storage,
-        adoptable.proposal?.definitionDigests,
-      );
-      return true;
-    } catch (error) {
-      if (diagnosis && error instanceof DeclaredChecksMissingError)
-        throw new CheckDefinitionChangedError(
-          tree.repositoryId,
-          error.missing[0] ?? diagnosis.declaration.id,
-          `This slice changes ${diagnosis.sliceChanged.join(', ')}; its adopted checks did not all pass on the reviewed commit, so its merge cannot adopt them. ${error.message} If the change needs its new definitions to pass, adopt the checks from the slice's commit ${diagnosis.headSha.slice(0, 12)} on the Repositories page, then resume for a fresh review; or stop this cycle and revert the change in a new attempt.`,
-        );
-      return false;
-    }
-  }
-
-  private async startWorkflowReview(
-    cycle: WorkCycle,
-    source: AgentRun,
-    kind: 'reassessment' | 'security' | 'checkpoint',
-    checkpointId?: CheckpointId,
-  ): Promise<void> {
-    const context = workflowContext(this.storage, cycle);
-    const delegation = workflowDelegation(this.storage, cycle);
-    // Without a delegating roadmap only the source-required security review runs.
-    if (
-      !context ||
-      !controllerReviewRunnable(this.storage, cycle) ||
-      (!delegation && kind !== 'security')
-    )
-      return;
-    this.gates.requireReady(cycle.workspaceId, cycle.workItemId!, cycle.executionScope);
-    const checkpoint = context.checkpoints.find((c) => c.id === checkpointId);
-    if (
-      kind === 'checkpoint' &&
-      (!checkpoint?.supported || !checkpoint.assigned || checkpoint.pending.length)
-    )
-      throw new TypedRefusalError(
-        'launch-refused',
-        'Checkpoint review requirements are not ready.',
-      );
-    // A roadmap delegates the security review only to the role its map declares for it (R-F2).
-    const definition = this.storage.imports.definition(cycle.workspaceId, context.definitionId);
-    const securityRole = definition && mapCapabilities(definition.source).securityReviewerRole;
-    if (
-      kind === 'security' &&
-      delegation &&
-      !(securityRole && delegation.roles.includes(securityRole))
-    ) {
-      const unassigned = securityReviewerStop();
-      this.writer.attention(cycle, unassigned.code, unassigned.message);
-      return;
-    }
-    // The rule's status half here; its role half is the request context's, with its audit row.
-    const user = activeUser(this.storage, cycle.createdByUserId);
-    if (!user)
-      throw new TypedRefusalError(
-        'delegation-authority-lost',
-        'Delegating user is no longer active.',
-      );
-    this.workspaceService.requireRole({ user }, cycle.workspaceId, ['owner', 'editor']);
-    const workflow = cycle.workflow ?? { reassessments: 0, questions: [] };
-    await this.writer.next(
-      cycle,
-      'review',
-      source,
-      undefined,
-      {
-        workflow: {
-          ...workflow,
-          questions: [],
-          waiting: null,
-          reassessments: workflow.reassessments + (kind === 'reassessment' ? 1 : 0),
-          activeReview: {
-            kind,
-            ...(checkpointId ? { checkpointId } : {}),
-            sourceRunId: source.id,
-            requirements: checkpoint?.requirements ?? [],
-            caseIds: checkpoint?.caseIds ?? [],
-            roles:
-              checkpoint?.roles ??
-              (kind === 'security'
-                ? [V03_VOCABULARY.securityReviewerRole]
-                : [V03_VOCABULARY.decisionReview.reviewerRole]),
-            contextDigest: context.contextDigest,
-          },
-        },
-        reason:
-          kind === 'reassessment'
-            ? 'Classifying prior questions against the saved plan in a bounded read-only review.'
-            : kind === 'security'
-              ? 'Starting the separate source-required security review.'
-              : `Starting independent checkpoint review: ${checkpointId}.`,
-      },
-      'workflow-review',
-    );
-  }
-
-  private async advanceWorkflow(cycle: WorkCycle, run: AgentRun): Promise<boolean> {
-    if (cycle.executionScope?.kind !== 'slice' || !cycle.workflow || !cycle.workItemId)
-      return false;
-    const initialVersion = cycle.version;
-    const delegation = workflowDelegation(this.storage, cycle);
-    // A cycle no roadmap owns still owes its source-required security review, on the
-    // authority of the operator who started it. Checkpoint and reassessment reviews remain
-    // roadmap delegations.
-    if (!delegation && !cycle.workflow.securityRequired && !cycle.workflow.activeReview)
-      return false;
-    // An owning roadmap without a readable reviewer delegation authorizes no review, and the
-    // operator's authority does not stand in for it: stop rather than offer a merge the gate
-    // refuses.
-    const unauthorized = reviewAuthorityMissing(this.storage, cycle);
-    if (unauthorized) {
-      const stopped = workflowAuthorityStop(unauthorized);
-      this.writer.attention(cycle, stopped.code, stopped.message);
-      return true;
-    }
-    if (!controllerReviewRunnable(this.storage, cycle)) {
-      const held = workflowHeldGate(cycle.status);
-      if (held)
-        this.writer.change(cycle, {
-          status: 'awaiting-merge',
-          attention: cycleAttention(held.code),
-          reason: held.reason,
-        });
-      return true;
-    }
-    const branch = run.reviewBranchContext;
-    if (!branch) return false;
-    // Only a runnable delegation uses the obligations, so only then pay for evaluating them.
-    const context = workflowContext(this.storage, cycle);
-    if (!context) return false;
-    let active = cycle.workflow.activeReview;
-    // A checkpoint whose support, assignment or prerequisites changed while its review ran (or
-    // that left the slice) cannot attest with it: the review is dropped, and the checkpoint's
-    // obligation decides below as for one never reviewed (a stop naming it, a wait, or a fresh
-    // review once it is ready). A stop on the review would offer exits that rerun it before
-    // anything was fixed (R-B4 increment 4 re-check, NEW-LOW-2).
-    const reviewed =
-      active?.kind === 'checkpoint'
-        ? context.checkpoints.find((c) => c.id === active!.checkpointId)
-        : undefined;
-    if (
-      active?.kind === 'checkpoint' &&
-      (!reviewed?.supported || !reviewed.assigned || reviewed.pending.length)
-    ) {
-      cycle = this.writer.change(cycle, {
-        workflow: { ...cycle.workflow, activeReview: null, waiting: null },
-        reason: `${active.checkpointId}: the checkpoint changed during its review; deciding its obligation again.`,
-      });
-      active = null;
-    }
-    if (active) {
-      if (active.kind === 'checkpoint') {
-        await this.runtimeEvidence.acceptWorkflowCheckpoint(cycle);
-      }
-      cycle = this.writer.change(
-        cycle,
-        {
-          workflow: {
-            ...cycle.workflow!,
-            activeReview: null,
-            ...(active.kind === 'security'
-              ? {
-                  securityReceipt: {
-                    runId: run.id,
-                    headSha: branch.headSha,
-                    targetSha: branch.targetSha,
-                  },
-                }
-              : {}),
-          },
-        },
-        'workflow-review-completed',
-      );
-    }
-    if (cycle.workflow!.securityRequired && !securityReviewCurrent(this.storage, cycle, run)) {
-      // A security review that just passed this candidate and still is not current would
-      // only be repeated without end; its inputs need the operator.
-      if (active?.kind === 'security') {
-        const stale = securityReviewNotCurrent();
-        this.writer.attention(cycle, stale.code, stale.message);
-        return true;
-      }
-      await this.startWorkflowReview(cycle, run, 'security');
-      return true;
-    }
-    if (!delegation) return cycle.version !== initialVersion;
-    // Accepting an active review's checkpoint changes the obligations; otherwise reuse them.
-    const current = active ? workflowContext(this.storage, cycle)! : context;
-    const obligations = decideObligations(
-      { status: cycle.status, workflow: cycle.workflow! },
-      current.checkpoints,
-    );
-    switch (obligations.kind) {
-      case 'start-checkpoint-review':
-        await this.startWorkflowReview(cycle, run, 'checkpoint', obligations.checkpointId);
-        return true;
-      case 'attention':
-        cycle = this.writer.change(cycle, { workflow: obligations.workflow });
-        this.writer.attention(cycle, obligations.code, obligations.message, obligations.refs);
-        return true;
-      case 'gate':
-        if (!obligations.unchanged)
-          this.writer.change(
-            cycle,
-            {
-              status: 'awaiting-merge',
-              attention: cycleAttention(obligations.code),
-              workflow: { ...cycle.workflow!, waiting: obligations.waiting },
-              reason: obligations.waiting,
-            },
-            'workflow-wait',
-          );
-        return true;
-      case 'clear-waiting':
-        cycle = this.writer.change(cycle, { workflow: { ...cycle.workflow!, waiting: null } });
-        break;
-      case 'done':
-        break;
-    }
-    // Return after a durable update so callers never write over its newer version.
-    return cycle.version !== initialVersion;
-  }
-
-  private async advanceFinalizationStage(
-    cycle: WorkCycle,
-    run: AgentRun,
-    noQuestions: boolean,
-  ): Promise<void> {
-    const value = finalizationForCycle(this.storage, cycle);
-    const progress = cycle.finalizationProgress;
-    const stage = value?.stages?.[progress?.stageIndex ?? 0];
-    const baseline = run.reviewBranchContext;
-    const raw = latestReviewReport(this.storage.execution, run);
-    if (!value || !progress || !stage || !raw || !baseline) {
-      const invalid = stageReportInvalid();
-      this.writer.attention(cycle, invalid.code, invalid.message);
-      return;
-    }
-    const assessment = assessStageReport(value, cycle, raw, baseline);
-    if (assessment.status !== 'complete' || !assessment.report.finalization) {
-      const invalid = stageReportInvalid(assessment.issues);
-      this.writer.attention(cycle, invalid.code, invalid.message);
-      return;
-    }
-    const report = assessment.report;
-    const evidence = report.finalization;
-    if (!evidence) return;
-    let updated = recordStageEvidence(cycle, assessment, baseline);
-    const state = currentFinalizationStage(cycle);
-    const discovery =
-      (stage.kind === 'simplification' || stage.kind === 'polish') && state?.status !== 'verifying';
-    const followUps = new Map(updated.followUps.map((f) => [f.id, f]));
-    for (const f of report.findings) {
-      if (
-        f.status === 'open' &&
-        optionalFinding(f) &&
-        !(cycle.findingFocus ?? []).includes(f.id) &&
-        !updated.stages.some((s) => s.selectedFindingIds.includes(f.id)) &&
-        (!discovery || f.category !== stage.kind)
-      )
-        followUps.set(f.id, f);
-    }
-    updated = { ...updated, followUps: [...followUps.values()] };
-    if (updated.obligations.length > 2000 || updated.followUps.length > 500) {
-      const full = ledgerFull();
-      this.writer.attention(cycle, full.code, full.message);
-      return;
-    }
-    cycle = this.writer.change(cycle, { finalizationProgress: updated }, 'stage-evidence');
-    const input = decideStageInput(noQuestions, evidence.obligations);
-    if (input) {
-      this.writer.attention(cycle, input.code, input.message);
-      return;
-    }
-    const findings = stageFindings(cycle, report, evidence);
-    const reopenIndex = value.stages?.findLastIndex((s) => s.kind === findings.reopenKind) ?? -1;
-    if (reopenIndex >= 0 && reopenIndex < updated.stageIndex) {
-      const stages = updated.stages.map((s, i) =>
-        i === reopenIndex
-          ? { ...s, status: 'reviewing' as const }
-          : value.stages?.[i]?.kind === 'final-review'
-            ? { ...s, status: 'pending' as const }
-            : s,
-      );
-      await this.enterFinalizationStage(
-        cycle,
-        run,
-        { ...updated, stages, stageIndex: reopenIndex },
-        `New ${findings.reopenKind} issues reopened ${value.stages?.[reopenIndex]?.name}. Its used budget is retained.`,
-      );
-      return;
-    }
-    const selectedOpen = report.findings.some(
-      (f) =>
-        f.status === 'open' &&
-        ((cycle.findingFocus ?? []).includes(f.id) || state?.selectedFindingIds.includes(f.id)),
-    );
-    let required = findings.required;
-    if (
-      nitsParked(cycle, findings, {
-        selectedOpen,
-        finalReview: stage.kind === 'final-review',
-        ownPass: state?.completedRunId === undefined,
-      })
-    ) {
-      updated = { ...updated, followUps: [...updated.followUps, ...required] };
-      if (updated.followUps.length > 500) {
-        const full = ledgerFull();
-        this.writer.attention(cycle, full.code, full.message);
-        return;
-      }
-      cycle = this.writer.change(
-        cycle,
-        {
-          finalizationProgress: updated,
-          reason: `${stage.name}: its remediation attempts are spent and only nits remain; ${required.length} kept as follow-up work.`,
-        },
-        'stage-nits-parked',
-      );
-      required = [];
-    }
-    const outcome = decideStageOutcome(
-      cycle,
-      assessment,
-      { ...findings, required },
-      { discovery, selectedOpen, finalReview: stage.kind === 'final-review' },
-    );
-    switch (outcome.kind) {
-      case 'discovery': {
-        if (!(await this.stageReviewIsCurrent(cycle, run))) return;
-        const choices = report.findings.filter(
-          (f) => f.status === 'open' && optionalFinding(f) && f.category === stage.kind,
-        );
-        const found = decideDiscovery({
-          stageName: stage.name,
-          // R-C7 D6: started with "optional findings: follow-up", discovery keeps them all as
-          // follow-up work, as an empty selection would, and the stage completes.
-          keepAsFollowUps: stage.optionalFindings === 'follow-up',
-          choices,
-          followUps: updated.followUps,
-        });
-        if (found.kind === 'attention') {
-          this.writer.attention(cycle, found.code, found.message);
-          return;
-        }
-        if (found.kind === 'follow-ups') {
-          cycle = this.writer.change(
-            cycle,
-            {
-              finalizationProgress: { ...updated, followUps: found.followUps },
-              reason: `${stage.name}: ${choices.length} optional finding(s) kept as follow-up work, as chosen at the start.`,
-            },
-            'stage-optional-follow-ups',
-          );
-          await this.completeFinalizationStage(cycle, run);
-        } else if (found.kind === 'select')
-          this.writer.change(
-            cycle,
-            {
-              status: 'needs-attention',
-              attention: cycleAttention(found.code),
-              finalizationProgress: {
-                ...updated,
-                stages: updated.stages.map((s, i) =>
-                  i === updated.stageIndex ? { ...s, status: 'selecting' } : s,
-                ),
-              },
-              reason: found.reason,
-            },
-            'stage-selection-required',
-          );
-        else await this.completeFinalizationStage(cycle, run);
-        return;
-      }
-      case 'remediate':
-        await this.reviewRemediation(cycle, run);
-        return;
-      case 'attention':
-        this.writer.attention(cycle, outcome.code, outcome.message);
-        return;
-      case 'complete':
-        if (!(await this.stageReviewIsCurrent(cycle, run))) return;
-        await this.completeFinalizationStage(cycle, run);
-        return;
-    }
-  }
-
-  private async stageReviewIsCurrent(cycle: WorkCycle, run: AgentRun): Promise<boolean> {
-    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    const changes = tree && (await this.git?.inspectWorktreeChanges(tree.path));
-    if (
-      !tree ||
-      !changes?.ok ||
-      changes.value.conflicted ||
-      changes.value.branch !== tree.branchName
-    )
-      throw new TypedRefusalError(
-        'worktree-state',
-        'Stage completion requires the managed branch without a pending Git operation.',
-      );
-    if (!changes.value.clean || changes.value.headSha !== run.reviewBranchContext?.headSha) {
-      await this.housekeeping(cycle, run, STAGE_REVIEW_CHANGED_WORKTREE);
-      return false;
-    }
-    if (await this.refreshIntegration(cycle, run)) return false;
-    await this.branches.assertReview(tree, run);
-    return true;
-  }
-
-  private async enterFinalizationStage(
-    cycle: WorkCycle,
-    run: AgentRun,
-    progress: FinalizationProgress,
-    reason: string,
-    context?: CommandContext,
-  ) {
-    const value = finalizationForCycle(this.storage, cycle);
-    const stage = value?.stages?.[progress.stageIndex];
-    if (!stage) throw new ExecutionRequestError('conflict', 'Unknown finalization stage.');
-    const state = progress.stages[progress.stageIndex];
-    return this.writer.next(
-      cycle,
-      'review',
-      run,
-      context,
-      {
-        finalizationProgress: {
-          ...progress,
-          stages: progress.stages.map((s, i) =>
-            i === progress.stageIndex && s.status === 'pending' ? { ...s, status: 'reviewing' } : s,
-          ),
-        },
-        policy: stage.policy,
-        polishPhase: stage.kind === 'final-review' ? 'final-review' : 'verify',
-        findingFocus: state?.selectedFindingIds ?? [],
-        stalledReviews: 0,
-        previousFindingFingerprint: undefined,
-        reason,
-      },
-      'enter-finalization-stage',
-    );
-  }
-
-  private async completeFinalizationStage(cycle: WorkCycle, run: AgentRun) {
-    const progress = cycle.finalizationProgress;
-    if (!progress || !run.reviewBranchContext)
-      throw new ExecutionRequestError('conflict', 'Stage state is unavailable.');
-    const stages = progress.stages.map((s, i) =>
-      i === progress.stageIndex
-        ? {
-            ...s,
-            status: 'completed' as const,
-            completedRunId: run.id,
-            headSha: run.reviewBranchContext?.headSha,
-            targetSha: run.reviewBranchContext?.targetSha,
-          }
-        : s,
-    );
-    const completed = decideStageCompletion(stages);
-    if (completed.kind === 'gate')
-      return this.writer.change(
-        cycle,
-        {
-          finalizationProgress: { ...progress, stages },
-          status: 'awaiting-merge',
-          attention: cycleAttention(completed.code),
-          reason: completed.reason,
-        },
-        'final-stages-completed',
-      );
-    return this.enterFinalizationStage(
-      cycle,
-      run,
-      { ...progress, stages, stageIndex: completed.stageIndex },
-      'Starting the next finalization stage.',
-    );
   }
 
   async decideFinalizationStage(
@@ -2982,7 +2240,7 @@ export class WorkCycleService {
     };
     let checked = check();
     // Decisions never adopt unreviewed changes; a new review is needed after drift.
-    if (!(await this.stageReviewIsCurrent(cycle, checked.run))) return;
+    if (!(await this.finalizationStage.stageReviewIsCurrent(cycle, checked.run))) return;
     checked = check();
     const { run, report, progress, value } = checked;
     const stage = value.stages?.[progress.stageIndex];
@@ -3147,464 +2405,6 @@ export class WorkCycleService {
     );
   }
 
-  private housekeepingGuidance(): string {
-    return 'Before addressing the review findings, inspect git status including untracked files and reconcile any verification artifacts using the source run journal. Never blindly commit untracked files. Remove only confirmed generated test artifacts; preserve intended new source by staging it. Use the provided TMPDIR for tests. Complete the substantive findings in this same run, run checks, commit intended changes, and finish with a clean worktree.';
-  }
-
-  private async reviewRemediation(
-    cycle: WorkCycle,
-    run: AgentRun,
-    context?: CommandContext,
-    grant?: RemediationGrant,
-  ): Promise<WorkCycle> {
-    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    if (!tree || !this.git) throw new NotFoundError();
-    const state = await this.git.inspectWorktreeChanges(tree.path);
-    if (!state.ok || state.value.branch !== tree.branchName || state.value.conflicted)
-      throw new TypedRefusalError(
-        'worktree-state',
-        'Remediation requires the managed branch without unresolved Git operations.',
-      );
-    if (grant) {
-      if (!context)
-        throw new ExecutionRequestError('conflict', 'Operator authorization is required.');
-      this.workspaceService.requireRole(context, cycle.workspaceId, ['owner', 'editor']);
-      if (cycle.workItemId)
-        this.gates.requireReady(cycle.workspaceId, cycle.workItemId, cycle.executionScope);
-      else finalizationForCycle(this.storage, cycle);
-      this.mutations.requireAvailable(cycle.worktreeId);
-      if (
-        this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !== cycle.version
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'Cycle changed; refresh before authorizing more remediation.',
-        );
-      const blocker = this.remediationBlocker(
-        cycle,
-        grant.additionalRounds === 0 || (!cycle.finalizationId && !!grant.instructions.trim()),
-      );
-      if (blocker) throw new ExecutionRequestError('conflict', blocker);
-    }
-    const assessment = latestReviewReport(this.storage.execution, run);
-    const scopedTree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    const scopeIssue = scopedTree && scopedReviewIssue(this.storage, scopedTree, assessment);
-    const decision = evaluateCycleCompletion(
-      cycle,
-      scopeIssue ? { status: 'invalid', issues: [scopeIssue] } : assessment,
-      run.reviewBranchContext,
-    );
-    // The open findings and gate a remediation round answers: two rounds that leave them as
-    // they were have stalled.
-    const fingerprint =
-      assessment?.status === 'complete'
-        ? createHash('sha256')
-            .update(
-              JSON.stringify({
-                gate: assessment.report.exitGate.met,
-                verdict: assessment.report.verdict,
-                findings: assessment.report.findings
-                  .filter((finding) => finding.status === 'open')
-                  .map((finding) => `${finding.id}:${finding.severity}`)
-                  .sort(),
-              }),
-            )
-            .digest('hex')
-        : undefined;
-    const remediation = decideRemediation({
-      cycle,
-      ...(grant ? { grant } : {}),
-      completionReason: decision.reason,
-      assessmentComplete: assessment?.status === 'complete',
-      fingerprint,
-    });
-    if (remediation.kind === 'refuse')
-      throw new ExecutionRequestError('conflict', remediation.message);
-    if (remediation.kind === 'attention') {
-      this.writer.attention(cycle, remediation.code, remediation.message);
-      return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
-    }
-    if (remediation.kind === 'none') return cycle;
-    const { stalledReviews } = remediation;
-    return this.writer.next(
-      cycle,
-      'remediate',
-      run,
-      context,
-      {
-        // The finished review's role ends with it, as on the automatic path; a remediation
-        // briefed as a read-only security or checkpoint review would not edit (LIVE-33 review).
-        ...(cycle.workflow?.activeReview
-          ? { workflow: { ...cycle.workflow, activeReview: null, waiting: null } }
-          : {}),
-        housekeepingInstructions: this.housekeepingGuidance(),
-        remediationRounds: cycle.remediationRounds + 1,
-        previousFindingFingerprint: fingerprint,
-        stalledReviews,
-        ...(grant
-          ? {
-              additionalRemediationRounds:
-                (cycle.additionalRemediationRounds ?? 0) + grant.additionalRounds,
-              ...(grant.agentOverride === undefined
-                ? {}
-                : { finalizationAgentOverride: grant.agentOverride }),
-              stepGuidance: grant.instructions,
-              reason:
-                grant.additionalRounds === 0
-                  ? 'Starting remediation with operator guidance using the existing allowance.'
-                  : `Authorized ${grant.additionalRounds} additional remediation attempt(s); starting remediation.`,
-            }
-          : {}),
-      },
-      grant ? 'authorize-remediation' : undefined,
-    );
-  }
-
-  private async housekeeping(
-    cycle: WorkCycle,
-    run: AgentRun,
-    reason: string,
-    context?: CommandContext,
-    grant?: RemediationGrant,
-  ): Promise<WorkCycle> {
-    const decided = decideHousekeeping(cycle, reason, grant);
-    if (decided.kind === 'refuse') throw new ExecutionRequestError('conflict', decided.message);
-    // An operator's grant inspects the worktree as a review's grant does: a remediation needs the
-    // managed branch without an unresolved Git operation (R-B4 increment 4 review).
-    if (grant && decided.kind === 'remediate') {
-      const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-      const state = tree && (await this.git?.inspectWorktreeChanges(tree.path));
-      if (!state?.ok || state.value.branch !== tree?.branchName || state.value.conflicted)
-        throw new TypedRefusalError(
-          'worktree-state',
-          'Remediation requires the managed branch without unresolved Git operations.',
-        );
-      // The inspection awaited: a pause or another grant may have landed meanwhile, as the
-      // review's grant re-checks (R-B4 increment 4 re-check).
-      this.mutations.requireAvailable(cycle.worktreeId);
-      if (
-        this.storage.execution.cycles.find(cycle.workspaceId, cycle.id)?.version !== cycle.version
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'Cycle changed; refresh before authorizing more remediation.',
-        );
-      const blocker = this.remediationBlocker(
-        cycle,
-        grant.additionalRounds === 0 || (!cycle.finalizationId && !!grant.instructions.trim()),
-      );
-      if (blocker) throw new ExecutionRequestError('conflict', blocker);
-    }
-    if (decided.kind === 'attention') {
-      this.writer.attention(cycle, decided.code, decided.message);
-      return this.storage.execution.cycles.find(cycle.workspaceId, cycle.id) ?? cycle;
-    }
-    return this.writer.next(
-      cycle,
-      'remediate',
-      run,
-      context,
-      {
-        // A separate review that passed ends with it, as a review's own remediation ends it
-        // (LIVE-33): the reviewer is read-only and could not tidy (review of 1a5c6d2, MEDIUM-1).
-        ...(cycle.workflow?.activeReview
-          ? { workflow: { ...cycle.workflow, activeReview: null, waiting: null } }
-          : {}),
-        remediationRounds: cycle.remediationRounds + 1,
-        housekeepingInstructions: `${reason}\n\n${this.housekeepingGuidance()}`,
-        ...(grant
-          ? {
-              // An explicit grant opens a new bounded progress window, as at a review's limit.
-              stalledReviews: 0,
-              additionalRemediationRounds:
-                (cycle.additionalRemediationRounds ?? 0) + grant.additionalRounds,
-              ...(grant.agentOverride === undefined
-                ? {}
-                : { finalizationAgentOverride: grant.agentOverride }),
-              stepGuidance: grant.instructions,
-              reason: `Authorized ${grant.additionalRounds} additional remediation attempt(s); starting remediation.`,
-            }
-          : {}),
-      },
-      grant ? 'authorize-remediation' : undefined,
-    );
-  }
-
-  /**
-   * An operator's grant of more remediation: a review's remediation, or the housekeeping
-   * remediation its limit stop held back, at any step (R-B4, decision 4; `decideGrant`).
-   */
-  private grantRemediation(
-    cycle: WorkCycle,
-    run: AgentRun,
-    context: CommandContext,
-    grant: RemediationGrant,
-  ): Promise<WorkCycle> {
-    const granted = decideGrant(
-      cycle,
-      cycle.step === 'review' && reviewFacts(this.storage, cycle).reviewAsksRemediation(run),
-    );
-    return granted.kind === 'review'
-      ? this.reviewRemediation(cycle, run, context, grant)
-      : this.housekeeping(cycle, run, granted.reason, context, grant);
-  }
-
-  /**
-   * Whether this remediation and the one before it both left the commit unchanged, each after a
-   * review of that commit whose findings sent the cycle to remediate: the cycle's own lineage (remediation, its
-   * review, the remediation before, its review), not every review run in the worktree, which
-   * includes retries, security and checkpoint reviews and other cycles' reviews (LIVE-27 review).
-   */
-  private remediatedNothingTwice(cycle: WorkCycle, remediation: AgentRun, head: string): boolean {
-    const find = (id: AgentRunId | undefined) =>
-      id ? this.storage.execution.runs.find(cycle.workspaceId, asAgentRunId(id)) : undefined;
-    // A review of this commit that sent the cycle to remediate its findings: not a passing
-    // review followed by a cleanup remediation (LIVE-27 review).
-    const reviewedHere = (run: AgentRun | undefined) => {
-      if (run?.role !== 'review' || run.reviewBranchContext?.headSha !== head) return false;
-      const assessment = latestReviewReport(this.storage.execution, run);
-      return (
-        assessment?.status === 'complete' &&
-        evaluateCycleCompletion(cycle, assessment, run.reviewBranchContext).action === 'remediate'
-      );
-    };
-    const latest = find(remediation.parentRunId);
-    if (!reviewedHere(latest)) return false;
-    const earlier = find(latest!.parentRunId);
-    return earlier?.role === 'implement' && reviewedHere(find(earlier.parentRunId));
-  }
-  private async finalizeImplementation(
-    cycle: WorkCycle,
-    run: AgentRun,
-  ): Promise<WorkCycle | undefined> {
-    const git = this.git;
-    if (!git || run.role !== 'implement') return cycle;
-    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    const repo =
-      tree && this.storage.execution.sourceRepositories.find(cycle.workspaceId, tree.repositoryId);
-    if (!tree || !repo) throw new NotFoundError();
-    if (this.branches.repositoryBusy(repo.rootPath)) return;
-    let current = cycle;
-    const check = () => {
-      const saved = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-      if (
-        this.locks.stopping() ||
-        saved?.version !== current.version ||
-        saved.status !== 'running' ||
-        !activeEditor(this.storage, cycle.createdByUserId, cycle.workspaceId)
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'Finalization was superseded or its authority was revoked.',
-        );
-      if (
-        this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'End agent sessions before finalizing the worktree.',
-        );
-    };
-    try {
-      return await this.branches.duringMerge(repo.rootPath, () =>
-        this.mutations.during(tree.id, async () => {
-          check();
-          const inspected = await git.inspectWorktreeChanges(tree.path);
-          if (!inspected.ok) throw new ExecutionRequestError('conflict', inspected.failure.message);
-          const state = inspected.value;
-          if (state.paths.length > 1000)
-            throw new ExecutionRequestError(
-              'conflict',
-              'Checkpoint exceeds the 1000-file finalization limit.',
-            );
-          if (state.branch !== tree.branchName || state.conflicted)
-            throw new ExecutionRequestError(
-              'conflict',
-              'Finalization requires the managed branch without unresolved Git operations.',
-            );
-          check();
-          const pending =
-            current.checkpoint?.sourceRunId === run.id && !current.checkpoint.commitSha
-              ? current.checkpoint
-              : undefined;
-          if (pending || state.paths.length) {
-            if (!pending)
-              current = this.writer.change(
-                current,
-                {
-                  checkpoint: {
-                    sourceRunId: run.id,
-                    previousHeadSha: state.headSha,
-                    fingerprint: state.fingerprint,
-                    paths: state.paths,
-                    createdAt: this.now().toISOString(),
-                  },
-                  reason: 'Checkpointing implementation changes before review.',
-                },
-                'checkpoint-reserved',
-              );
-            const checkpoint = current.checkpoint;
-            if (!checkpoint) throw new Error('Missing checkpoint reservation');
-            check();
-            const result = await git.checkpointWorktree({
-              worktreePath: tree.path,
-              branchName: tree.branchName,
-              expectedHeadSha: checkpoint.previousHeadSha,
-              fingerprint: checkpoint.fingerprint,
-              paths: checkpoint.paths,
-              sourceRunId: run.id,
-            });
-            if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
-            check();
-            current = this.writer.change(
-              current,
-              {
-                checkpoint: { ...checkpoint, commitSha: result.value.commitSha },
-                reason: 'Implementation checkpoint committed; preparing review.',
-              },
-              'checkpoint-completed',
-            );
-          }
-          check();
-          const after = await git.inspectWorktreeChanges(tree.path);
-          if (!after.ok) throw new ExecutionRequestError('conflict', after.failure.message);
-          check();
-          if (!after.value.clean) {
-            await this.housekeeping(current, run, FILES_REMAIN_AFTER_FINALIZATION);
-            return;
-          }
-          return current;
-        }),
-      );
-    } catch (error) {
-      const latest = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-      const failed = commitFailure(error);
-      if (
-        latest?.version === current.version &&
-        latest.status === 'running' &&
-        !this.locks.stopping() &&
-        failed
-      )
-        this.writer.attention(latest, failed.code, failed.message);
-      return;
-    }
-  }
-
-  /** `launching`: a review is about to start; see `refreshOwner`. */
-  async refreshIntegration(
-    cycle: WorkCycle,
-    parent?: AgentRun,
-    launching = false,
-  ): Promise<boolean> {
-    if (this.locks.refreshing.has(cycle.id)) return true;
-    this.locks.refreshing.add(cycle.id);
-    try {
-      return await this.performIntegrationRefresh(cycle, parent, launching);
-    } finally {
-      this.locks.refreshing.delete(cycle.id);
-    }
-  }
-  private async performIntegrationRefresh(
-    cycle: WorkCycle,
-    parent: AgentRun | undefined,
-    launching: boolean,
-  ): Promise<boolean> {
-    const owner = refreshOwner(this.storage, cycle, launching);
-    if (!owner) return false;
-    const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    if (
-      !worktree ||
-      this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0
-    )
-      return false;
-    const advanced = await this.branches.integrationAdvanced(
-      worktree,
-      cycle.step === 'review' && parent?.id === cycle.currentRunId ? parent : undefined,
-    );
-    if (advanced === undefined) return true; // Wait for the repository's mutation lane.
-    if (!advanced) return false;
-    // Reserve a bounded attempt before Git. A restart cannot silently retry a partial update.
-    const current = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-    if (
-      this.locks.stopping() ||
-      current?.version !== cycle.version ||
-      !refreshOwner(this.storage, cycle, launching)
-    )
-      return true;
-    const allowed = decideRefresh(
-      cycle.integrationRefreshes ?? 0,
-      owner.settings.maxIntegrationRefreshes,
-    );
-    if (allowed.kind === 'attention') {
-      this.writer.attention(cycle, allowed.code, allowed.message);
-      return true;
-    }
-    const reserved = this.writer.change(cycle, decideRefreshReservation(cycle).changes);
-    const check = () => {
-      const latest = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-      if (
-        this.locks.stopping() ||
-        latest?.version !== reserved.version ||
-        latest.status !== 'running' ||
-        !refreshOwner(this.storage, reserved, launching)
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'Integration refresh was superseded by an operator command.',
-        );
-      if (!activeEditor(this.storage, cycle.createdByUserId, cycle.workspaceId))
-        throw new ExecutionRequestError(
-          'conflict',
-          'The initiating user no longer has permission to run this cycle.',
-        );
-    };
-    try {
-      check();
-      await this.branches.changeWorktree(
-        owner.context,
-        cycle.workspaceId,
-        cycle.worktreeId,
-        { expectedVersion: worktree.version },
-        true,
-        { cycleId: cycle.id, check },
-      );
-      check();
-      await this.writer.next(reserved, 'review', parent);
-    } catch (error) {
-      const latest = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-      const failed = refreshFailure(error);
-      if (latest?.version !== reserved.version || latest.status !== 'running') return true;
-      if (failed.kind === 'restore') {
-        // Contention is controller-owned: undo the reservation exactly, keeping the status
-        // and explanation the operator saw, and retry on a later pass.
-        this.writer.change(latest, {
-          ...restoredStatus(cycle),
-          integrationRefreshes: cycle.integrationRefreshes,
-          reason: cycle.reason,
-        });
-        return true;
-      }
-      if (!this.locks.stopping())
-        this.writer.change(latest, {
-          status: 'needs-attention',
-          attention: cycleAttention(failed.code),
-          reason: failed.message,
-          ...(failed.conflict
-            ? {
-                integrationResolution: {
-                  id: randomUUID(),
-                  status: 'detected' as const,
-                  ...failed.conflict,
-                  createdAt: this.now().toISOString(),
-                  attempts: 0,
-                },
-              }
-            : {}),
-        });
-    }
-    return true;
-  }
-
   /**
    * Sends a cycle awaiting its roadmap's merge back for a fresh review, when the merge was
    * refused because the review did not run every adopted check (LIVE-24). The review, not the
@@ -3650,451 +2450,5 @@ export class WorkCycleService {
   leaveMergeToOperator(cycle: WorkCycle, repositoryId: SourceRepositoryId): void {
     const decided = decideLeaveMerge(cycle, repositoryId, mergeAdoptsChecks(cycle.attention));
     if (decided.kind === 'write') this.writer.change(cycle, decided.changes);
-  }
-
-  /** The owned merge's worktree; aborting it needs no binding, only the worktree (R-B11 N2). */
-  private resolutionContext(cycle: WorkCycle, forAbort = false) {
-    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    const resolution = cycle.integrationResolution;
-    if (
-      tree?.status !== 'active' ||
-      !resolution ||
-      (!forAbort && tree.integrationBranch !== resolution.targetBranch)
-    )
-      throw new TypedRefusalError(
-        'worktree-state',
-        'Resolution worktree or integration binding changed',
-      );
-    return {
-      worktreePath: tree.path,
-      branchName: tree.branchName,
-      headSha: resolution.headSha,
-      targetSha: resolution.targetSha,
-    };
-  }
-  /**
-   * Runs a resolution change under the repository's merge lock. Whoever the change acts for must
-   * still be an owner or editor: the cycle's creator for work done on their behalf, or for an
-   * abandon, which only discards, the user abandoning (R-B11 review N2).
-   */
-  private async resolutionMutation<T>(
-    cycle: WorkCycle,
-    operation: (check: () => void) => Promise<T>,
-    actingFor: WorkCycle['createdByUserId'] = cycle.createdByUserId,
-  ): Promise<T> {
-    const tree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    const repository =
-      tree && this.storage.execution.sourceRepositories.find(cycle.workspaceId, tree.repositoryId);
-    if (!tree || !repository || !this.git) throw new NotFoundError();
-    const check = () => {
-      const saved = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
-      if (
-        this.locks.stopping() ||
-        saved?.version !== cycle.version ||
-        !activeEditor(this.storage, actingFor, cycle.workspaceId)
-      )
-        throw new ExecutionRequestError(
-          'conflict',
-          'Resolution was superseded or delegation was revoked',
-        );
-      if (
-        this.storage.execution.runs.liveForWorktree(cycle.workspaceId, cycle.worktreeId).length > 0
-      )
-        throw new TypedRefusalError(
-          'worktree-state',
-          'End the active agent session before changing resolution state',
-        );
-    };
-    return this.branches.duringMerge(repository.rootPath, () =>
-      this.mutations.during(tree.id, async () => {
-        check();
-        return operation(check);
-      }),
-    );
-  }
-  async resolveIntegration(
-    context: CommandContext,
-    workspaceId: WorkspaceId,
-    id: WorkCycleId,
-    input: IntegrationResolutionRequest,
-    delegatedCheck?: () => void,
-  ): Promise<WorkCycle> {
-    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
-    const cycle = this.storage.execution.cycles.find(workspaceId, id);
-    if (!cycle) throw new NotFoundError();
-    this.gates.requireNoInvestigation(cycle);
-    if (
-      cycle.version !== input.expectedVersion ||
-      !['paused', 'needs-attention'].includes(cycle.status)
-    )
-      throw new ExecutionRequestError(
-        'conflict',
-        'Pause the cycle and refresh before resolving integration conflicts',
-      );
-    const git = this.git;
-    const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
-    if (!git || !tree?.integrationBranch || tree.status !== 'active') throw new NotFoundError();
-    // Abandoning only discards the owned merge: no readiness gate holds it, so a wind-down can
-    // always end a resolution (R-B11 review F16).
-    if (input.action !== 'abandon') {
-      if (cycle.workItemId)
-        this.gates.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
-      else finalizationForCycle(this.storage, cycle);
-    }
-    const actingFor = input.action === 'abandon' ? context.user.id : cycle.createdByUserId;
-    const mutation = <T>(operation: (checkOwned: () => void) => Promise<T>) =>
-      this.resolutionMutation(cycle, operation, actingFor);
-    return mutation(async (checkOwned) => {
-      const check = () => {
-        checkOwned();
-        delegatedCheck?.();
-      };
-      check();
-      let resolution = cycle.integrationResolution;
-      if (input.action === 'inspect') {
-        if (ownsIntegrationResolution(cycle))
-          throw new ExecutionRequestError('conflict', 'Resume or abandon the existing resolution');
-        const head = await git.inspectRepository(tree.path);
-        const target = await git.resolveBranch(tree.path, tree.integrationBranch ?? '');
-        if (!head.ok || !target.ok)
-          throw new ExecutionRequestError('conflict', 'Cannot inspect integration commits');
-        const result = await git.previewIntegration({
-          worktreePath: tree.path,
-          branchName: tree.branchName,
-          headSha: head.value.headSha,
-          targetSha: target.value,
-        });
-        if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
-        check();
-        if (!result.value.paths.length)
-          throw new ExecutionRequestError(
-            'conflict',
-            'No textual conflicts found. Use Update from integration, then resume for review.',
-          );
-        return this.writer.change(
-          cycle,
-          {
-            integrationResolution: {
-              id: randomUUID(),
-              status: 'detected',
-              headSha: head.value.headSha,
-              targetSha: target.value,
-              targetBranch: tree.integrationBranch ?? '',
-              ...result.value,
-              createdAt: this.now().toISOString(),
-              attempts: 0,
-            },
-            reason: `Integration conflicts in ${result.value.paths.length} files. Delegate resolution when ready.`,
-          },
-          'resolution-inspected',
-          context,
-        );
-      }
-      if (!resolution)
-        throw new ExecutionRequestError('conflict', 'Inspect integration conflicts first');
-      // Starting or resuming a resolution launches an agent: run the launch's own gates
-      // before accepting it, so it cannot be accepted and then bounce (R-A7).
-      if (input.action !== 'abandon')
-        await this.branches.validateResolutionCommand(tree, resolution);
-      if (input.action === 'abandon') {
-        if (!ownsIntegrationResolution(cycle))
-          throw new ExecutionRequestError(
-            'conflict',
-            'No pending integration resolution to abandon',
-          );
-        if (ownsIntegrationResolution(cycle)) {
-          const result = await git.abortIntegrationResolution(this.resolutionContext(cycle, true));
-          if (!result.ok) throw new ExecutionRequestError('conflict', result.failure.message);
-        }
-        check();
-        return this.writer.change(
-          cycle,
-          {
-            integrationResolution: { ...resolution, status: 'abandoned' },
-            status: 'needs-attention',
-            attention: cycleAttention('resolution-abandoned'),
-            reason:
-              'Resolution abandoned. The owned merge was aborted; untracked files and any unrelated edits are preserved. Inspect the diff before starting again.',
-          },
-          'resolution-abandoned',
-          context,
-        );
-      }
-      if (input.action === 'start') {
-        if (resolution.status !== 'detected')
-          throw new ExecutionRequestError(
-            'conflict',
-            'Inspect conflicts before starting another resolution',
-          );
-        const target = await git.resolveBranch(tree.path, resolution.targetBranch);
-        const head = await git.inspectRepository(tree.path);
-        if (
-          !target.ok ||
-          !head.ok ||
-          target.value !== resolution.targetSha ||
-          head.value.headSha !== resolution.headSha ||
-          !head.value.clean ||
-          head.value.branch !== tree.branchName
-        )
-          throw new ExecutionRequestError(
-            'conflict',
-            'Branches changed since inspection. Inspect integration conflicts again.',
-          );
-        const profile = operatorResolutionProfile(this.storage, cycle, input.profile);
-        if (!this.runs.hasBackend(profile.backend))
-          throw new ExecutionRequestError('unavailable', 'Resolution agent is unavailable');
-        check();
-        const source =
-          this.storage.execution.runs.find(workspaceId, cycle.currentRunId) ??
-          (cycle.parentRunId
-            ? this.storage.execution.runs.find(workspaceId, cycle.parentRunId)
-            : undefined);
-        if (!source)
-          throw new ExecutionRequestError(
-            'conflict',
-            'Resolution requires the prior cycle handoff',
-          );
-        const runId = asAgentRunId(randomUUID());
-        resolution = {
-          ...resolution,
-          status: 'preparing',
-          profile,
-          instructions: input.instructions ?? '',
-          attempts: 1,
-          runIds: [runId],
-        };
-        return this.writer.change(
-          cycle,
-          {
-            integrationResolution: resolution,
-            status: 'running',
-            step: 'remediate',
-            parentRunId: source.id,
-            currentRunId: runId,
-            runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
-            reason: 'Preparing the pinned integration merge for agent resolution.',
-          },
-          'resolution-started',
-          context,
-        );
-      }
-      if (!ownsIntegrationResolution(cycle))
-        throw new ExecutionRequestError('conflict', 'There is no pending resolution to resume');
-      const run = this.storage.execution.runs.find(workspaceId, cycle.currentRunId);
-      if (
-        resolution.status === 'resolving' &&
-        run?.status === 'finished' &&
-        cycle.status === 'paused' &&
-        input.instructions === undefined &&
-        input.profile === undefined
-      ) {
-        check();
-        return this.writer.change(
-          cycle,
-          {
-            status: 'running',
-            runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
-            reason: 'Resuming verification of the completed resolution run.',
-          },
-          'resolution-resumed',
-          context,
-        );
-      }
-      if (resolution.status === 'resolving' && run) {
-        if (resolution.attempts >= 3)
-          throw new ExecutionRequestError(
-            'conflict',
-            'Resolution reached its three-agent-attempt limit. Abandon and inspect again to authorize a new attempt.',
-          );
-        const profile = operatorResolutionProfile(
-          this.storage,
-          cycle,
-          input.profile,
-          resolution.profile,
-        );
-        if (!this.runs.hasBackend(profile.backend))
-          throw new ExecutionRequestError('unavailable', 'Resolution agent is unavailable');
-        check();
-        const runId = asAgentRunId(randomUUID());
-        return this.writer.change(
-          cycle,
-          {
-            integrationResolution: {
-              ...resolution,
-              profile,
-              instructions: input.instructions ?? resolution.instructions ?? '',
-              attempts: resolution.attempts + 1,
-              runIds: [...(resolution.runIds ?? []), runId],
-            },
-            status: 'running',
-            parentRunId: run.id,
-            currentRunId: runId,
-            runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
-            reason: 'Resuming conflict resolution with the existing edits and handoff.',
-          },
-          'resolution-resumed',
-          context,
-        );
-      }
-      check();
-      return this.writer.change(
-        cycle,
-        {
-          status: 'running',
-          runDeadlineAt: this.writer.deadline(cycle.policy.maxRunMinutes),
-          reason: 'Resuming the reserved integration operation.',
-        },
-        'resolution-resumed',
-        context,
-      );
-    });
-  }
-  private async advanceResolution(cycle: WorkCycle): Promise<void> {
-    const git = this.git;
-    const resolution = cycle.integrationResolution;
-    if (!git || !resolution) throw new NotFoundError();
-    await this.resolutionMutation(cycle, async (check) => {
-      const input = this.resolutionContext(cycle);
-      if (resolution.status === 'preparing') {
-        const result = await git.prepareIntegrationResolution(input);
-        if (!result.ok) throw new TypedRefusalError('worktree-state', result.failure.message);
-        check();
-        this.writer.change(
-          cycle,
-          {
-            integrationResolution: {
-              ...resolution,
-              status: 'resolving',
-              paths: result.value.conflicts,
-            },
-            reason: 'Agent resolving the pinned integration update before a fresh review.',
-          },
-          'resolution-prepared',
-        );
-        return;
-      }
-      if (resolution.status === 'resolving') {
-        const state = await git.inspectIntegrationResolution(input);
-        if (!state.ok) throw new TypedRefusalError('worktree-state', state.failure.message);
-        if (
-          state.value.headSha !== resolution.headSha ||
-          state.value.mergeHeadSha !== resolution.targetSha ||
-          state.value.conflicts.length ||
-          state.value.untracked.length ||
-          state.value.unstaged ||
-          !state.value.treeSha
-        )
-          throw new TypedRefusalError(
-            'resolution-not-ready',
-            'Resolution is not ready: resolve and stage all changes, clear generated files, and keep the pinned merge pending. Resume with guidance.',
-          );
-        check();
-        this.writer.change(
-          cycle,
-          {
-            integrationResolution: {
-              ...resolution,
-              status: 'committing',
-              treeSha: state.value.treeSha,
-            },
-            reason:
-              'Recording the verified resolution tree before the daemon commits the integration update.',
-          },
-          'resolution-commit-reserved',
-        );
-        return;
-      }
-      if (resolution.status === 'committing') {
-        if (!resolution.treeSha)
-          throw new ExecutionRequestError('conflict', 'Missing resolution tree reservation');
-        const result = await git.finishIntegrationResolution({
-          ...input,
-          treeSha: resolution.treeSha,
-          resolutionId: resolution.id,
-        });
-        if (!result.ok) throw new TypedRefusalError('worktree-state', result.failure.message);
-        check();
-        const changed = this.writer.change(
-          cycle,
-          {
-            integrationResolution: {
-              ...resolution,
-              status: 'completed',
-              commitSha: result.value.commitSha,
-            },
-            reason:
-              'Integration conflict resolved. A fresh review of the combined changes is required.',
-          },
-          'resolution-completed',
-        );
-        const run = this.storage.execution.runs.find(cycle.workspaceId, cycle.currentRunId);
-        await this.writer.next(changed, 'review', run);
-      }
-    });
-  }
-
-  /**
-   * Relaunches a step the restart drain interrupted by resuming its vendor session, with
-   * the same agent, permissions, guidance and original deadline (R-B9). The source run
-   * becomes the new run's parent, which is what the launch resumes from. A run without a
-   * session id is classified as `restart-session-lost` by `decideStepOutcome` instead.
-   */
-  private async resumeAfterRestart(cycle: WorkCycle, run: AgentRun): Promise<void> {
-    if (this.runs.isDraining()) return;
-    await this.writer.next(
-      cycle,
-      cycle.step,
-      run,
-      undefined,
-      {
-        runDeadlineAt: cycle.runDeadlineAt,
-        resultContinuations: cycle.resultContinuations ?? 0,
-        providerRecovery: cycle.providerRecovery ?? null,
-        outputRepair: cycle.outputRepair ?? null,
-        stepGuidance: cycle.stepGuidance,
-        instructions: cycle.instructions,
-        housekeepingInstructions: cycle.housekeepingInstructions,
-        reason: `Resuming the ${cycle.step} session that the daemon restart interrupted.`,
-      },
-      'resume-after-restart',
-    );
-  }
-
-  /**
-   * Resumes the session whose final report failed a structural check and asks for the
-   * corrected report (R-C2). The step keeps its guidance and deadline; a repair turn gets at
-   * least `OUTPUT_REPAIR_MINUTES` even when the step used most of its window.
-   */
-  private async repairOutput(
-    cycle: WorkCycle,
-    run: AgentRun,
-    repair: Extract<StepOutcomeDecision, { kind: 'repair-output' }>,
-  ): Promise<void> {
-    if (this.runs.isDraining()) return;
-    const floor = this.now().getTime() + OUTPUT_REPAIR_MINUTES * 60_000;
-    await this.writer.next(
-      cycle,
-      cycle.step,
-      run,
-      undefined,
-      {
-        outputRepair: {
-          attempts: repair.attempt,
-          sourceRunId: run.id,
-          code: repair.code,
-          issues: repair.issues,
-        },
-        runDeadlineAt:
-          Date.parse(cycle.runDeadlineAt) >= floor
-            ? cycle.runDeadlineAt
-            : new Date(floor).toISOString(),
-        resultContinuations: cycle.resultContinuations ?? 0,
-        stepGuidance: cycle.stepGuidance,
-        instructions: cycle.instructions,
-        housekeepingInstructions: cycle.housekeepingInstructions,
-        reason: `The final report did not pass validation. Asking the same agent session to correct it (automatic repair ${repair.attempt} of ${OUTPUT_REPAIR_LIMIT}).`,
-      },
-      'repair-output',
-    );
   }
 }

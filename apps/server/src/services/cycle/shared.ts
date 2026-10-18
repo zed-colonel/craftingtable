@@ -1,4 +1,4 @@
-import { type AgentRunId } from '@craftingtable/domain';
+import type { AgentRunId } from '@craftingtable/domain';
 import {
   type AgentRun,
   evaluateCycleCompletion,
@@ -8,8 +8,8 @@ import {
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { scopedReviewIssue } from '../execution-scope.js';
-import { type CommandFacts } from './core/commands.js';
-import { type CycleDecision, type CycleGuard } from './core/machine.js';
+import type { CommandFacts } from './core/commands.js';
+import type { CycleDecision, CycleGuard } from './core/machine.js';
 import { turnTakesGrant } from './core/effect-decisions.js';
 import { continuesLineage, latestReviewReport } from '../run-lineage.js';
 

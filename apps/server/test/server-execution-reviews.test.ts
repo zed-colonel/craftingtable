@@ -1279,9 +1279,12 @@ itNeedsCargo(
           }
         : reply;
     };
-    const cycles = f.state.context.services.workCycleService as unknown as {
-      startWorkflowReview: (...args: unknown[]) => Promise<void>;
-    };
+    // The workflow's controller reviews (R-B7 increment 7: the workflow effects).
+    const cycles = (
+      f.state.context.services.workCycleService as unknown as {
+        workflow: { startWorkflowReview: (...args: unknown[]) => Promise<void> };
+      }
+    ).workflow;
     let attempts = 0;
     vi.spyOn(cycles, 'startWorkflowReview').mockImplementation(async () => {
       attempts++;

@@ -251,13 +251,18 @@ describe("the delegated user's authority in the cycle's effects", () => {
       } else revoke(state, state.userId, how);
       const denied = () => auditCount(state, 'workspace.access.denied');
       const before = denied();
-      const cycles = state.context.services.workCycleService as unknown as {
-        startWorkflowReview(
-          cycle: WorkCycle,
-          source: AgentRun,
-          kind: 'reassessment',
-        ): Promise<void>;
-      };
+      // The workflow's controller reviews (R-B7 increment 7: the workflow effects).
+      const cycles = (
+        state.context.services.workCycleService as unknown as {
+          workflow: {
+            startWorkflowReview(
+              cycle: WorkCycle,
+              source: AgentRun,
+              kind: 'reassessment',
+            ): Promise<void>;
+          };
+        }
+      ).workflow;
       let refused: unknown;
       try {
         await cycles.startWorkflowReview(currentCycle(state, cycle), source, 'reassessment');

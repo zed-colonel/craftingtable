@@ -4,7 +4,7 @@ import {
   workspaceCycleProfiles,
 } from '../agent-profile-policy.js';
 import type { StartWorkCycleRequest } from '@craftingtable/contracts';
-import { type WorkCycle, type WorkspaceId } from '@craftingtable/domain';
+import type { WorkCycle, WorkspaceId } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AgentRunService } from '../agent-run-service.js';

@@ -1,3 +1,7 @@
+/**
+ * A staged finalization's stage effects (R-B7): advancing a stage after its review, whether the
+ * review is current, and entering and completing a stage.
+ */
 import {
   type AgentRun,
   currentFinalizationStage,
@@ -25,8 +29,6 @@ import {
   stageReportInvalid,
 } from '../core/effect-decisions.js';
 import { latestReviewReport } from '../../run-lineage.js';
-
-export type { CyclePassObserver } from '../shared.js';
 
 import type { CycleWriter } from '../writer.js';
 import type { CycleRemediation } from './remediation.js';

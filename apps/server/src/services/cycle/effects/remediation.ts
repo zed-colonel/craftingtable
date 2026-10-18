@@ -37,8 +37,6 @@ import { latestReviewReport } from '../../run-lineage.js';
 import type { WorkspaceService } from '../../workspace-service.js';
 import type { WorktreeMutationGuard } from '../../worktree-mutation-guard.js';
 
-export type { CyclePassObserver } from '../shared.js';
-
 import type { CycleWriter } from '../writer.js';
 import type { CycleGates } from '../gates.js';
 import type { CycleLocks } from '../locks.js';

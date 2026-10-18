@@ -5,6 +5,7 @@ import type { AgentBackend, AgentLaunchRequest } from '@craftingtable/agents';
 import { runProfilesResponseSchema, workCycleResponseSchema } from '@craftingtable/contracts';
 import {
   type AgentBackendKind,
+  type AgentRun,
   agentSelections,
   asAgentAssignmentId,
   asAgentRunId,
@@ -187,6 +188,35 @@ describe('a cycle’s launch (startForCycle)', () => {
       agent: agent('review-model', 'edit-only'),
       provenance: { purpose: 'review' },
     });
+  });
+
+  // The rows above read `cycleLaunchInput`; this one shows `startForCycle` hands the launch
+  // exactly what it gives (R-B7 increment 11a review, LOW-1).
+  it('startForCycle launches with the cycle’s launch input and its provenance', async () => {
+    const { state, stored } = await launchFixture();
+    const runs = state.context.services.agentRunService as unknown as {
+      launcher: { launch: (...args: unknown[]) => Promise<AgentRun> };
+    };
+    const launched = vi
+      .spyOn(runs.launcher, 'launch')
+      .mockImplementation(async () => ({}) as AgentRun);
+    const cycle = {
+      ...stored,
+      currentRunId: asAgentRunId(randomUUID()),
+      step: 'review',
+    } as WorkCycle;
+    await state.context.services.agentRunService.startForCycle(cycle);
+    const { input, provenance } = cycleLaunchInput(state.context.storage, cycle);
+    expect(launched).toHaveBeenCalledTimes(1);
+    expect(launched.mock.calls[0]).toEqual([
+      cycle.workspaceId,
+      cycle.workItemId,
+      input,
+      { userId: cycle.createdByUserId },
+      undefined,
+      cycle,
+      provenance,
+    ]);
   });
 
   it('design questions: the operator’s choice, with the design step’s permissions', async () => {

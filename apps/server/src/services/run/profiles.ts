@@ -1,3 +1,4 @@
+/** The workspace's run profiles, the agent backends and their model checks (R-B7). */
 import { randomUUID } from 'node:crypto';
 import type { AgentBackend } from '@craftingtable/agents';
 import {

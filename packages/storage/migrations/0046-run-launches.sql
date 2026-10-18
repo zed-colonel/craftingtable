@@ -21,7 +21,12 @@ CREATE TABLE run_launches (
   run_device      INTEGER NOT NULL,
   reply_directory TEXT NOT NULL UNIQUE CHECK (length(reply_directory) > 1 AND substr(reply_directory, 1, 1) = '/'),
   reply_device    INTEGER NOT NULL,
-  created_at      TEXT NOT NULL
+  created_at      TEXT NOT NULL,
+  -- A reservation names only its own run's directories: the run id is one path component, the
+  -- run directory `<root>/<run id>` and the reply directory `<root>/<run id>/replies`.
+  CHECK (length(run_id) BETWEEN 1 AND 100 AND run_id NOT GLOB '*[^A-Za-z0-9_-]*'),
+  CHECK (substr(run_directory, length(run_directory) - length(run_id)) = '/' || run_id),
+  CHECK (substr(reply_directory, length(reply_directory) - length(run_id) - 8) = '/' || run_id || '/replies')
 ) STRICT;
 
 CREATE TABLE startup_tasks (

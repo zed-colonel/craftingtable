@@ -1,3 +1,7 @@
+/**
+ * The launch's preconditions (R-B7): a cycle's launch authority, a manual run's control and its
+ * worktree's quiet, and the re-check before a review's agent starts after its adopted checks.
+ */
 import {
   type AgentRunId,
   ownsIntegrationResolution,

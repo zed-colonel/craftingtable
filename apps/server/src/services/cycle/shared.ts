@@ -1,3 +1,4 @@
+/** The types, constants and helpers several cycle modules share (R-B7). */
 import type { AgentRunId } from '@craftingtable/domain';
 import {
   type AgentRun,

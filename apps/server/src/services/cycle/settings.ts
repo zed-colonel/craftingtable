@@ -1,3 +1,4 @@
+/** A cycle's agent settings, checked as a command or a start submits them (R-B7). */
 import {
   cycleAgents,
   finalizationAgents,

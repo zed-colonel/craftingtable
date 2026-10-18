@@ -57,6 +57,31 @@ describe('migration 0046: launch reservations', () => {
         )
         .run(),
     ).toThrow(/FOREIGN KEY constraint failed/);
+    // And only its own run's directories (increment 11b review, LOW-2): the checks alone, so
+    // without the parent rows.
+    database.pragma('foreign_keys = OFF');
+    const reserve = (runId: string, run: string, reply: string) =>
+      database
+        .prepare(
+          `INSERT INTO run_launches VALUES (?, 'ws', 'tree', ?, 1, ?, 1, '2026-01-01T00:00:00.000Z')`,
+        )
+        .run(runId, run, reply);
+    for (const [runId, run, reply] of [
+      ['..', '/runs/..', '/check-logs/../replies'],
+      ['', '/runs/', '/check-logs//replies'],
+      ['run-2', '/runs', '/check-logs/run-2/replies'],
+      ['run-2', '/runs/run-20', '/check-logs/run-2/replies'],
+      ['run-2', '/runs/run-2', '/check-logs/run-2'],
+      ['run-2', '/runs/run-2', '/check-logs/run-2/replies/x'],
+    ] as const)
+      expect(() => reserve(runId, run, reply), `${runId} ${run} ${reply}`).toThrow(
+        /CHECK constraint failed/,
+      );
+    reserve('run-2', '/runs/run-2', '/check-logs/run-2/replies');
+    expect(database.prepare('SELECT run_id FROM run_launches').all()).toEqual([
+      { run_id: 'run-2' },
+    ]);
+
     database.close();
   });
 

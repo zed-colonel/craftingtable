@@ -1,3 +1,7 @@
+/**
+ * What a run's sandbox is given beside its worktree (R-B7): the worktree's Git directories, so a
+ * sandboxed run can commit (R-G14), and its build cache.
+ */
 import { existsSync, lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {

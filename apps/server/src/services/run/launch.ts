@@ -1,8 +1,9 @@
 /**
- * A run's launch (R-B7, AGT-12): the entry points' preconditions, and the launch itself as
- * phases, in order: admission and the read snapshot (`authorize`), the Git preflight under the
- * worktree guard (`preflight`), the run's directories, its evidence, its documents and brief
- * (run-context) and its durable record (`record`); then the spawn (`spawn.ts`).
+ * A run's launch (R-B7, AGT-12), as phases, in order: admission and the read snapshot
+ * (`authorize`); under the worktree guard the Git preflight (`preflight`), the launch's reservation
+ * (`reserve`, decision 1; `reserved` removes what a launch refused before its record made), the
+ * run's directories, its evidence, its documents and brief (run-context) and its durable record
+ * (`record`); then the spawn (`spawn.ts`). The preconditions are `preconditions.ts`'s.
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -115,6 +116,9 @@ function controlledRun(
       : undefined;
 }
 
+/** A run id as the launch mints it: one path component, so its directories stay in their roots. */
+const RUN_ID = /^[A-Za-z0-9_-]{1,100}$/;
+
 type Prepared = ReturnType<RunLauncher['authorize']>['prepared'];
 type Resume = ReturnType<RunLauncher['authorize']>['resume'];
 type Evidence = Awaited<ReturnType<RunLauncher['evidence']>>;
@@ -204,7 +208,7 @@ export class RunLauncher {
         run,
       } = await this.reserved(reservation, async () => {
         const { runDirectory, temporaryDirectory, processTemporaryDirectory, buildCacheDirectory } =
-          this.directories(runId, prepared);
+          this.directories(runId, reservation.runDirectory, prepared);
         const { pinned, pythonChecks, checksOnly, verifying } = await this.evidence({
           runId,
           runDirectory,
@@ -536,19 +540,25 @@ export class RunLauncher {
    * Reserves the launch (R-B7 decision 1, AGT-12): its durable record before its first file,
    * naming the run directory and the check-reply directory it will make, in one transaction. A run
    * row with the run's id cannot exist here (`startForCycle` returns an existing run before
-   * launching), nor a reservation (a start clears them before any launch): either is a broken
-   * invariant. A directory of the run's id with neither is a refused launch's leftover from before
-   * this release, removed first, so the reservation owns only what this launch makes.
+   * launching): that is a broken invariant, and so is a run id that is not one path component. A
+   * reservation of the run still held is an earlier refused launch's whose directories could not
+   * be removed then: they are tried again, and the launch refused if they still cannot be. A
+   * directory of the run's id with neither is a refused launch's leftover from before this
+   * release, removed first, so the reservation owns only what this launch makes.
    */
   async reserve(
     workspaceId: WorkspaceId,
     worktreeId: WorktreeId,
     runId: AgentRunId,
   ): Promise<RunLaunchReservation> {
+    if (!RUN_ID.test(runId)) throw new InvariantError(`a run id that is one path component`);
     if (this.storage.execution.runs.find(workspaceId, runId) !== undefined)
       throw new InvariantError(`no run row ${runId} before its launch`);
-    if (this.storage.maintenance.launchReservation(runId) !== undefined)
-      throw new InvariantError(`no reservation of run ${runId} before its launch`);
+    const held = this.storage.maintenance.launchReservation(runId);
+    if (held !== undefined && !(await removeReservation(this.storage, this.log, held)))
+      throw new Error(
+        `The directories an earlier refused launch of run ${runId} made could not be removed; the next start tries again.`,
+      );
     const runDirectory = join(this.config.runsRoot, runId);
     const replyDirectory = join(this.config.checkLogRoot, runId, 'replies');
     const runDevice = deviceOf(dirname(runDirectory));
@@ -588,6 +598,12 @@ export class RunLauncher {
     try {
       return await work();
     } catch (error) {
+      // The record's transaction can throw after its commit: then the run row owns what the launch
+      // made, and the reservation stays for the next start to drop (increment 11b review, LOW-1).
+      if (
+        this.storage.execution.runs.find(reservation.workspaceId, reservation.runId) !== undefined
+      )
+        throw error;
       try {
         const temporary = this.state.processTemporaryDirectories.get(reservation.runId);
         if (temporary !== undefined) {
@@ -612,8 +628,7 @@ export class RunLauncher {
   }
 
   /** The run's directories (step 4): its run directory and scratch, its process's temporary directory, the build cache. */
-  directories(runId: AgentRunId, prepared: Prepared) {
-    const runDirectory = join(this.config.runsRoot, runId);
+  directories(runId: AgentRunId, runDirectory: string, prepared: Prepared) {
     const temporaryDirectory = join(runDirectory, 'scratch');
     mkdirSync(temporaryDirectory, { recursive: true, mode: 0o700 });
     // Made with the scratch, before the run's record: a failure here fails the launch as a

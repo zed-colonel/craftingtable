@@ -1,3 +1,8 @@
+/**
+ * The cycle's one write path (R-B7): every change to a cycle record, its audit row and its
+ * workspace event, the reservation of a step's next run, and the two inserts. Each write is
+ * checked against the state machine (`checkTransition`, R-B4).
+ */
 import { finalizationAgent } from '../agent-profile-policy.js';
 import { randomUUID } from 'node:crypto';
 import {

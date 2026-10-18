@@ -1,3 +1,4 @@
+/** A cycle's start (R-B7): the operator's, a roadmap's, and a scope repair's. */
 import { asWorkCycleId, type WorkCycleId } from '@craftingtable/domain';
 import { randomUUID } from 'node:crypto';
 import type { StartWorkCycleRequest } from '@craftingtable/contracts';
@@ -15,8 +16,6 @@ import { ExecutionRequestError, NotFoundError } from '../../errors.js';
 import { requireTreeScope } from '../../execution-scope.js';
 import type { WorkspaceService } from '../../workspace-service.js';
 import type { WorktreeMutationGuard } from '../../worktree-mutation-guard.js';
-
-export type { CyclePassObserver } from '../shared.js';
 
 import type { CycleWriter } from '../writer.js';
 import type { CycleGates } from '../gates.js';

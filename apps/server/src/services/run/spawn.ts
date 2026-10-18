@@ -1,3 +1,8 @@
+/**
+ * A launch's spawn (R-B7, steps 10 and 11): after the durable record, the run's registration, the
+ * protected refs' snapshot and the check service's spool; the agent's prompt, launch request and
+ * session, the journal's first events and supervision; a review's adopted checks first.
+ */
 import { join } from 'node:path';
 import {
   type AgentBackend,

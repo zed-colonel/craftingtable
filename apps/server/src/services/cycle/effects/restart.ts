@@ -1,3 +1,7 @@
+/**
+ * The cycle's effects that continue a session (R-B7): a restart's resume, an output repair, and a
+ * design continued after its investigation.
+ */
 import { cycleLayers } from '../../agent-profile-policy.js';
 import { resolveAgent } from '../../agent-resolution.js';
 import { randomUUID } from 'node:crypto';
@@ -12,8 +16,6 @@ import type { AgentRunService } from '../../agent-run-service.js';
 import { collectDesignRecovery } from '../../design-recovery.js';
 import { ExecutionRequestError } from '../../errors.js';
 import type { StepOutcomeDecision } from '../core/step-outcome.js';
-
-export type { CyclePassObserver } from '../shared.js';
 
 import type { CycleWriter } from '../writer.js';
 import { OUTPUT_REPAIR_MINUTES } from '../shared.js';

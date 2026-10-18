@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -27,6 +28,7 @@ import {
   registerAndWorktree,
   waitFor,
 } from './execution-test-support.js';
+import { removeReservation } from '../src/services/run/reservation.js';
 import { testDataRoot } from './test-support.js';
 
 /**
@@ -96,7 +98,7 @@ const reservation = (
   createdAt: '2026-01-01T00:00:00.000Z',
 });
 
-it('reserves only a run with no row and no reservation, and clears what a refused launch left first', async () => {
+it('reserves a run with no row, clearing what a refused launch left first, and retries a held reservation', async () => {
   const { state, worktree, runsRoot, checkLogRoot, launcher, reservations } = await fixture();
   // A refused launch's leftovers from before this release: its run directory and its replies.
   const runId = randomUUID() as AgentRunId;
@@ -114,10 +116,26 @@ it('reserves only a run with no row and no reservation, and clears what a refuse
     runDirectory: join(runsRoot, runId),
     replyDirectory: join(checkLogRoot, runId, 'replies'),
   });
-  // A second reservation of the same run is a broken invariant, and so is a run row.
+  // A reservation still held (a refused launch's whose directories could not be removed then) is
+  // tried again (increment 11b review, LOW-3): here nothing is left, so the run is reserved anew.
+  await expect(launcher.reserve(state.workspaceId, worktree.id, runId)).resolves.toMatchObject({
+    runId,
+  });
+  expect(reservations().map((r) => r.runId)).toEqual([runId]);
+  // One that still cannot be cleared refuses the launch, and stays for the next start.
+  writeFileSync(join(runsRoot, runId), 'not a directory');
   await expect(launcher.reserve(state.workspaceId, worktree.id, runId)).rejects.toThrow(
-    InvariantError,
+    'could not be removed',
   );
+  expect(reservations().map((r) => r.runId)).toEqual([runId]);
+  // A run id that is not one path component is refused before anything is touched (LOW-2).
+  writeFileSync(join(runsRoot, 'keep'), 'keep');
+  for (const bad of ['..', '', 'a/b'])
+    await expect(
+      launcher.reserve(state.workspaceId, worktree.id, bad as AgentRunId),
+    ).rejects.toThrow(InvariantError);
+  expect(existsSync(join(runsRoot, 'keep'))).toBe(true);
+  // A run row of the id is a broken invariant.
   const started = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
@@ -176,6 +194,85 @@ it('a start removes a reservation with no run row with what it made, and keeps o
   expect(existsSync(join(checkLogRoot, cut.runId))).toBe(false);
   expect(reservations().map((r) => r.runId)).toEqual([stuck.runId]);
   expect(existsSync(stuck.runDirectory)).toBe(true);
+  // A directory on another device than the one reserved, or a reservation naming another run's
+  // directories, is never removed, and its reservation stays (increment 11b review, LOW-2, LOW-4).
+  const moved = reservation(state, worktree.id, runsRoot, checkLogRoot);
+  launchTree(moved.runDirectory);
+  const other = reservation(state, worktree.id, runsRoot, checkLogRoot);
+  launchTree(other.runDirectory);
+  state.context.storage.transaction((tx) =>
+    tx.maintenance.reserveLaunch({
+      ...moved,
+      runDevice: statSync(runsRoot).dev + 1,
+      replyDevice: statSync(checkLogRoot).dev,
+    }),
+  );
+  await state.context.services.agentRunService.recoverInterrupted();
+  expect(existsSync(moved.runDirectory)).toBe(true);
+  expect(
+    reservations()
+      .map((r) => r.runId)
+      .sort(),
+  ).toEqual([stuck.runId, moved.runId].sort());
+  // The table's checks refuse a reservation naming another run's directories, and so does the
+  // removal itself.
+  const naming = {
+    ...reservation(state, worktree.id, runsRoot, checkLogRoot),
+    runDirectory: other.runDirectory,
+    runDevice: statSync(runsRoot).dev,
+    replyDevice: statSync(checkLogRoot).dev,
+  };
+  expect(() =>
+    state.context.storage.transaction((tx) => tx.maintenance.reserveLaunch(naming)),
+  ).toThrow();
+  expect(await removeReservation(state.context.storage, { warn: () => undefined }, naming)).toBe(
+    false,
+  );
+  expect(existsSync(other.runDirectory)).toBe(true);
+});
+
+it('keeps what a launch made once its record committed, even when the transaction then throws', async () => {
+  const { state, worktree, runsRoot, reservations } = await fixture();
+  // The record's transaction returns the run row; it throws after its commit (LOW-1).
+  const storage = state.context.storage;
+  const transaction = storage.transaction.bind(storage);
+  vi.spyOn(storage, 'transaction').mockImplementation(((work: never) => {
+    const result = transaction(work) as unknown;
+    if (result && typeof result === 'object' && 'brief' in result && 'role' in result)
+      throw new Error('simulated failure after the commit');
+    return result;
+  }) as never);
+  const started = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id },
+  });
+  expect(started.statusCode).toBe(500);
+  vi.restoreAllMocks();
+  const [kept] = reservations();
+  expect(storage.execution.runs.find(state.workspaceId, kept!.runId)).toBeDefined();
+  expect(existsSync(join(runsRoot, kept!.runId))).toBe(true);
+});
+
+it('owns a run directory by its run row, its directory row or its reservation', async () => {
+  const { state, worktree, runsRoot, checkLogRoot } = await fixture();
+  const started = await state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${state.workspaceId}/work-items/${state.workItemId}/runs`,
+    headers: mutationHeaders(state),
+    payload: { worktreeId: worktree.id },
+  });
+  const { run } = startAgentRunResponseSchema.parse(started.json());
+  const maintenance = state.context.storage.maintenance;
+  const registered = maintenance.directory(run.id)!.path;
+  const reserved = reservation(state, worktree.id, runsRoot, checkLogRoot);
+  state.context.storage.transaction((tx) => tx.maintenance.reserveLaunch(reserved));
+  expect(maintenance.ownsRunDirectory(run.id, '/nowhere')).toBe(true);
+  expect(maintenance.ownsRunDirectory('nobody', registered)).toBe(true);
+  expect(maintenance.ownsRunDirectory(reserved.runId, '/nowhere')).toBe(true);
+  expect(maintenance.ownsRunDirectory('nobody', reserved.runDirectory)).toBe(true);
+  expect(maintenance.ownsRunDirectory('nobody', '/nowhere')).toBe(false);
 });
 
 it('the first start after migration 0046 removes the run directories no run owns, once', async () => {
@@ -216,6 +313,7 @@ it('the first start after migration 0046 removes the run directories no run owns
   expect(existsSync(join(runsRoot, run.id))).toBe(true);
   expect(existsSync(notARun)).toBe(true);
   expect(existsSync(join(outside, 'keep'))).toBe(true);
+  expect(lstatSync(join(runsRoot, linked)).isSymbolicLink()).toBe(true);
   expect(
     state.context.storage.maintenance.startupTaskPending('remove-orphan-run-directories'),
   ).toBe(false);

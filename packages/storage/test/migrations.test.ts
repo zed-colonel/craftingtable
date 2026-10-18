@@ -116,7 +116,7 @@ const PENDING_MIGRATIONS: readonly PinnedMigration[] = [
   { version: 43, name: 'stored-vocabulary-gates', checksum: '668dd4c5603ea195b7f8a845e6a75f3445f5cba4540ddcae1ee13ca9be0c4a37' },
   { version: 44, name: 'stored-vocabulary-grant', checksum: '2058aa9eac343c708920c21b20535d7b7f86554184f626a7599490ee32f463a1' },
   { version: 45, name: 'stored-vocabulary-check-timeout', checksum: 'f0246b00e5535633b139a7f7845aa879b6ec84b944969546582fbb6a03906813' },
-  { version: 46, name: 'run-launches', checksum: 'eef807308796538797ab7158863bf3c1f26ef197d57aa08aa32c2fa36eb97a35' },
+  { version: 46, name: 'run-launches', checksum: '0010fc7531d2019ab56b6f761996bffa99d52a1c04cc94277ec7521f682e033d' },
 ];
 
 const PINNED_MIGRATIONS = [...DEPLOYED_MIGRATIONS, ...PENDING_MIGRATIONS];

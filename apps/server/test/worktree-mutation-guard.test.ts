@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { WorktreeId } from '@craftingtable/domain';
 import { expect, it } from 'vitest';
 import {
@@ -65,4 +67,45 @@ it('keeps the held and terminating texts', async () => {
   exit();
   await exiting;
   expect(() => guard.requireAvailable(tree)).not.toThrow();
+});
+
+/**
+ * Each of the thirteen `during` sites names the operation that runs there (increment 11c review,
+ * LOW-1): the table is the review's, by file and the member the site is in.
+ */
+it('names, at each site, the operation that holds the worktree there', () => {
+  const services = join(import.meta.dirname, '../src/services');
+  const expected: Record<string, readonly (readonly [string, WorktreeOperation])[]> = {
+    'run/launch.ts': [['launch', 'run-launch']],
+    'execution-service.ts': [
+      ['recordScopeReceipt', 'scope-receipt'],
+      ['removeWorktree', 'removal'],
+      ['releaseDecisionWorktree', 'decision-release'],
+      ['mergeWorktree', 'merge'],
+    ],
+    'branch-service.ts': [['changeWorktree', 'update']],
+    'storage-service.ts': [
+      ['cleanCaches', 'cache-cleaning'],
+      ['removeWorktreeCache', 'cache-cleaning'],
+    ],
+    'cycle/commands/recovery.ts': [['prepareBaseline', 'baseline-preparation']],
+    'cycle/commands/control.ts': [
+      ['reviewScopeAgain', 'review-again'],
+      ['repeatScopeReview', 'scope-review-repeat'],
+    ],
+    'cycle/effects/remediation.ts': [['finalizeImplementation', 'implementation-checkpoint']],
+    'cycle/effects/integration.ts': [['resolutionMutation', 'integration-resolution']],
+  };
+  const found: Record<string, [string, string][]> = {};
+  for (const file of Object.keys(expected)) {
+    let member = '';
+    for (const line of readFileSync(join(services, file), 'utf8').split('\n')) {
+      const declared = /^ {2}(?:private |protected )?(?:async )?(\w+)(?:<[^>]*>)?\(/.exec(line);
+      if (declared) member = declared[1]!;
+      const site = /\.during\([^,]+,\s*'([a-z-]+)'/.exec(line);
+      if (site) found[file] = [...(found[file] ?? []), [member, site[1]!]];
+    }
+  }
+  expect(found).toEqual(expected);
+  expect(Object.values(found).flat()).toHaveLength(13);
 });

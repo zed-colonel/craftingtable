@@ -6,7 +6,7 @@
  * release.
  */
 import { lstatSync, readdirSync, realpathSync, rmdirSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { AgentRunId } from '@craftingtable/domain';
 import type { CraftingTableStorage, RunLaunchReservation } from '@craftingtable/storage';
 import { removeAgentTree } from '../agent-tree.js';
@@ -59,18 +59,27 @@ export async function removeReservation(
   reservation: RunLaunchReservation,
 ): Promise<boolean> {
   const failures: string[] = [];
-  for (const [path, device] of [
-    [reservation.runDirectory, reservation.runDevice],
-    [reservation.replyDirectory, reservation.replyDevice],
-  ] as const) {
-    const failure = await removeReservedDirectory(path, device);
-    if (failure !== undefined) failures.push(failure);
-  }
-  try {
-    rmdirSync(dirname(reservation.replyDirectory));
-  } catch {
-    /* not empty, or already gone: the run's check logs stay */
-  }
+  // Only what a reservation of this run can name: `<root>/<run id>` and `<root>/<run id>/replies`
+  // (increment 11b review, LOW-2; the table's checks hold the same).
+  if (
+    basename(reservation.runDirectory) !== reservation.runId ||
+    !reservation.replyDirectory.endsWith(`/${reservation.runId}/replies`)
+  )
+    failures.push(`the reservation names directories that are not run ${reservation.runId}'s`);
+  else
+    for (const [path, device] of [
+      [reservation.runDirectory, reservation.runDevice],
+      [reservation.replyDirectory, reservation.replyDevice],
+    ] as const) {
+      const failure = await removeReservedDirectory(path, device);
+      if (failure !== undefined) failures.push(failure);
+    }
+  if (failures.length === 0)
+    try {
+      rmdirSync(dirname(reservation.replyDirectory));
+    } catch {
+      /* not empty, or already gone: the run's check logs stay */
+    }
   if (failures.length > 0) {
     log.warn("A refused launch's directories could not be removed; the next start tries again", {
       runId: reservation.runId,

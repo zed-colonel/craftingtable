@@ -1,3 +1,9 @@
+/**
+ * The supervisor's process-local state (R-B7): its maps of live, starting and checking launches,
+ * its drain and restart flags, and the two attach points (the check service and the ref watch),
+ * which composition sets after construction. One object, shared by the facade and every module,
+ * so none holds a copy of a flag or an attach point taken before it was set.
+ */
 import type { AgentRunId, WorkspaceId } from '@craftingtable/domain';
 import type { LiveRun } from './shared.js';
 

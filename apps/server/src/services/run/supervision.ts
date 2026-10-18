@@ -1,3 +1,4 @@
+/** A live run's supervision (R-B7): its session's events, consumed into the journal until it ends. */
 import type { AgentSessionItem } from '@craftingtable/agents';
 import type { AgentRunStatus, WorktreeId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';

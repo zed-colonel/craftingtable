@@ -47,8 +47,6 @@ import {
 } from '../../workflow-policy.js';
 import type { WorkspaceService } from '../../workspace-service.js';
 
-export type { CyclePassObserver } from '../shared.js';
-
 import type { CycleWriter } from '../writer.js';
 import type { CycleGates } from '../gates.js';
 import type { CycleLocks } from '../locks.js';

@@ -1,3 +1,7 @@
+/**
+ * The gates a cycle's command or resume passes before it is accepted (R-B7): readiness, an
+ * investigation in progress, and the stops a plain resume would only repeat.
+ */
 import {
   effectiveCycleAttention,
   raisesOpenQuestions,

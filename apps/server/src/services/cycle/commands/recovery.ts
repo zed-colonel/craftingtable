@@ -1,3 +1,7 @@
+/**
+ * The cycle's recovery commands (R-B7): design recovery and its historical baseline, and a scope
+ * repair and its roadmap rounds.
+ */
 import type { WorkCycleId } from '@craftingtable/domain';
 import { required } from '@craftingtable/domain';
 import { randomUUID } from 'node:crypto';
@@ -26,8 +30,6 @@ import { mapReadSnapshot } from '../../map-read-snapshot.js';
 import { collectScopeRepair } from '../../scope-repair.js';
 import type { WorkspaceService } from '../../workspace-service.js';
 import type { WorktreeMutationGuard } from '../../worktree-mutation-guard.js';
-
-export type { CyclePassObserver } from '../shared.js';
 
 import type { CycleWriter } from '../writer.js';
 import type { CycleGates } from '../gates.js';

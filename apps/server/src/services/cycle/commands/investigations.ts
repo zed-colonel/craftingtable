@@ -1,3 +1,7 @@
+/**
+ * A question stop's investigations (R-C16; R-B7): the start and end of one, its settling, and the
+ * investigated worktree's comparison and acknowledgement.
+ */
 import { investigationAgent } from '../../agent-profile-policy.js';
 import { asCycleInvestigationId, type WorkCycleId } from '@craftingtable/domain';
 import { randomUUID } from 'node:crypto';
@@ -29,8 +33,6 @@ import {
 import { ConcurrentModificationError, ExecutionRequestError, NotFoundError } from '../../errors.js';
 import type { WorkspaceService } from '../../workspace-service.js';
 import type { WorktreeMutationGuard } from '../../worktree-mutation-guard.js';
-
-export type { CyclePassObserver } from '../shared.js';
 
 import type { CycleWriter } from '../writer.js';
 import type { CycleGates } from '../gates.js';

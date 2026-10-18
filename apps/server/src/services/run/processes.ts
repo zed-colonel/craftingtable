@@ -1,3 +1,7 @@
+/**
+ * A run's processes (R-B7): its private temporary directory, the process records, reaping a
+ * recorded group, and the restart's recovery and interruption.
+ */
 import { randomBytes } from 'node:crypto';
 import {
   closeSync,

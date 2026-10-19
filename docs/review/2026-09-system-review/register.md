@@ -21,7 +21,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B2](#r-b2) | P1 | M | done (131a9de) | Characterization harness for the cycle controller |
 | [R-B3](#r-b3) | P1 | M | done (82ae8ab) | Explicit cycle ownership; roadmap state references its definition |
 | [R-B4](#r-b4) | P4 | L | built on `remediation/p4` 2026-10-16 (not merged or deployed) | Pure cycle decision core with an explicit state machine |
-| [R-B4b](#r-b4b) | P4 | M | open; decided 2026-10-15 (split from R-B4) | Cycle state shape: stop, waits and attempt records, end codes, step history |
+| [R-B4b](#r-b4b) | P4 | M | built on `remediation/p4` 2026-10-18 and deployed at 5fc0175 (migration 0047; not merged); decided 2026-10-15 (split from R-B4) | Cycle state shape: stop, waits and attempt records, end codes, step history |
 | [R-B5](#r-b5) | P4 | L | open | Event-driven controller kernel |
 | [R-B6](#r-b6) | P4 | M-L | open | Scoped consistency instead of whole-roadmap pause |
 | [R-B7](#r-b7) | P4 | L | open; cycle half designed and decided 2026-10-17 (all six as recommended); being built on `remediation/p4` from 2026-10-17 (see the entry's Build progress) | Decompose the controller services along real boundaries |
@@ -956,7 +956,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B4b
 
-**Cycle state shape: stop, waits and attempt records, end codes, step history** · Phase P4 · Effort M · Status: built on `remediation/p4` 2026-10-18 (its first step, the replays' host pin, and increments 1 to 4), not merged or deployed; decided 2026-10-15 (split from [R-B4](#r-b4) by its decision 12)
+**Cycle state shape: stop, waits and attempt records, end codes, step history** · Phase P4 · Effort M · Status: built on `remediation/p4` 2026-10-18 (its first step, the replays' host pin, and increments 1 to 4), deployed 2026-10-18 at 5fc0175 (migration 0047), not merged; decided 2026-10-15 (split from [R-B4](#r-b4) by its decision 12)
 
 - **Resolves (with R-B4):** [DATA-04](findings/DATA-storage-domain-contracts.md#data-04-workcycle-is-a-50-field-god-record-with-embedded-sub-state-machines-two-entity-kinds-and-projection-fields-mixed-in), [HIST-01](findings/HIST-history-and-live-usage.md#hist-01-development-proceeded-by-patching-each-live-blockage-with-new-state-panels-and-vocabulary-spaghetti-fication-measured), and the rest of [CTRL-11](findings/CTRL-controller.md#ctrl-11-control-flow-depends-on-the-wording-of-human-readable-messages): the controller stops reading old text.
 - **Change:** R-B4's decisions 5 to 9 and 11, as designed in [R-B4](#r-b4)'s entry ("The stop record", "Step history", "Old records", and the decisions themselves).
@@ -1061,7 +1061,8 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - *The decision's code (operator, 2026-10-18; increment 4's MEDIUM-1).* Each row a pass's decision writes also records `decisionCode`, the code `decisionSummary` gives it (the stop's, the wait's change, the step launched, the effect's name, the idle reason; none for a `start-run` without a refresh first); a typed refusal records the stop's code, or `record-phase` for the phase wait a phase gate's refusal enters, and the pass's failure stop its code (`controller-error`). `audit.listCycleTransitions` reads it (absent on rows written before, and anything not text read as absent). Tests: `cycle-history.test.ts`'s rows now expect it (the design's stop, an effect's code carried and a later callback's row without it, an old row planting a number, the failure, the phase gate's refusal); 4 of its 7 fail without the change. The step history is otherwise as built: the design's three fields and this one.
     - *Gate at 493c12a* (`gate.sh`, alone): `pnpm check` passed (4,142 unit tests and 5 skipped, the 101 confined ones, e2e 23 and 1, the scope check) and `pnpm replays` (65 of 73 at 0 changed, 8 only as expected, 0 failed); `/dev/shm` peaked at 1.7 GB.
     - *Outside the change:* the replay corpus's stray `replay/2026-10-01e/snapshot.sqlite-wal` (empty) and `-shm` (32 KiB) are removed, at the operator's go-ahead; no process held them, and `snapshot.sqlite` is untouched.
-  - *Where R-B4b stands (2026-10-18):* every increment built, reviewed and settled on `remediation/p4`; not merged or deployed. Left for the operator: the merge and the deploy (below).
+  - *Where R-B4b stands (2026-10-18):* every increment built, reviewed and settled on `remediation/p4`; deployed, not merged. Left for the operator: the merge.
+  - *Deployed 2026-10-18 at 5fc0175* (release 20261019T042218Z-5fc017568644). Before it, `pnpm db:verify` on a backup of the live database (schema 46 to 47 on the copy): 134,756 records conform, no contract violations, integrity ok. The daemon was idle (no child processes, no native check units); after it, health ok and no warnings or errors in the journal.
 
 ### R-B5
 
@@ -2884,7 +2885,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C17
 
-**Step time limits: hung checks, cut-off handoffs and the operator's controls** · Phase P4 · Effort M (four S parts) · Status: partial (found live 2026-10-16; recorded at the operator's request; placed by the operator 2026-10-17); parts 1 to 3 built on `remediation/p4` 2026-10-17 (see Progress; every independent review and re-check settled, two mutation rounds; final `pnpm check` and `pnpm replays` at d0bd4a6), deployed 2026-10-17 at 62bf204 (migration 0045) and their two follow-ups 2026-10-18 at 5f42f45; part 4 after R-B4b, with part 2's other half
+**Step time limits: hung checks, cut-off handoffs and the operator's controls** · Phase P4 · Effort M (four S parts) · Status: partial (found live 2026-10-16; recorded at the operator's request; placed by the operator 2026-10-17); parts 1 to 3 built on `remediation/p4` 2026-10-17 (see Progress; every independent review and re-check settled, two mutation rounds; final `pnpm check` and `pnpm replays` at d0bd4a6), deployed 2026-10-17 at 62bf204 (migration 0045) and their two follow-ups 2026-10-18 at 5f42f45; part 4 next (R-B4b deployed 2026-10-18 at 5fc0175), with part 2's other half
 
 - **Found 2026-10-16,** on WorldInterface's WIP-07, the remediate step correcting F-020 (Codex `gpt-6.1-sol`, `xhigh`). Two runs (3d81fea8, 9b5278a9) were cancelled at exactly the step's 120 minutes (`maxRunMinutes`, the default in `packages/domain/src/work-cycle.ts`), and the cycle stopped twice as `step-time-limit`. Neither was stuck: 159 and 207 tool calls, events in every ten minutes.
 - **Where the time went.** The remediation made `flow_capacity_is_enforced_without_losing_existing_history` take far longer than before. Before it, `runtime-test` passed in 10 to 12 minutes. After it, every run (3 in the first step, 5 in the second) ended "Check interrupted or timed out." at the 30-minute check cap (`checkTimeoutMs`, `runtime-evidence-service.ts`). Each log's last line was "test flow_capacity_… has been running for over 60 seconds". The agent also ran that test directly, without a timeout, for 42 minutes. The second run fixed the slowness (three commits) and was rerunning the full checks when the deadline cancelled it.

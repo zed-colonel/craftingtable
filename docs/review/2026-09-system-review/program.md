@@ -1229,6 +1229,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **Deployed and decided, 2026-10-18.** R-C17's parts 1 to 3 were deployed 2026-10-17 at 62bf204 (migration 0045); R-B7's cycle half and R-C17's follow-ups 2026-10-18 at 5f42f45 (migration 0046; its one-time removal found one orphan run directory). The operator decided R-B7's three items for the operator: the replays pin the host's identity, as R-B4b's first step; the controller pass's log goes to R-B5; a run cut off after a completed turn gets its cut-off record in R-C17's part 4. The order above is unchanged: R-B4b is next.
 
+**R-B4b deployed, 2026-10-18.** R-B4b (the cycle's state shape, migration 0047, with the history's decision code the operator asked for) was deployed at 5fc0175 after `db:verify` passed on a backup of the live database. Next: R-C17's part 4, with part 2's other half.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

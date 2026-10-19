@@ -1237,6 +1237,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **R-C17's part 4 built, 2026-10-19.** Step 0 and increments 0 to 5 on this line (9a5f9cb onwards; [R-C17](register.md#r-c17)): a run cut off in a later turn hands on its cut-off record (Claude's held result marked, migration 0048); the time-limit stop and the other stops where a guided resume is accepted offer Continue with guidance beside Resume, one form; a paused or stopped cycle's time limit and agents change from the cycle panel or its Needs-you item without resuming or stopping it (a roadmap cycle's agents as an ADR-064 assignment, and, by the operator's decision on increment 3's review, a delegated conflict resolver keeps its rank over an assignment's inherited slots); a workspace default step time limit seeds the forms (migration 0049). Every review and re-check settled; final gate green at eb14454. Not deployed: migrations 0048 and 0049 are forward-only, and open pages need a reload. Next by the order above: R-B5.
 
+**R-B5 designed and decided, 2026-10-19.** [R-B5](register.md#r-b5)'s entry holds the baseline (a dev daemon on a copy of the 2026-10-07 snapshot, three rounds and a profile, by a harness the done-when repeats), the design, its independent review, settled, and the operator's fifteen decisions, all as recommended. R-B5 is three parts, in order: the cycle kernel (with the storage service's run-directory query, which the baseline found behind every idle stall), the scheduler and delivery on it, the streams and the journal. The order above is otherwise unchanged; the phase blockers' evidence evaluation the profile measured is R-D6's input.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

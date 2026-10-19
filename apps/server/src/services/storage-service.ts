@@ -99,6 +99,10 @@ export class StorageService {
   private alertTimer: ReturnType<typeof setInterval> | undefined;
   private attention: import('./attention-projector.js').AttentionProjector | undefined;
   readonly executionConfig: ExecutionConfig;
+  /** The stored worktree root's path, without the free-space check (the daemon's Git trust). */
+  get storedWorktreeRoot(): string {
+    return this.settings.roots.worktreeRoot.path;
+  }
 
   constructor(
     private readonly storage: CraftingTableStorage,

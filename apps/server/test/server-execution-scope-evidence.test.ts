@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { registerSourceRepositoryResponseSchema } from '@craftingtable/contracts';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
+import { FileWrites } from '../src/services/file-writes.js';
 import { resolveScope, scopeCases, scopeRequirements } from '../src/services/execution-scope.js';
 import { acceptedEvidence } from '../src/services/runtime-evidence-policy.js';
 import {
@@ -1196,7 +1197,14 @@ it.skipIf(HOST_CARGO === undefined).each(['integration', 'implementation'] as co
       expect(() => svc.assertRun(tree, pinnedOnly)).toThrow('ct-check --declared fixture');
       f.backend.replyForRequest = original;
     }
+    // The upstream tree is exported off the event loop (R-B5 increment 6 review MEDIUM-2):
+    // through `FileWrites`, whose own test holds that the loop turns between its writes.
+    const exported = vi.spyOn(FileWrites.prototype, 'write');
     const run = await runToFinish(f.state, tree.id, { role: 'review' });
+    expect(
+      exported.mock.calls.some(([path]) => path.includes('/scratch/dependencies/source-')),
+    ).toBe(mode === 'integration');
+    exported.mockRestore();
     expect(() => svc.assertRun(tree, run)).not.toThrow();
     const environment = storage.runtimeEvidence.run(ws, run)!;
     const manifest = JSON.parse(

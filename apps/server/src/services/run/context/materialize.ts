@@ -37,7 +37,7 @@ import { type StoppedWorktree, writeRunHandoff } from '../../run-handoff.js';
 import { latestReviewReport, runCutOff } from '../../run-lineage.js';
 import { scopeRepairPacket } from '../../scope-repair.js';
 import type { InvestigationLaunch, StartRunInput } from '../shared.js';
-import { FileWrites } from '../../file-writes.js';
+import { writingFiles } from '../../file-writes.js';
 
 /** What the launch read in its snapshot transaction, for the run's documents and brief. */
 export interface LaunchSnapshot {
@@ -120,25 +120,29 @@ export async function materializeRunFiles(
   mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
   // The plan's documents and the run's records off the event loop, a few at once (R-B5): a plan
   // can be megabytes. Every write has landed before the documents are returned.
-  const writes = new FileWrites();
   const planDocuments: BriefPlanDocument[] = [];
-  for (const artifact of prepared.artifacts) {
-    const stored = storage.planning.artifacts.findWithContent(workspaceId, artifact.id);
-    if (stored === undefined) continue;
-    const path = join(planDirectory, artifact.logicalFilename);
-    await writes.write(path, stored.content, { mode: 0o600 });
-    planDocuments.push({ filename: artifact.logicalFilename, role: artifact.role, path });
-  }
+  await writingFiles(async (writes) => {
+    for (const artifact of prepared.artifacts) {
+      const stored = storage.planning.artifacts.findWithContent(workspaceId, artifact.id);
+      if (stored === undefined) continue;
+      const path = join(planDirectory, artifact.logicalFilename);
+      await writes.write(path, stored.content, { mode: 0o600 });
+      planDocuments.push({ filename: artifact.logicalFilename, role: artifact.role, path });
+    }
+  });
   // CraftingTable's own files for the run, each named in the brief with what it holds, and
-  // the directories it supplies, each listed once (AGT-50, AGT-58).
+  // the directories it supplies, each listed once (AGT-50, AGT-58). Written once the plan's
+  // documents have landed, so a record wins over a document of the same name, as before
+  // (increment 6 review LOW-2).
   const records: BriefRecord[] = [];
   const directories: BriefDirectory[] = [];
-  for (const record of input.records ?? []) {
-    const path = join(planDirectory, record.filename);
-    await writes.write(path, record.content, { mode: 0o600 });
-    records.push({ path, about: record.about });
-  }
-  await writes.settled();
+  await writingFiles(async (writes) => {
+    for (const record of input.records ?? []) {
+      const path = join(planDirectory, record.filename);
+      await writes.write(path, record.content, { mode: 0o600 });
+      records.push({ path, about: record.about });
+    }
+  });
   if (preparation) {
     const directory = join(runDirectory, 'decision-preparation');
     mkdirSync(directory, { recursive: true, mode: 0o700 });

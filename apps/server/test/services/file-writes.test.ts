@@ -1,7 +1,7 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { FileWrites } from '../../src/services/file-writes.js';
+import { FileWrites, writingFiles } from '../../src/services/file-writes.js';
 import { testDataRoot } from '../test-support.js';
 
 /** A launch's many file writes off the event loop (R-B5 increment 6). */
@@ -65,4 +65,40 @@ it("keeps an existing file when asked to create only (the baseline's `wx`)", asy
   await writes.write(join(base, 'kept'), 'replaced', { mode: 0o600, flag: 'wx' });
   await expect(writes.settled()).rejects.toThrow();
   expect(readFileSync(join(base, 'kept'), 'utf8')).toBe('original');
+});
+
+/** Whether anything still lands in `directory` once the error is out (review MEDIUM-1). */
+async function stillLanding(directory: string): Promise<boolean> {
+  const count = () => readdirSync(directory, { recursive: true }).length;
+  const at = count();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  return count() !== at;
+}
+
+it("leaves no write in flight once a write's failure is thrown (review MEDIUM-1)", async () => {
+  const base = root();
+  writeFileSync(join(base, 'taken'), 'a file, not a directory');
+  const out = join(base, 'out');
+  await expect(
+    writingFiles(async (writes) => {
+      await writes.write(join(base, 'taken', 'inside'), 'x', { mode: 0o600 });
+      for (let i = 0; i < 200; i++)
+        await writes.write(join(out, `d${i}`, 'f'), 'x'.repeat(65_536), { mode: 0o600 });
+    }),
+  ).rejects.toThrow();
+  expect(await stillLanding(base)).toBe(false);
+});
+
+it('leaves no write in flight when its caller throws mid-loop (review MEDIUM-1)', async () => {
+  const base = root();
+  await expect(
+    writingFiles(async (writes) => {
+      for (let i = 0; i < 20; i++)
+        await writes.write(join(base, `d${i}`, 'f'), 'x'.repeat(65_536), { mode: 0o600 });
+      throw new Error('the next document cannot be read');
+    }),
+  ).rejects.toThrow('the next document cannot be read');
+  expect(await stillLanding(base)).toBe(false);
+  // Every write it started has landed, and only those.
+  expect(readdirSync(base)).toHaveLength(20);
 });

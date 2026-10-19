@@ -9,6 +9,9 @@ import { dirname } from 'node:path';
  *
  * `write` returns once the write has a slot; `settled` waits for every write and throws the
  * first failure, so a caller that reads its files back, or records them, does so after `settled`.
+ * No error leaves while a write is in flight (increment 6 review MEDIUM-1): a refused launch
+ * removes what it made, and a late write would race that removal or make a directory again.
+ * Callers use `writingFiles`, which also drains them when their own loop throws.
  */
 export class FileWrites {
   private readonly pending = new Set<Promise<void>>();
@@ -20,14 +23,17 @@ export class FileWrites {
   async write(
     path: string,
     content: string | Uint8Array,
-    options: { readonly mode: number; readonly flag?: string; readonly directoryMode?: number },
+    options: { readonly mode: number; readonly flag?: string },
   ): Promise<void> {
     while (this.pending.size >= this.limit) await Promise.race(this.pending);
-    if (this.failure !== undefined) throw this.failure;
+    if (this.failure !== undefined) {
+      await this.drained();
+      throw this.failure;
+    }
     const directory = dirname(path);
     const write = (async () => {
       if (!this.made.has(directory)) {
-        await mkdir(directory, { recursive: true, mode: options.directoryMode ?? 0o700 });
+        await mkdir(directory, { recursive: true, mode: 0o700 });
         this.made.add(directory);
       }
       await writeFile(path, content, {
@@ -42,7 +48,28 @@ export class FileWrites {
   }
 
   async settled(): Promise<void> {
-    await Promise.all(this.pending);
+    await this.drained();
     if (this.failure !== undefined) throw this.failure;
+  }
+
+  /** Every write in flight has ended, whatever its outcome (each one's failure is kept). */
+  async drained(): Promise<void> {
+    while (this.pending.size > 0) await Promise.all(this.pending);
+  }
+}
+
+/**
+ * `body` with a set of writes, settled before its answer is returned; if `body` or a write throws,
+ * every write in flight has ended before the error goes on.
+ */
+export async function writingFiles<T>(body: (writes: FileWrites) => Promise<T>): Promise<T> {
+  const writes = new FileWrites();
+  try {
+    const answer = await body(writes);
+    await writes.settled();
+    return answer;
+  } catch (error) {
+    await writes.drained();
+    throw error;
   }
 }

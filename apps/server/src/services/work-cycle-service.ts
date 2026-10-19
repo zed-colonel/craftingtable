@@ -310,7 +310,8 @@ export class WorkCycleService {
   }
   /**
    * The roadmap scheduler's integration refresh. A round that met it in flight left the cycle
-   * idle (`kernel-busy`), so its end marks the cycle (R-B5). A round's own refresh marks nothing:
+   * idle (`kernel-busy`), so the cycle is marked once its answer has settled, after the caller's
+   * own continuation (R-B5; its module's answer is returned as is). A round's own refresh marks nothing:
    * that would wake the round that ran it, again and again (increment 3 review HIGH-1).
    */
   refreshIntegration(cycle: WorkCycle, parent?: AgentRun, launching = false): Promise<boolean> {

@@ -220,7 +220,7 @@ export async function createServices(
   // Every daemon Git operation that can move a branch records where it left it, so a run's
   // protected-ref snapshot can tell the daemon's moves from anyone else's (R-G5).
   const refWatch = new RefWatch();
-  // Assigned once it exists; the trust is read per command.
+  // Assigned once it exists; the trust is computed again then (`trust.bump()` below).
   let trustStorage: StorageService | undefined;
   // Every daemon Git command runs against Git directories named explicitly: the registered
   // repositories' own, and the worktree entries in them that name their checkout back. A

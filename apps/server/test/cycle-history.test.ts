@@ -123,7 +123,12 @@ it('reads a row written before the step history as having none of it', async () 
       targetType: 'work-cycle',
       targetId: cycle.id,
       outcome: 'succeeded',
-      metadata: { action: 'advance', status: 'needs-attention', decision: 7 },
+      metadata: {
+        action: 'advance',
+        status: 'needs-attention',
+        decision: 7,
+        previousStatus: 'gone',
+      },
     }),
   );
   expect(history(state, cycle).at(-1)).toEqual({

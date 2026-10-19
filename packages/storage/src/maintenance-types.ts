@@ -71,7 +71,11 @@ export interface StorageMaintenanceRepository {
   registerRunDirectory(runId: AgentRunId, path: string, device: number): void;
   unregisteredRuns(): readonly { readonly id: AgentRunId }[];
   directory(runId: AgentRunId): { path: string; device: number } | undefined;
-  directories(): readonly RunDirectory[];
+  /** Every registered run directory, or a worktree's or a run's only (R-B5, decision 11). */
+  directories(scope?: {
+    readonly worktreeId?: WorktreeId;
+    readonly runId?: AgentRunId;
+  }): readonly RunDirectory[];
   protectedPaths(): readonly string[];
   activeWorktreePaths(): readonly string[];
   backups(): readonly StorageBackup[];

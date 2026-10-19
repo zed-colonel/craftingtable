@@ -18,7 +18,7 @@ import { SqliteAttentionRepository } from './repositories/attention.js';
 import { SqliteAuditRepository } from './repositories/audit.js';
 import { executionRepositories } from './repositories/execution/index.js';
 import { SqliteImportRepository } from './repositories/imports.js';
-import { SqliteStorageMaintenanceRepository } from './repositories/maintenance.js';
+import { ExitedRuns, SqliteStorageMaintenanceRepository } from './repositories/maintenance.js';
 import { SqliteMapAmendmentRepository } from './repositories/map-amendments.js';
 import { SqliteNotificationRepository } from './repositories/notifications.js';
 import { SqlitePhaseSchedulingRepository } from './repositories/phase-reservations.js';
@@ -43,6 +43,7 @@ function repositories(
   database: Database.Database,
   guard: RecordGuard,
   definitions: DefinitionCache,
+  exited: ExitedRuns,
 ): StorageRepositories {
   return {
     amendments: new SqliteMapAmendmentRepository(database, guard),
@@ -52,7 +53,7 @@ function repositories(
     phaseScheduling: new SqlitePhaseSchedulingRepository(database),
     scopeReceipts: new SqliteScopeReceiptRepository(database, guard),
     imports: new SqliteImportRepository(database, guard),
-    maintenance: new SqliteStorageMaintenanceRepository(database, guard),
+    maintenance: new SqliteStorageMaintenanceRepository(database, guard, exited),
     roadmaps: new SqliteRoadmapRepository(database, guard, definitions),
     notifications: new SqliteNotificationRepository(database, guard),
     attention: new SqliteAttentionRepository(database, guard),
@@ -89,6 +90,8 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   private closed = false;
   /** Parsed roadmap definitions, shared by every transaction on this database (R-B3). */
   private readonly definitions = new DefinitionCache();
+  /** The runs whose journal says how they ended, extended as the journal grows (R-B5). */
+  private readonly exited = new ExitedRuns();
   private observer: WriteObserver | undefined;
   private depth = 0;
   private committed = 0;
@@ -105,7 +108,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
       contractGuard(kind, record);
       this.observer?.written(kind, record);
     };
-    const repos = repositories(database, this.guard, this.definitions);
+    const repos = repositories(database, this.guard, this.definitions, this.exited);
     this.amendments = repos.amendments;
     this.runtimeEvidence = repos.runtimeEvidence;
     this.protectedRefs = repos.protectedRefs;
@@ -142,7 +145,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     try {
       const result = this.database
         .transaction(() => {
-          const tx = repositories(this.database, this.guard, this.definitions);
+          const tx = repositories(this.database, this.guard, this.definitions, this.exited);
           const value = operation(tx);
           if (outermost) this.observer?.beforeCommit(tx);
           return value;
@@ -163,7 +166,9 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
 
   readTransaction<T>(operation: (tx: StorageRepositories) => T): T {
     return this.database
-      .transaction(() => operation(repositories(this.database, this.guard, this.definitions)))
+      .transaction(() =>
+        operation(repositories(this.database, this.guard, this.definitions, this.exited)),
+      )
       .deferred();
   }
 

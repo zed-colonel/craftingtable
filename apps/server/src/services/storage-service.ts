@@ -632,12 +632,8 @@ export class StorageService {
         continue;
       }
       const run = this.storage.maintenance
-        .directories()
-        .find(
-          (value) =>
-            value.runId === candidate.runId &&
-            (candidate.kind === 'build' ? value.buildEligible : value.eligible),
-        );
+        .directories({ runId: candidate.runId })
+        .find((value) => (candidate.kind === 'build' ? value.buildEligible : value.eligible));
       if (!run) continue;
       const remove = async () => {
         const fresh = (
@@ -653,9 +649,7 @@ export class StorageService {
             cache.device === candidate.device,
         );
         if (!fresh) return;
-        const current = this.storage.maintenance
-          .directories()
-          .find((value) => value.runId === run.runId);
+        const current = this.storage.maintenance.directories({ runId: run.runId })[0];
         if (
           !(candidate.kind === 'build' ? current?.buildEligible : current?.eligible) ||
           current?.path !== run.path ||
@@ -893,9 +887,10 @@ export class StorageService {
       if (this.stopping || !this.settings.policy.autoCleanBuildCaches) return;
       await this.exclusively(async () => {
         const candidates: BuildCache[] = [];
+        // Only this worktree's directories (R-B5, decision 11): every run's end asks.
         for (const run of this.storage.maintenance
-          .directories()
-          .filter((r) => r.worktreeId === worktreeId && r.buildEligible))
+          .directories({ worktreeId })
+          .filter((r) => r.buildEligible))
           candidates.push(...(await cleanupCandidates(run, 0, this.now())));
         if (!candidates.length) return;
         this.candidates = candidates;

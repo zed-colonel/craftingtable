@@ -11,10 +11,42 @@ import type {
   WorktreeBuildCache,
 } from '../maintenance-types.js';
 import { parseRecord, type RecordGuard } from '../records.js';
+/**
+ * The runs whose `run-finished` event says how their process ended (an exit code or a signal), as
+ * a run directory's build cleanup needs (R-B5, decision 11). The journal is append-only (its
+ * triggers refuse an update or a delete) and its sequence only grows, so the set is read once and
+ * then extended from the last sequence seen, instead of scanning every run's events on each read.
+ * A read inside a write transaction keeps nothing it learns: an event a transaction that rolls
+ * back appended must never stay in the set.
+ */
+export class ExitedRuns {
+  private through = 0;
+  private readonly runs = new Set<string>();
+
+  read(database: Database.Database): ReadonlySet<string> {
+    const newer = database
+      .prepare(
+        `SELECT run_id AS runId FROM agent_run_events WHERE sequence > ? AND kind = 'run-finished'
+         AND (json_type(payload_json, '$.exitCode') = 'integer' OR json_type(payload_json, '$.signal') = 'text')`,
+      )
+      .all(this.through) as { runId: string }[];
+    if (database.inTransaction) return new Set([...this.runs, ...newer.map((row) => row.runId)]);
+    for (const row of newer) this.runs.add(row.runId);
+    this.through =
+      (
+        database.prepare('SELECT MAX(sequence) AS last FROM agent_run_events').get() as {
+          last: number | null;
+        }
+      ).last ?? 0;
+    return this.runs;
+  }
+}
+
 export class SqliteStorageMaintenanceRepository implements StorageMaintenanceRepository {
   constructor(
     private readonly database: Database.Database,
     private readonly guard: RecordGuard,
+    private readonly exited: ExitedRuns = new ExitedRuns(),
   ) {}
   settings(): StoredStorageSettings | undefined {
     const row = this.database
@@ -88,23 +120,34 @@ export class SqliteStorageMaintenanceRepository implements StorageMaintenanceRep
       .prepare('SELECT path, device FROM run_directories WHERE run_id = ?')
       .get(runId) as { path: string; device: number } | undefined;
   }
-  directories(): readonly RunDirectory[] {
+  directories(
+    scope: { readonly worktreeId?: WorktreeId; readonly runId?: AgentRunId } = {},
+  ): readonly RunDirectory[] {
+    // One pass over the worktrees with a live run, not one scan of every run per directory
+    // (R-B5, decision 11: the correlated form grew with the square of the runs and stalled the
+    // event loop for about 100 ms on every storage watch).
     const rows = this.database
-      .prepare(`SELECT d.run_id AS runId, r.workspace_id AS workspaceId, w.id AS worktreeId, d.path, d.device, MAX(COALESCE(r.finished_at, r.created_at), COALESCE(w.removed_at, w.created_at)) AS retainedSince,
+      .prepare(`WITH live AS (SELECT DISTINCT worktree_id FROM agent_runs WHERE status NOT IN ('finished','failed','cancelled','interrupted'))
+      SELECT d.run_id AS runId, r.workspace_id AS workspaceId, w.id AS worktreeId, d.path, d.device, MAX(COALESCE(r.finished_at, r.created_at), COALESCE(w.removed_at, w.created_at)) AS retainedSince,
       (r.status IN ('finished','failed','cancelled','interrupted') AND w.status = 'removed' AND w.merged_at IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM agent_runs live WHERE live.worktree_id = w.id AND live.status NOT IN ('finished','failed','cancelled','interrupted'))) AS eligible,
-      (r.status IN ('finished','failed','cancelled')
-       AND EXISTS (SELECT 1 FROM agent_run_events ended WHERE ended.run_id=r.id AND ended.kind='run-finished' AND (json_type(ended.payload_json, '$.exitCode')='integer' OR json_type(ended.payload_json, '$.signal')='text'))
-       AND NOT EXISTS (SELECT 1 FROM agent_runs live WHERE live.worktree_id = w.id AND live.status NOT IN ('finished','failed','cancelled','interrupted'))) AS buildEligible
-      FROM run_directories d JOIN agent_runs r ON r.id = d.run_id JOIN worktrees w ON w.id = r.worktree_id`)
-      .all() as (Omit<RunDirectory, 'eligible' | 'buildEligible'> & {
+       AND w.id NOT IN live) AS eligible,
+      (r.status IN ('finished','failed','cancelled') AND w.id NOT IN live) AS ended
+      FROM run_directories d JOIN agent_runs r ON r.id = d.run_id JOIN worktrees w ON w.id = r.worktree_id
+      WHERE (@worktreeId IS NULL OR w.id = @worktreeId) AND (@runId IS NULL OR d.run_id = @runId)`)
+      .all({ worktreeId: scope.worktreeId ?? null, runId: scope.runId ?? null }) as (Omit<
+      RunDirectory,
+      'eligible' | 'buildEligible'
+    > & {
       eligible: number;
-      buildEligible: number;
+      ended: number;
     })[];
-    return rows.map((row) => ({
+    const exited = rows.some((row) => row.ended === 1)
+      ? this.exited.read(this.database)
+      : undefined;
+    return rows.map(({ ended, ...row }) => ({
       ...row,
       eligible: row.eligible === 1,
-      buildEligible: row.buildEligible === 1,
+      buildEligible: ended === 1 && !!exited?.has(row.runId),
     }));
   }
   protectedPaths(): readonly string[] {

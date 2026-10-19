@@ -36,6 +36,7 @@ export function SettingsPage({
   notifications,
   storage,
   hostScheduling,
+  cycleDefaults,
   backends,
   defaults,
   profilesBusy,
@@ -47,6 +48,8 @@ export function SettingsPage({
   notifications?: ReactNode;
   storage?: ReactNode;
   hostScheduling?: ReactNode;
+  /** The workspace's default step time limit, under the agent defaults (R-C17 part 4). */
+  cycleDefaults?: ReactNode;
   workspace: WorkspaceOverview;
   canEdit: boolean;
   busy: boolean;
@@ -156,6 +159,7 @@ export function SettingsPage({
         ) : (
           <p className="empty-state">Loading the agent defaults…</p>
         ))}
+      {section === 'agents' && cycleDefaults}
       {section === 'capacity' &&
         (hostScheduling ?? <p className="empty-state">Only an editor manages capacity.</p>)}
       {section === 'notifications' && notifications}

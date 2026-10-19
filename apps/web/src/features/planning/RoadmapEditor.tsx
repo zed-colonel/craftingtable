@@ -22,6 +22,7 @@ import { Section } from '../../components/Section.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { loadExecutionScopes } from '../../lib/execution-scope-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
+import { cycleDefaultMinutes } from '../../lib/cycle-defaults-api.js';
 import {
   agentGroups,
   applyRoadmapAgents,
@@ -48,19 +49,23 @@ function useEditorChoices(workspaceId: WorkspaceId, onError: (message: string) =
   const [backends, setBackends] = useState<ExecutionStatusResponse['backends']>([]);
   const [defaults, setDefaults] = useState<StepPermissions>();
   const [workspaceAgents, setWorkspaceAgents] = useState<RunProfilesResponse>();
+  // The workspace's default step time limit, which a new entry starts with (R-C17 part 4).
+  const [minutes, setMinutes] = useState(DEFAULT_COMPLETION_POLICY.maxRunMinutes);
   useEffect(() => {
     let alive = true;
     void Promise.all([
       loadWorkspaceWorkItems(workspaceId, 'all'),
       loadExecutionStatus(),
       loadRunProfiles(workspaceId),
+      cycleDefaultMinutes(workspaceId),
     ])
-      .then(([listing, status, profiles]) => {
+      .then(([listing, status, profiles, defaultMinutes]) => {
         if (!alive) return;
         setItems(listing.items);
         setBackends(status.backends);
         setDefaults(defaultStepPermissions(profiles.agents));
         setWorkspaceAgents(profiles);
+        setMinutes(defaultMinutes);
       })
       .catch((e) => {
         if (alive) onError(e instanceof Error ? e.message : 'Could not load work items.');
@@ -69,7 +74,7 @@ function useEditorChoices(workspaceId: WorkspaceId, onError: (message: string) =
       alive = false;
     };
   }, [workspaceId, onError]);
-  return { items, backends, defaults, workspaceAgents };
+  return { items, backends, defaults, workspaceAgents, minutes };
 }
 
 /** A saved roadmap's agents as its setup edits them, read again with each version (R-E5b). */
@@ -161,7 +166,10 @@ export function RoadmapEditor({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const { items, backends, defaults, workspaceAgents } = useEditorChoices(workspaceId, setError);
+  const { items, backends, defaults, workspaceAgents, minutes } = useEditorChoices(
+    workspaceId,
+    setError,
+  );
   // Where a save this editor made stands when its agents then failed: the next save starts there.
   const [savedHere, setSavedHere] = useState<{
     readonly view?: RoadmapView;
@@ -450,7 +458,7 @@ export function RoadmapEditor({
                     id: crypto.randomUUID(),
                     workItemId: selected as WorkItemId,
                     permissions: defaults,
-                    policy: DEFAULT_COMPLETION_POLICY,
+                    policy: { ...DEFAULT_COMPLETION_POLICY, maxRunMinutes: minutes },
                     instructions: '',
                   },
                 ],

@@ -18,6 +18,8 @@ import {
   retireSourceRepositoryResponseSchema,
   runProfilesResponseSchema,
   saveRunProfilesRequestSchema,
+  cycleDefaultsResponseSchema,
+  saveCycleDefaultsRequestSchema,
   sourceRepositoryIdSchema,
   sourceRepositoryListResponseSchema,
   workItemIdSchema,
@@ -183,6 +185,48 @@ export function registerExecutionRoutes(
       return noStore(reply).send(
         runProfilesResponseSchema.parse(
           agentRunService.saveRunProfiles(context, workspaceId, request.body.profiles, request.id),
+        ),
+      );
+    },
+  );
+
+  // A workspace's default step time limit for new cycles and entries (R-C17 part 4).
+  app.get(
+    '/api/workspaces/:workspaceId/cycle-defaults',
+    { config: { access: 'member', params: WORKSPACE_PARAMS } },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
+      return noStore(reply).send(
+        cycleDefaultsResponseSchema.parse(
+          agentRunService.cycleDefaults(context, workspaceId, request.id),
+        ),
+      );
+    },
+  );
+
+  app.post<{ Body: BodyOf<typeof saveCycleDefaultsRequestSchema> }>(
+    '/api/workspaces/:workspaceId/cycle-defaults',
+    {
+      config: {
+        access: 'editor',
+        params: WORKSPACE_PARAMS,
+        tag: 'config',
+        body: saveCycleDefaultsRequestSchema,
+        invalidBody: 'Invalid step time limit',
+      },
+    },
+    async (request, reply) => {
+      const context = contextOf(request);
+      const { workspaceId } = paramsOf(request, WORKSPACE_PARAMS);
+      return noStore(reply).send(
+        cycleDefaultsResponseSchema.parse(
+          agentRunService.saveCycleDefaults(
+            context,
+            workspaceId,
+            request.body.maxRunMinutes,
+            request.id,
+          ),
         ),
       );
     },

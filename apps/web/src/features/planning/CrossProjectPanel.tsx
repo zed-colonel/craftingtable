@@ -25,6 +25,7 @@ import { Section } from '../../components/Section.js';
 import { StatusStrip } from '../../components/StatusStrip.js';
 import { MapAdoption } from '../../decisions/adoption/MapAdoption.js';
 import { previewCrossProject, saveCrossProject } from '../../lib/cross-project-api.js';
+import { cycleDefaultMinutes } from '../../lib/cycle-defaults-api.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { queryKeys } from '../../lib/event-invalidations.js';
 import { useQuery, useQueryStore } from '../../lib/query-store.js';
@@ -252,8 +253,12 @@ export function CrossProjectPanel({
   const savedPlanChanged = () => store.refreshNow([queryKeys.runtime(workspaceId, definitionId)]);
   useEffect(() => {
     let live = true;
-    void Promise.all([loadExecutionStatus(), loadRunProfiles(workspaceId)])
-      .then(([s, p]) => {
+    void Promise.all([
+      loadExecutionStatus(),
+      loadRunProfiles(workspaceId),
+      cycleDefaultMinutes(workspaceId as WorkspaceId),
+    ])
+      .then(([s, p, maxRunMinutes]) => {
         if (!live) return;
         setBackends(s.backends);
         setWorkspaceAgents(p);
@@ -261,7 +266,8 @@ export function CrossProjectPanel({
           (old) =>
             old ?? {
               permissions: defaultStepPermissions(p.agents),
-              policy: DEFAULT_COMPLETION_POLICY,
+              // The workspace's default step time limit (R-C17 part 4, decision 9).
+              policy: { ...DEFAULT_COMPLETION_POLICY, maxRunMinutes },
               instructions: '',
               automation: DEFAULT_ROADMAP_AUTOMATION,
             },

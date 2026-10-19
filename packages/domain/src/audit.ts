@@ -80,6 +80,8 @@ export const AUDIT_ACTIONS = [
   'plan.version-retired',
   'repository-cleanup.updated',
   'repository-cleanup.action',
+  /* A workspace's default step time limit (schema 49, R-C17 part 4). */
+  'cycle-defaults.updated',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -142,6 +144,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
   'plan.version-retired': 41,
   'repository-cleanup.updated': 41,
   'repository-cleanup.action': 41,
+  'cycle-defaults.updated': 49,
 } as const satisfies Readonly<
   Record<
     AuditAction,
@@ -170,6 +173,7 @@ export const AUDIT_ACTION_INTRODUCED_IN_SCHEMA = {
     | 36
     | 37
     | 41
+    | 49
   >
 >;
 

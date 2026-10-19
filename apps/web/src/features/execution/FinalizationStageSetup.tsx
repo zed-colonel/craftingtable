@@ -17,6 +17,8 @@ type Stages = NonNullable<FinalizationStart['stages']>;
 export function defaultFinalizationStages(
   review: FinalizationStart['finalReview'],
   implement: FinalizationStart['finalReview'],
+  /** The minutes per step each stage starts with: the workspace's default (R-C17 part 4). */
+  maxRunMinutes: number = DEFAULT_COMPLETION_POLICY.maxRunMinutes,
 ): Stages {
   return FINALIZATION_STAGE_KINDS.map((kind) => ({
     id: kind,
@@ -26,7 +28,7 @@ export function defaultFinalizationStages(
     instructions: '',
     review,
     implement,
-    policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 0 },
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 0, maxRunMinutes },
     requiredChecks: [],
   }));
 }

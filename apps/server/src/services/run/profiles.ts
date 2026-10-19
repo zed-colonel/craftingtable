@@ -6,6 +6,7 @@ import {
   AGENT_PROFILE_PURPOSES,
   type AgentBackendKind,
   asAuditEventId,
+  DEFAULT_COMPLETION_POLICY,
   type WorkspaceAgentProfile,
   type WorkspaceId,
 } from '@craftingtable/domain';
@@ -90,6 +91,61 @@ export class RunProfileCatalog {
     return withSelections(
       this.storage.readTransaction((tx) => this.runProfilesIn(tx, workspaceId)),
     );
+  }
+
+  /**
+   * The workspace's default step time limit for new cycles and roadmap entries (R-C17 part 4,
+   * decisions 8 and 9): the saved one, or the completion policy's own while none is saved.
+   */
+  cycleDefaults(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    requestId?: string,
+  ): { readonly maxRunMinutes: number; readonly stored: boolean } {
+    this.workspaceService.requireAuthorized(context, workspaceId, requestId);
+    const saved = this.storage.execution.cycleDefaults.find(workspaceId);
+    return {
+      maxRunMinutes: saved?.maxRunMinutes ?? DEFAULT_COMPLETION_POLICY.maxRunMinutes,
+      stored: saved !== undefined,
+    };
+  }
+
+  /** Saves the workspace's default step time limit, audited with what it was. */
+  saveCycleDefaults(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    maxRunMinutes: number,
+    requestId?: string,
+  ): { readonly maxRunMinutes: number; readonly stored: boolean } {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
+      ...(requestId === undefined ? {} : { requestId }),
+    });
+    const occurredAt = this.now().toISOString();
+    this.storage.transaction((tx) => {
+      const before =
+        tx.execution.cycleDefaults.find(workspaceId)?.maxRunMinutes ??
+        DEFAULT_COMPLETION_POLICY.maxRunMinutes;
+      tx.execution.cycleDefaults.save(workspaceId, {
+        maxRunMinutes,
+        updatedAt: occurredAt,
+        updatedByUserId: context.user.id,
+      });
+      tx.audit.append({
+        id: asAuditEventId(randomUUID()),
+        occurredAt,
+        actorKind: 'user',
+        actorUserId: context.user.id,
+        sessionId: context.session.id,
+        workspaceId,
+        ...(requestId === undefined ? {} : { requestId }),
+        action: 'cycle-defaults.updated',
+        targetType: 'workspace',
+        targetId: workspaceId,
+        outcome: 'succeeded',
+        metadata: { maxRunMinutes: { from: before, to: maxRunMinutes } },
+      });
+    });
+    return { maxRunMinutes, stored: true };
   }
 
   saveRunProfiles(

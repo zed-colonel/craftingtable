@@ -209,6 +209,7 @@ export const RELATIONAL_TABLES: Readonly<Record<string, string>> = {
   work_item_integration_evidence: 'relational',
   source_repositories: 'relational',
   workspace_run_profiles: 'relational',
+  workspace_cycle_defaults: 'relational: a workspace’s default step time limit (R-C17 part 4)',
   run_directories: 'relational bookkeeping for ADR-034 retention',
   run_launches: 'relational bookkeeping: a launch reserved before its first file (R-B7, AGT-12)',
   startup_tasks: 'one-time work a migration asks of the next start',

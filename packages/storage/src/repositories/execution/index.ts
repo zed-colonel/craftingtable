@@ -12,6 +12,7 @@ import {
   type SourceRepository,
   type SourceRepositoryId,
   TERMINAL_AGENT_RUN_STATUSES,
+  type UserId,
   type WorkItemId,
   type WorkspaceAgentProfile,
   type WorkspaceId,
@@ -32,6 +33,8 @@ import type {
   RunEventCompaction,
   ReplaceRunProfilesInput,
   RunProfileRepository,
+  CycleDefaults,
+  CycleDefaultsRepository,
   SourceRepositoryRepository,
   TransitionAgentRunInput,
   WorktreeRepository,
@@ -965,6 +968,41 @@ class SqliteAgentRunEventRepository implements AgentRunEventRepository {
 
 const ROLE_ORDER = `CASE role WHEN 'design' THEN 0 WHEN 'implement' THEN 1 ELSE 2 END`;
 
+class SqliteCycleDefaultsRepository implements CycleDefaultsRepository {
+  constructor(private readonly database: Database.Database) {}
+
+  find(workspaceId: WorkspaceId): CycleDefaults | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT max_run_minutes, updated_at, updated_by_user_id
+         FROM workspace_cycle_defaults WHERE workspace_id = ?`,
+      )
+      .get(workspaceId) as
+      | { max_run_minutes: number; updated_at: string; updated_by_user_id: UserId }
+      | undefined;
+    return row === undefined
+      ? undefined
+      : {
+          maxRunMinutes: row.max_run_minutes,
+          updatedAt: row.updated_at,
+          updatedByUserId: row.updated_by_user_id,
+        };
+  }
+
+  save(workspaceId: WorkspaceId, defaults: CycleDefaults): void {
+    this.database
+      .prepare(
+        `INSERT INTO workspace_cycle_defaults (workspace_id, max_run_minutes, updated_at, updated_by_user_id)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (workspace_id) DO UPDATE SET
+           max_run_minutes = excluded.max_run_minutes,
+           updated_at = excluded.updated_at,
+           updated_by_user_id = excluded.updated_by_user_id`,
+      )
+      .run(workspaceId, defaults.maxRunMinutes, defaults.updatedAt, defaults.updatedByUserId);
+  }
+}
+
 class SqliteRunProfileRepository implements RunProfileRepository {
   constructor(private readonly database: Database.Database) {}
 
@@ -1028,5 +1066,6 @@ export function executionRepositories(
     runs: new SqliteAgentRunRepository(database, guard),
     runEvents: new SqliteAgentRunEventRepository(database, guard),
     runProfiles: new SqliteRunProfileRepository(database),
+    cycleDefaults: new SqliteCycleDefaultsRepository(database),
   };
 }

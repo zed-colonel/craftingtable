@@ -1,5 +1,6 @@
 import type { WorkspaceAgentProfile } from '@craftingtable/domain';
 import { useState } from 'react';
+import { CycleDefaultsPanel } from '../../features/workspace/CycleDefaultsPanel.js';
 import { HostSchedulingPanel } from '../../features/workspace/HostSchedulingPanel.js';
 import { NotificationPanel } from '../../features/workspace/NotificationPanel.js';
 import { SettingsPage } from '../../features/workspace/SettingsPage.js';
@@ -92,6 +93,9 @@ export function SettingsRoute({ section }: { section: SettingsSection }) {
       }
       storage={
         isOwner ? <StoragePanel workspaceId={workspaceId} csrfToken={csrfToken} /> : undefined
+      }
+      cycleDefaults={
+        <CycleDefaultsPanel workspaceId={workspaceId} csrfToken={csrfToken} canEdit={canMutate} />
       }
       notifications={
         isOwner ? <NotificationPanel workspaceId={workspaceId} csrfToken={csrfToken} /> : undefined

@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { About } from '../../components/About.js';
 import { Section } from '../../components/Section.js';
 import { loadPlanBranchSettings } from '../../lib/branch-api.js';
+import { cycleDefaultMinutes } from '../../lib/cycle-defaults-api.js';
 import {
   loadExecutionStatus,
   loadRun,
@@ -105,8 +106,12 @@ export function FinalizationPanel({
   }>();
   useEffect(() => {
     let active = true;
-    void Promise.all([loadExecutionStatus(), loadRunProfiles(workspaceId)])
-      .then(([status, profiles]) => {
+    void Promise.all([
+      loadExecutionStatus(),
+      loadRunProfiles(workspaceId),
+      cycleDefaultMinutes(workspaceId),
+    ])
+      .then(([status, profiles, maxRunMinutes]) => {
         if (!active) return;
         setBackends(status.backends);
         const fallback = {
@@ -133,9 +138,10 @@ export function FinalizationPanel({
           targetBranch: 'main',
           // New finalizations are staged; legacy improvement rounds are retired (R-B10).
           rounds: [],
-          stages: defaultFinalizationStages(reviewProfile, polishProfile),
+          // The workspace's default step time limit (R-C17 part 4, decision 9).
+          stages: defaultFinalizationStages(reviewProfile, polishProfile, maxRunMinutes),
           finalReview: reviewProfile,
-          policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 0 },
+          policy: { ...DEFAULT_COMPLETION_POLICY, maxNits: 0, maxRunMinutes },
           instructions: '',
         });
       })

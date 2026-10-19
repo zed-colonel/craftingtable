@@ -568,6 +568,21 @@ export type AuthorizeWorkCycleRemediationRequest = Extract<
 export type StartWorkCycleRequest = z.infer<typeof startWorkCycleRequestSchema>;
 
 /**
+ * A workspace's default step time limit for new cycles and roadmap entries (R-C17 part 4,
+ * decisions 8 and 9), within the start's bounds. `stored` is false while none is saved and the
+ * completion policy's own applies.
+ */
+export const cycleDefaultsResponseSchema = z.strictObject({
+  maxRunMinutes: completionPolicySchema.shape.maxRunMinutes,
+  stored: z.boolean(),
+});
+export const saveCycleDefaultsRequestSchema = z.strictObject({
+  maxRunMinutes: completionPolicySchema.shape.maxRunMinutes,
+});
+export type CycleDefaultsResponse = z.infer<typeof cycleDefaultsResponseSchema>;
+export type SaveCycleDefaultsRequest = z.infer<typeof saveCycleDefaultsRequestSchema>;
+
+/**
  * A question stop's investigation in one route (R-H5, H5-2; R-C16): start it, end it, or
  * acknowledge that the worktree changed while it ran.
  */

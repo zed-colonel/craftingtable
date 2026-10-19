@@ -608,6 +608,17 @@ export class AgentRunService {
   ): RunProfiles {
     return this.profiles.saveRunProfiles(context, workspaceId, profiles, requestId);
   }
+  cycleDefaults(context: AuthContext, workspaceId: WorkspaceId, requestId?: string) {
+    return this.profiles.cycleDefaults(context, workspaceId, requestId);
+  }
+  saveCycleDefaults(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    maxRunMinutes: number,
+    requestId?: string,
+  ) {
+    return this.profiles.saveCycleDefaults(context, workspaceId, maxRunMinutes, requestId);
+  }
   workspaceLayerIn(tx: StorageRepositories, workspaceId: WorkspaceId) {
     return this.profiles.workspaceLayerIn(tx, workspaceId);
   }

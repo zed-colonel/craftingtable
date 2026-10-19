@@ -36,7 +36,11 @@ import { RepositoriesPage } from './RepositoriesPage.js';
 import { outcomeProse, RunOutcome } from './RunOutcome.js';
 import { RunPage } from './RunPage.js';
 import { worktreeChangesRefused } from './WorktreeChangesRefusal.js';
+import { cycleDefaultMinutes } from '../../lib/cycle-defaults-api.js';
 
+vi.mock('../../lib/cycle-defaults-api.js', () => ({
+  cycleDefaultMinutes: vi.fn(async () => 120),
+}));
 afterEach(cleanup);
 
 const repository: SourceRepositorySummary = {
@@ -1583,6 +1587,38 @@ describe('automated cycle controls', () => {
       }),
     );
     expect(Object.keys(onStart.mock.calls[0]?.[0].profiles)).toEqual([...CYCLE_STEPS]);
+  });
+  // R-C17 part 4, decision 9: the form starts from the workspace's default step time limit.
+  it('starts a cycle with the workspace’s default step time limit once the form opens', async () => {
+    vi.mocked(cycleDefaultMinutes).mockResolvedValueOnce(45);
+    const onStart = vi.fn();
+    render(
+      <CyclePanel
+        cycles={daemon([])}
+        worktrees={[worktree]}
+        runs={[]}
+        backends={backends}
+        startProfiles={startProfiles}
+        startAgents={startAgents}
+        canMutate
+        busy={false}
+        admitted
+        onStart={onStart}
+        csrfToken="csrf"
+        onChanged={vi.fn()}
+        onOpenRun={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByText('Set up a cycle'));
+    await waitFor(() =>
+      expect((screen.getByLabelText('Minutes per step') as HTMLInputElement).value).toBe('45'),
+    );
+    expect(cycleDefaultMinutes).toHaveBeenCalledWith(worktree.workspaceId);
+    fireEvent.click(screen.getByRole('button', { name: 'Start automated cycle' }));
+    expect(onStart.mock.calls[0]?.[0].policy).toEqual({
+      ...DEFAULT_COMPLETION_POLICY,
+      maxRunMinutes: 45,
+    });
   });
   it('starts a cycle with the daemon’s defaults, named with their source, unless changed for this cycle (R-E5b)', () => {
     const onStart = vi.fn();

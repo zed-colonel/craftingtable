@@ -22,7 +22,7 @@ decision boundary test reads each `decision` route from it.
   parse, given once step-up and the body are settled: 404 with its message. An id that parses
   but names nothing is its service's to answer.
 
-**138 routes:** 64 GET, 74 POST; 64 read, 29 decision, 19 control, 26 config. 127 take path parameters, 96 beyond the workspace's.
+**140 routes:** 65 GET, 75 POST; 65 read, 29 decision, 19 control, 27 config. 129 take path parameters, 96 beyond the workspace's.
 
 | Method | Path (under `/api/`) | Access | Tag | Step-up | Body | Parameters | Refused |
 |---|---|---|---|---|---|---|---|
@@ -62,6 +62,8 @@ decision boundary test reads each `decision` route from it.
 | POST | `workspaces/:workspaceId/concurrency-definitions/:id/supervision/adopt` | editor | decision |  | `adoptMapSchema` | `workspaceId` `workspaceIdSchema`, `id` `concurrencyDefinitionIdSchema` | 404 Resource not found |
 | POST | `workspaces/:workspaceId/concurrency-definitions/:id/supervision/preview` | editor | config |  | `mapSelectionSchema` | `workspaceId` `workspaceIdSchema`, `id` `concurrencyDefinitionIdSchema` | 404 Resource not found |
 | POST | `workspaces/:workspaceId/concurrency-definitions/:id/supervision/roadmap` | editor | config |  | `saveCrossProjectSchema` | `workspaceId` `workspaceIdSchema`, `id` `concurrencyDefinitionIdSchema` | 404 Resource not found |
+| GET | `workspaces/:workspaceId/cycle-defaults` | member | read |  |  | `workspaceId` `workspaceIdSchema` |  |
+| POST | `workspaces/:workspaceId/cycle-defaults` | editor | config |  | `saveCycleDefaultsRequestSchema` | `workspaceId` `workspaceIdSchema` |  |
 | GET | `workspaces/:workspaceId/cycles` | member | read |  |  | `workspaceId` `workspaceIdSchema` |  |
 | GET | `workspaces/:workspaceId/cycles/:cycleId/baseline-evidence` | member | read |  |  | `workspaceId` `workspaceIdSchema`, `cycleId` `workCycleIdSchema` | 404 Resource not found |
 | GET | `workspaces/:workspaceId/cycles/:cycleId/baseline-preparation` | editor | read |  |  | `workspaceId` `workspaceIdSchema`, `cycleId` `workCycleIdSchema` | 404 Resource not found |

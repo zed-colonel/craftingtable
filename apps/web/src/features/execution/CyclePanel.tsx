@@ -32,6 +32,7 @@ import { HistoricalEvidencePanel } from './HistoricalEvidencePanel.js';
 import { SavedModelNotes } from './SavedModelNotes.js';
 import { WorkflowStatus } from './WorkflowStatus.js';
 import { Link } from '../../lib/navigation.js';
+import { cycleDefaultMinutes } from '../../lib/cycle-defaults-api.js';
 import type { WorkspaceId } from '@craftingtable/domain';
 
 export { CYCLE_STATUS_LABELS } from '../../lib/execution-labels.js';
@@ -403,7 +404,21 @@ export function CyclePanel({
           cycles belong to an owning slice.
         </p>
       ) : (
-        <details>
+        <details
+          onToggle={(event) => {
+            // The workspace's default step time limit seeds the form once it opens, unless the
+            // operator changed the policy already (R-C17 part 4, decision 9).
+            const workspaceId = worktrees[0]?.workspaceId;
+            if (!(event.currentTarget as HTMLDetailsElement).open || !workspaceId) return;
+            void cycleDefaultMinutes(workspaceId as WorkspaceId).then((maxRunMinutes) =>
+              setPolicy((current) =>
+                current === DEFAULT_COMPLETION_POLICY
+                  ? { ...DEFAULT_COMPLETION_POLICY, maxRunMinutes }
+                  : current,
+              ),
+            );
+          }}
+        >
           <summary>Set up a cycle</summary>
           <About label="About automated cycles">
             <p>

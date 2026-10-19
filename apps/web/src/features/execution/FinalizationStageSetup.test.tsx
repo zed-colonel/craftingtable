@@ -136,3 +136,9 @@ it('seeds every default stage with 120 minutes per step', () => {
   for (const stage of defaultFinalizationStages(profile, profile))
     expect(stage.policy.maxRunMinutes).toBe(120);
 });
+
+it('seeds every default stage with the workspace default when one is saved (R-C17 part 4)', () => {
+  const profile = { backend: 'claude-code' as const, permissionMode: 'auto' as const };
+  for (const stage of defaultFinalizationStages(profile, profile, 45))
+    expect(stage.policy).toMatchObject({ maxRunMinutes: 45, maxNits: 0 });
+});

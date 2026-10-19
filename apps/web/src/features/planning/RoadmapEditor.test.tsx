@@ -13,6 +13,7 @@ import {
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cycleDefaultMinutes } from '../../lib/cycle-defaults-api.js';
 import { loadWorkspaceWorkItems } from '../../lib/planning-api.js';
 import { applyRoadmapAgents, loadRoadmapAgents, saveRoadmap } from '../../lib/roadmap-api.js';
 import { type Draft, draftOf, RoadmapEditor } from './RoadmapEditor.js';
@@ -22,6 +23,9 @@ vi.mock('../../lib/roadmap-api.js', async (actual) => ({
   saveRoadmap: vi.fn(),
   loadRoadmapAgents: vi.fn(),
   applyRoadmapAgents: vi.fn(),
+}));
+vi.mock('../../lib/cycle-defaults-api.js', () => ({
+  cycleDefaultMinutes: vi.fn(async () => 120),
 }));
 vi.mock('../../lib/planning-api.js', () => ({
   loadWorkspaceWorkItems: vi.fn(async () => ({ items: [] })),
@@ -401,46 +405,53 @@ it('after a save and a partly refused agent change, retries only the agents at t
   expect(groups.map((g) => g.entryIds)).toEqual([[second]]);
 });
 
-// R-C17 part 4 (increment 1 review M-4: characterize before increment 5 changes it): a new entry
-// starts from the completion policy's 120 minutes per step.
-it('seeds a new entry with 120 minutes per step', async () => {
-  vi.mocked(loadWorkspaceWorkItems).mockResolvedValueOnce({
-    items: [
-      {
-        id: 'item-2',
-        projectId: 'project-1',
-        projectName: 'Project',
-        planVersionId: 'version-1',
-        sourceId: 'AQ-02',
-        title: 'Continue the queue',
-        status: 'pending',
-      },
-    ],
-  } as never);
-  const empty = { ...draftOf(roadmap), entries: [] };
-  let latest: Draft | undefined;
-  function Probe() {
-    const [draft, setDraft] = useState<Draft>(empty);
-    latest = draft;
-    return (
-      <RoadmapEditor
-        workspaceId={workspaceId}
-        csrfToken="csrf"
-        draft={draft}
-        setDraft={setDraft}
-        current={undefined}
-        onSaved={vi.fn()}
-        onCancel={vi.fn()}
-      />
-    );
-  }
-  render(<Probe />);
-  const select = screen.getByLabelText('Add work item') as HTMLSelectElement;
-  await waitFor(() => expect(select.options.length).toBe(2));
-  fireEvent.change(select, { target: { value: 'item-2' } });
-  const add = screen.getByRole('button', { name: 'Add to sequence' }) as HTMLButtonElement;
-  await waitFor(() => expect(add.disabled).toBe(false));
-  fireEvent.click(add);
-  await waitFor(() => expect(latest?.entries).toHaveLength(1));
-  expect(latest?.entries[0]?.policy.maxRunMinutes).toBe(120);
-});
+// R-C17 part 4: a new entry starts from the workspace's default step time limit (increment 5),
+// 120 minutes per step while none is saved (increment 1 review M-4).
+it.each([
+  [120, 120],
+  [45, 45],
+])(
+  'seeds a new entry with the workspace default (%s), %s minutes per step',
+  async (saved, expected) => {
+    vi.mocked(cycleDefaultMinutes).mockResolvedValueOnce(saved);
+    vi.mocked(loadWorkspaceWorkItems).mockResolvedValueOnce({
+      items: [
+        {
+          id: 'item-2',
+          projectId: 'project-1',
+          projectName: 'Project',
+          planVersionId: 'version-1',
+          sourceId: 'AQ-02',
+          title: 'Continue the queue',
+          status: 'pending',
+        },
+      ],
+    } as never);
+    const empty = { ...draftOf(roadmap), entries: [] };
+    let latest: Draft | undefined;
+    function Probe() {
+      const [draft, setDraft] = useState<Draft>(empty);
+      latest = draft;
+      return (
+        <RoadmapEditor
+          workspaceId={workspaceId}
+          csrfToken="csrf"
+          draft={draft}
+          setDraft={setDraft}
+          current={undefined}
+          onSaved={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      );
+    }
+    render(<Probe />);
+    const select = screen.getByLabelText('Add work item') as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(2));
+    fireEvent.change(select, { target: { value: 'item-2' } });
+    const add = screen.getByRole('button', { name: 'Add to sequence' }) as HTMLButtonElement;
+    await waitFor(() => expect(add.disabled).toBe(false));
+    fireEvent.click(add);
+    await waitFor(() => expect(latest?.entries).toHaveLength(1));
+    expect(latest?.entries[0]?.policy.maxRunMinutes).toBe(expected);
+  },
+);

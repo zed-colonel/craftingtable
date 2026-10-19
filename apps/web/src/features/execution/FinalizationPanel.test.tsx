@@ -8,12 +8,16 @@ import { loadFinalizations, startFinalization } from '../../lib/finalization-api
 import { testQueryStore } from '../../lib/query-store-testing.js';
 import type { ReactElement } from 'react';
 import legacyRecord from '../../../../../fixtures/records/legacy-finalization-2026-09-13.json?raw';
+import { cycleDefaultMinutes } from '../../lib/cycle-defaults-api.js';
 import { FinalizationPanel } from './FinalizationPanel.js';
 
 vi.mock('../../lib/finalization-api.js', () => ({
   loadFinalizations: vi.fn(),
   startFinalization: vi.fn(),
   controlFinalization: vi.fn(),
+}));
+vi.mock('../../lib/cycle-defaults-api.js', () => ({
+  cycleDefaultMinutes: vi.fn(async () => 120),
 }));
 vi.mock('../../lib/branch-api.js', () => ({ loadPlanBranchSettings: vi.fn() }));
 vi.mock('../../lib/execution-api.js', () => ({
@@ -84,17 +88,24 @@ it('offers only staged finalizations for a new start', async () => {
 
 // R-C17 part 4 (increment 1 review L-4): a new finalization and each of its stages start from
 // 120 minutes per step.
-it('seeds a new finalization with 120 minutes per step, its stages too', async () => {
-  renderPanel([]);
-  fireEvent.click(await screen.findByRole('button', { name: 'Set up finalization' }));
-  await screen.findByRole('region', { name: 'Finalization stage setup' });
-  const minutes = [
-    ...screen.queryAllByLabelText('Minutes per step'),
-    ...screen.queryAllByLabelText('Stage minutes per run'),
-  ] as HTMLInputElement[];
-  expect(minutes.length).toBeGreaterThan(1);
-  for (const field of minutes) expect(field.value).toBe('120');
-});
+it.each([
+  [120, '120'],
+  [45, '45'],
+])(
+  'seeds a new finalization with the workspace default (%s), its stages too',
+  async (saved, shown) => {
+    vi.mocked(cycleDefaultMinutes).mockResolvedValueOnce(saved);
+    renderPanel([]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Set up finalization' }));
+    await screen.findByRole('region', { name: 'Finalization stage setup' });
+    const minutes = [
+      ...screen.queryAllByLabelText('Minutes per step'),
+      ...screen.queryAllByLabelText('Stage minutes per run'),
+    ] as HTMLInputElement[];
+    expect(minutes.length).toBeGreaterThan(1);
+    for (const field of minutes) expect(field.value).toBe(shown);
+  },
+);
 
 it("re-reads its plan's finalizations on its own cycles' and runs' events, and its branches each minute (R-D4)", async () => {
   const { store, wrap, send } = testQueryStore();

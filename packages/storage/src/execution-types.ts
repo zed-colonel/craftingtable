@@ -286,6 +286,19 @@ export interface RunProfileRepository {
   replace(input: ReplaceRunProfilesInput): void;
 }
 
+/** A workspace's default step time limit (R-C17 part 4, decisions 8 and 9). */
+export interface CycleDefaults {
+  readonly maxRunMinutes: number;
+  readonly updatedAt: string;
+  readonly updatedByUserId: UserId;
+}
+
+export interface CycleDefaultsRepository {
+  /** The saved default, or undefined while none is saved. */
+  find(workspaceId: WorkspaceId): CycleDefaults | undefined;
+  save(workspaceId: WorkspaceId, defaults: CycleDefaults): void;
+}
+
 export interface ExecutionRepositories {
   readonly finalizations: import('./repositories/execution/finalizations.js').FinalizationRepository;
   readonly merges: import('./repositories/execution/merges.js').MergeOperationRepository;
@@ -296,4 +309,5 @@ export interface ExecutionRepositories {
   readonly runs: AgentRunRepository;
   readonly runEvents: AgentRunEventRepository;
   readonly runProfiles: RunProfileRepository;
+  readonly cycleDefaults: CycleDefaultsRepository;
 }

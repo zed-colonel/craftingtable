@@ -15,6 +15,7 @@ import { request } from '../../lib/api-client.js';
 import { loadExecutionStatus, loadRunProfiles } from '../../lib/execution-api.js';
 import { applyRoadmapAgents, loadRoadmapAgents } from '../../lib/roadmap-api.js';
 import { phaseLabel } from './DependencyRequirements.js';
+import { cycleDefaultMinutes } from '../../lib/cycle-defaults-api.js';
 vi.mock('../../lib/roadmap-api.js', async (actual) => ({
   ...(await actual<typeof import('../../lib/roadmap-api.js')>()),
   loadRoadmapAgents: vi.fn(),
@@ -26,6 +27,9 @@ vi.mock('../../lib/cross-project-api.js', async (actual) => ({
   saveCrossProject: vi.fn(),
 }));
 // Map adoption is MapAdoption's own command (R-A6 rest, A1).
+vi.mock('../../lib/cycle-defaults-api.js', () => ({
+  cycleDefaultMinutes: vi.fn(async () => 120),
+}));
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 const adoptions = () =>
   vi.mocked(request).mock.calls.filter(([url]) => String(url).endsWith('/supervision/adopt'));
@@ -181,14 +185,18 @@ function setup(
   );
 }
 // R-C17 part 4 (increment 1 review M-4): new map settings start from 120 minutes per step.
-it('seeds new map settings with 120 minutes per step', async () => {
+it.each([
+  [120, '120'],
+  [45, '45'],
+])('seeds new map settings with the workspace default (%s)', async (saved, shown) => {
+  vi.mocked(cycleDefaultMinutes).mockResolvedValueOnce(saved);
   setup();
   fireEvent.change(screen.getByLabelText('Planning target'), { target: { value: 'PROOF' } });
   await waitFor(() =>
     expect(screen.queryAllByLabelText('Minutes per step').length).toBeGreaterThan(0),
   );
   for (const field of screen.getAllByLabelText('Minutes per step') as HTMLInputElement[])
-    expect(field.value).toBe('120');
+    expect(field.value).toBe(shown);
 });
 it('requires explicit target choice and adoption rationale, with a trace to the provider action', async () => {
   setup();

@@ -1,7 +1,7 @@
 import type { AgentLaunchRequest } from '@craftingtable/agents';
 import { workCycleResponseSchema } from '@craftingtable/contracts';
 import { heldStop, type WorkCycle } from '@craftingtable/domain';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { assignedReviewMatches } from '../src/services/agent-profile-policy.js';
 import {
   cleanupExecutionFixtures,
@@ -32,7 +32,10 @@ import {
  * evidence accepts.
  */
 
-afterEach(cleanupExecutionFixtures);
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await cleanupExecutionFixtures();
+});
 
 const control = (state: Ready, cycleId: string, payload: Record<string, unknown>) =>
   state.context.app.inject({
@@ -242,6 +245,30 @@ it('changes a roadmap cycle’s agents through an assignment for its entry, whic
   const stopped = cycle();
   const before = storedRoadmap(state).agentAssignments ?? [];
   const reviewer = { backend: 'claude-code' as const, model: 'changed-review' };
+  // The roadmap's own conditions refuse its agents, and nothing is written (inc 3 review L-6):
+  // a roadmap command running, an amendment pending.
+  const attempt0 = {
+    action: 'change-settings',
+    expectedVersion: stopped.version,
+    agents: { review: reviewer },
+  };
+  const roadmaps = state.context.services.roadmapService as unknown as {
+    controlling: Set<string>;
+  };
+  roadmaps.controlling.add(storedRoadmap(state).id);
+  const whileControlling = await control(state, stopped.id, attempt0);
+  roadmaps.controlling.delete(storedRoadmap(state).id);
+  expect(whileControlling.statusCode).toBe(409);
+  expect(whileControlling.json().error.message).toContain('A roadmap command is running');
+  const pending = vi
+    .spyOn(state.context.storage.amendments, 'pending')
+    .mockReturnValue({} as never);
+  const whilePending = await control(state, stopped.id, attempt0);
+  pending.mockRestore();
+  expect(whilePending.statusCode).toBe(409);
+  expect(whilePending.json().error.message).toContain('pending planning amendment');
+  expect(cycle().version).toBe(stopped.version);
+  expect(storedRoadmap(state).agentAssignments ?? []).toEqual(before);
   const changed = await control(state, stopped.id, {
     action: 'change-settings',
     expectedVersion: stopped.version,

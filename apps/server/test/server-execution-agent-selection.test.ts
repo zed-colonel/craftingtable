@@ -622,7 +622,14 @@ describe('an integration resolution the roadmap delegates', () => {
       'explicit',
       'explicit-conflict',
     ],
-    ['the latest assignment over both', 'assignment', 'assigned-remediate'],
+    // An assignment displaces the resolver only by naming `conflict` itself; its inherited
+    // remediation does not (R-C17 part 4 increment 3 review HIGH-1, ADR-064 amended 2026-10-18).
+    ['the latest assignment naming conflict over both', 'assignment', 'assigned-conflict'],
+    [
+      'the delegation’s profile over an assignment’s inherited remediation',
+      'inherited',
+      'resolution-auto',
+    ],
   ] as const)('chooses %s', async (_, layer, expected) => {
     const fixture = await parallelFixture();
     const { state, backend, input } = fixture;
@@ -661,13 +668,16 @@ describe('an integration resolution the roadmap delegates', () => {
       },
     });
     expect(saved.statusCode, saved.body).toBe(200);
-    if (layer === 'assignment') {
+    if (layer === 'assignment' || layer === 'inherited') {
       const applied = await post(state, `/roadmaps/${roadmapId}/agent-profiles`, {
         expectedVersion: storedRoadmap(state).version,
         entryIds: [...entryIds, input.entries[2]!.id],
         selections: {
           ...agentSelections(cycleProfiles),
           remediate: { backend: 'claude-code', model: 'assigned-remediate' },
+          ...(layer === 'assignment'
+            ? { conflict: { backend: 'claude-code', model: 'assigned-conflict' } }
+            : {}),
         },
       });
       expect(applied.statusCode, applied.body).toBe(200);

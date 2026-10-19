@@ -367,7 +367,9 @@ describe('the R-E5a review’s gaps', () => {
       },
     });
     expect(entryAgents(saved, entry).conflict.source).toEqual({ layer: 'roadmap-automation' });
-    // Manual conflicts launch nothing delegated; an assignment or a specialist comes first.
+    // Manual conflicts launch nothing delegated; a specialist comes first. An assignment's
+    // inherited remediation does not displace the delegation (R-C17 part 4 increment 3 review
+    // HIGH-1, ADR-064 amended 2026-10-18).
     expect(
       entryAgents(roadmapOf({ delegationAssignments: [grant('manual')] }), entry).conflict.source,
     ).toEqual({ layer: 'saved-definition', slot: 'remediate' });
@@ -376,7 +378,7 @@ describe('the R-E5a review’s gaps', () => {
         roadmapOf({ delegationAssignments: [grant('automatic')], agentAssignments: [assignment] }),
         entry,
       ).conflict.source,
-    ).toMatchObject({ layer: 'roadmap-assignment', slot: 'remediate' });
+    ).toMatchObject({ layer: 'roadmap-delegation', delegationId: 'grant' });
     // The selection set (nextAgentSelections, a repair's profiles) is unchanged by it.
     expect(cycleAgents(txOf(granted), cycle()).remediate.source.layer).toBe('saved-definition');
   });

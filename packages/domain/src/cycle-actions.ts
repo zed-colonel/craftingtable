@@ -189,7 +189,7 @@ export function guidanceAccepted(
  * retired, with no investigation live or awaiting acknowledgement (its own commands come first).
  */
 export function settingsChangeable(
-  cycle: Pick<WorkCycle, 'status' | 'finalizationId'>,
+  cycle: Pick<WorkCycle, 'status' | 'finalizationId' | 'stop'>,
   facts: {
     readonly investigationLive: boolean;
     readonly worktreeChangeOpen: boolean;
@@ -199,6 +199,8 @@ export function settingsChangeable(
   return (
     (cycle.status === 'needs-attention' || cycle.status === 'paused') &&
     !cycle.finalizationId &&
+    // No step runs again there: Stop is the way on (increment 3 review NIT).
+    stopCode(cycle) !== 'item-completed-unmerged' &&
     !facts.investigationLive &&
     !facts.worktreeChangeOpen &&
     !facts.amendmentRetired

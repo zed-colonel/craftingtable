@@ -1,5 +1,6 @@
 import {
   type AgentRun,
+  agentSelections,
   cycleAttention,
   DEFAULT_COMPLETION_POLICY,
   stopRecord,
@@ -517,6 +518,27 @@ const run = (row: (typeof rows)[number]) => {
   return decideResumeStep(cycle, facts, row.guidance);
 };
 
+/** A stopped cycle's settings change through the core (R-C17 part 4, decisions 3 to 6). */
+const settingsProfiles = {
+  design: { backend: 'claude-code', permissionMode: 'auto', model: 'd' },
+  implement: { backend: 'claude-code', permissionMode: 'edit-only', model: 'i' },
+  review: { backend: 'claude-code', permissionMode: 'auto', model: 'r' },
+  remediate: { backend: 'claude-code', permissionMode: 'auto', model: 'm' },
+};
+const settingsChange = (
+  cycleOverrides: Record<string, unknown>,
+  request: Record<string, unknown>,
+  options: { retired?: boolean; live?: boolean; changeOpen?: boolean; owned?: boolean } = {},
+) =>
+  decideSettingsChange(
+    cycleOf(cycleOverrides),
+    { amendmentRetired: () => !!options.retired },
+    { expectedVersion: 3, ...request },
+    { live: !!options.live, changeOpen: !!options.changeOpen },
+    !!options.owned,
+    agentSelections((cycleOverrides.profiles ?? settingsProfiles) as never),
+  );
+
 /** The roadmap's and start-up's writes, each one branch. */
 const actorRows: readonly {
   readonly name: string;
@@ -655,102 +677,49 @@ const actorRows: readonly {
       ),
     expected: { kind: 'refuse', code: 'not-reviewable' },
   },
-  // R-C17 part 4, decisions 3 to 6: a stopped cycle's settings change.
-  ...(() => {
-    const change = (
-      cycleOverrides: Record<string, unknown>,
-      request: Record<string, unknown>,
-      options: { retired?: boolean; live?: boolean; changeOpen?: boolean; owned?: boolean } = {},
-    ) =>
-      decideSettingsChange(
-        cycleOf(cycleOverrides),
-        { amendmentRetired: () => !!options.retired },
-        { expectedVersion: 3, ...request },
-        { live: !!options.live, changeOpen: !!options.changeOpen },
-        !!options.owned,
-      );
-    const profiles = {
-      design: { backend: 'claude-code', permissionMode: 'auto', model: 'd' },
-      implement: { backend: 'claude-code', permissionMode: 'edit-only', model: 'i' },
-      review: { backend: 'claude-code', permissionMode: 'auto', model: 'r' },
-      remediate: { backend: 'claude-code', permissionMode: 'auto', model: 'm' },
-    };
-    const faster = { backend: 'codex', model: 'gpt-fast', reasoningEffort: 'high' };
-    return [
-      {
-        name: 'a settings change on a stale version is refused',
-        run: () => change({ version: 2 }, { maxRunMinutes: 240 }),
-        expected: { kind: 'refuse', code: 'cycle-changed' },
-      },
-      {
-        name: 'an ended cycle’s settings do not change',
-        run: () => change({ status: 'stopped', stop: undefined }, { maxRunMinutes: 240 }),
-        expected: { kind: 'refuse', code: 'cycle-ended' },
-      },
-      {
-        name: 'a retired attempt’s settings do not change',
-        run: () => change({}, { maxRunMinutes: 240 }, { retired: true }),
-        expected: { kind: 'refuse', code: 'amendment-retired' },
-      },
-      {
-        name: 'a running cycle’s settings do not change',
-        run: () => change({ status: 'running', stop: undefined }, { maxRunMinutes: 240 }),
-        expected: { kind: 'refuse', code: 'settings-not-changeable' },
-      },
-      {
-        name: 'a finalization’s settings are its stages’',
-        run: () => change({ finalizationId: 'f-1' }, { maxRunMinutes: 240 }),
-        expected: { kind: 'refuse', code: 'settings-not-changeable' },
-      },
-      {
-        name: 'a live investigation’s stop takes its own commands first',
-        run: () => change({}, { maxRunMinutes: 240 }, { live: true }),
-        expected: { kind: 'refuse', code: 'settings-not-changeable' },
-      },
-      {
-        name: 'the minutes change in the cycle’s own policy, nothing else',
-        run: () => change({}, { maxRunMinutes: 240 }),
-        expected: {
-          kind: 'settings',
-          changes: { policy: { ...DEFAULT_COMPLETION_POLICY, maxRunMinutes: 240 } },
-        },
-      },
-      {
-        name: 'a hand-started cycle’s agents change in its profiles, each step keeping its permissions',
-        run: () =>
-          change({ profiles }, { agents: { implement: faster, security: { backend: 'codex' } } }),
-        expected: {
-          kind: 'settings',
-          changes: {
-            profiles: {
-              ...profiles,
-              implement: { ...faster, permissionMode: 'edit-only' },
-              security: { backend: 'codex' },
-            },
-          },
-        },
-      },
-      {
-        name: 'a roadmap cycle’s agents change through its entry’s assignment, not its profiles',
-        run: () => change({ profiles }, { agents: { implement: faster } }, { owned: true }),
-        expected: { kind: 'settings', changes: {} },
-      },
-      {
-        name: 'changing agents ends a pending provider retry; changing minutes keeps it',
-        run: () => [
-          change(
-            { profiles, attempt: { providerRecovery: recovery } },
-            { agents: { review: faster } },
-          ),
-          change({ attempt: { providerRecovery: recovery } }, { maxRunMinutes: 240 }),
-        ],
-        expected: [
-          { kind: 'settings', changes: { attempt: { providerRecovery: undefined } } },
-          { kind: 'settings', changes: { policy: { maxRunMinutes: 240 } } },
-        ],
-      },
-    ];
-  })(),
+  // R-C17 part 4, decisions 3 to 6: a stopped cycle's settings change, its refusals (the writes
+  // are held exactly below).
+  ...[
+    {
+      name: 'a settings change on a stale version is refused',
+      run: () => settingsChange({ version: 2 }, { maxRunMinutes: 240 }),
+      expected: { kind: 'refuse', code: 'cycle-changed' },
+    },
+    {
+      name: 'an ended cycle’s settings do not change',
+      run: () => settingsChange({ status: 'stopped', stop: undefined }, { maxRunMinutes: 240 }),
+      expected: { kind: 'refuse', code: 'cycle-ended' },
+    },
+    {
+      name: 'a retired attempt’s settings do not change',
+      run: () => settingsChange({}, { maxRunMinutes: 240 }, { retired: true }),
+      expected: { kind: 'refuse', code: 'amendment-retired' },
+    },
+    {
+      name: 'a running cycle’s settings do not change',
+      run: () => settingsChange({ status: 'running', stop: undefined }, { maxRunMinutes: 240 }),
+      expected: { kind: 'refuse', code: 'settings-not-changeable' },
+    },
+    {
+      name: 'a finalization’s settings are its stages’',
+      run: () => settingsChange({ finalizationId: 'f-1' }, { maxRunMinutes: 240 }),
+      expected: { kind: 'refuse', code: 'settings-not-changeable' },
+    },
+    {
+      name: 'a live investigation’s stop takes its own commands first',
+      run: () => settingsChange({}, { maxRunMinutes: 240 }, { live: true }),
+      expected: { kind: 'refuse', code: 'settings-not-changeable' },
+    },
+    {
+      name: 'a change of nothing is refused: the minutes and an agent already in effect',
+      run: () =>
+        settingsChange(
+          { profiles: settingsProfiles },
+          { maxRunMinutes: 120, agents: { review: { backend: 'claude-code', model: 'r' } } },
+        ),
+      expected: { kind: 'refuse', code: 'settings-unchanged', status: 'invalid-request' },
+    },
+  ],
   {
     name: 'a crash stops a running cycle for the operator',
     run: () => decideRestart(cycleOf({ status: 'running', stop: undefined }), false),
@@ -850,4 +819,79 @@ describe('a resume at the round limit', () => {
         reviewTurnSucceeded: () => false,
       }),
     ).toBe(false));
+});
+
+describe('a stopped cycle’s settings change, what it writes (R-C17 part 4, decisions 3 to 6)', () => {
+  const faster = { backend: 'codex', model: 'gpt-fast', reasoningEffort: 'high' } as const;
+  it('writes the minutes into the cycle’s own policy, and nothing else', () =>
+    expect(settingsChange({}, { maxRunMinutes: 240 })).toEqual({
+      kind: 'settings',
+      agents: {},
+      maxRunMinutes: 240,
+      changes: { policy: { ...DEFAULT_COMPLETION_POLICY, maxRunMinutes: 240 } },
+    }));
+  it('writes a hand-started cycle’s changed agents into its profiles, each step keeping its permissions', () =>
+    expect(
+      settingsChange(
+        { profiles: settingsProfiles },
+        {
+          agents: {
+            implement: faster,
+            security: { backend: 'codex' },
+            // Already in effect: not a change.
+            review: { backend: 'claude-code', model: 'r' },
+          },
+        },
+      ),
+    ).toEqual({
+      kind: 'settings',
+      agents: { implement: faster, security: { backend: 'codex' } },
+      changes: {
+        profiles: {
+          ...settingsProfiles,
+          implement: { ...faster, permissionMode: 'edit-only' },
+          security: { backend: 'codex' },
+        },
+      },
+    }));
+  it('replaces a specialist the profiles already carry with a selection, never a permission (inc 3 review M-1)', () =>
+    expect(
+      settingsChange(
+        { profiles: { ...settingsProfiles, security: { backend: 'claude-code', model: 's' } } },
+        { agents: { security: faster } },
+      ),
+    ).toMatchObject({ changes: { profiles: { security: faster } } }));
+  it('drops a model or effort the new selection omits', () =>
+    expect(
+      settingsChange(
+        { profiles: settingsProfiles },
+        { agents: { implement: { backend: 'codex' } } },
+      ),
+    ).toMatchObject({
+      changes: { profiles: { implement: { backend: 'codex', permissionMode: 'edit-only' } } },
+    }));
+  it('leaves a roadmap cycle’s profiles to its entry’s assignment', () =>
+    expect(
+      settingsChange(
+        { profiles: settingsProfiles },
+        { agents: { implement: faster } },
+        { owned: true },
+      ),
+    ).toEqual({ kind: 'settings', agents: { implement: faster }, changes: {} }));
+  it('ends a pending provider retry when agents change, keeps it when only the minutes do', () => {
+    expect(
+      settingsChange(
+        { profiles: settingsProfiles, attempt: { providerRecovery: recovery } },
+        { agents: { review: faster } },
+      ),
+    ).toMatchObject({ changes: { attempt: { providerRecovery: undefined } } });
+    expect(
+      settingsChange({ attempt: { providerRecovery: recovery } }, { maxRunMinutes: 240 }),
+    ).toEqual({
+      kind: 'settings',
+      agents: {},
+      maxRunMinutes: 240,
+      changes: { policy: { ...DEFAULT_COMPLETION_POLICY, maxRunMinutes: 240 } },
+    });
+  });
 });

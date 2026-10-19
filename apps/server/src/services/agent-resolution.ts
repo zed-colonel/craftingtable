@@ -126,7 +126,10 @@ function candidate(
  * 6. the latest ADR-064 assignment, whose specialist inherits within the assignment;
  * 7. a service retry's recorded profile;
  * 8. the cycle's or entry's own profile for the purpose, then 9. a delegated resolution's
- *    profile (conflict only), then 10. the profile the purpose inherits from those profiles;
+ *    profile (conflict only), then 10. the profile the purpose inherits from those profiles.
+ *    For conflict with a delegated or automation resolver, the assignment's inherited slots come
+ *    after 9: only an assignment that names `conflict` itself displaces the resolver, its own
+ *    permissions included (R-C17 part 4 increment 3 review HIGH-1; ADR-064 amended 2026-10-18);
  * 11. the workspace's saved default for the purpose or the nearest it inherits from;
  * 12. a hand-off's continued run;
  * 13. the daemon's default.
@@ -177,16 +180,20 @@ function candidates(context: AgentContext): readonly Candidate[] {
         context.integrationResolution.permissionMode,
       ),
     );
-  if (context.assignment) {
+  // A delegated or automation resolver keeps its rank over an assignment's inherited slots.
+  const resolverFirst = purpose === 'conflict' && context.delegation !== undefined;
+  const fromAssignment = (slots: readonly AgentProfilePurpose[]) => {
+    if (!context.assignment) return;
     const { id, selections } = context.assignment;
-    for (const slot of chain) {
+    for (const slot of slots) {
       const selection = selections[slot];
       if (selection)
         list.push(
           candidate(selection, { layer: 'roadmap-assignment', slot, assignmentId: id }, step),
         );
     }
-  }
+  };
+  fromAssignment(resolverFirst ? chain.slice(0, 1) : chain);
   if (context.serviceRetry)
     list.push(
       candidate(
@@ -215,6 +222,7 @@ function candidates(context: AgentContext): readonly Candidate[] {
       ),
     );
   }
+  if (resolverFirst) fromAssignment(chain.slice(1));
   for (const slot of chain.slice(1)) fromProfiles(slot);
   if (context.workspace) {
     const { profiles: saved } = context.workspace;

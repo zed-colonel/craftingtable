@@ -335,6 +335,8 @@ export class CycleWriter {
       outcome: 'succeeded',
       resultingVersion: cycle.version,
       metadata: {
+        // A command's own record first, so the row's own fields always win (inc 3 review NIT).
+        ...extra,
         action,
         ...(action.startsWith('baseline-preparation') && cycle.baselinePreparation
           ? {
@@ -423,7 +425,6 @@ export class CycleWriter {
         ...(cycle.checkpoint
           ? { checkpoint: { ...cycle.checkpoint, paths: [...cycle.checkpoint.paths] } }
           : {}),
-        ...extra,
       },
     });
     this.appendCycleEvent(tx, cycle, cycle.updatedAt, context);

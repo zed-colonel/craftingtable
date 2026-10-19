@@ -1,9 +1,9 @@
 import { withinInstructionLimit } from '../../command-bounds.js';
 import {
   type AgentRun,
-  type AgentSelection,
   type AgentSelections,
   type CycleAction,
+  CYCLE_STEPS,
   type CycleStep,
   cycleAttention,
   guidanceAccepted,
@@ -72,6 +72,7 @@ export const COMMAND_REFUSALS = [
   'resolution-owned',
   'not-reviewable',
   'settings-not-changeable',
+  'settings-unchanged',
 ] as const;
 export type CommandRefusalCode = (typeof COMMAND_REFUSALS)[number];
 
@@ -178,7 +179,17 @@ export function decideSettingsChange(
   change: SettingsChange,
   investigation: { readonly live: boolean; readonly changeOpen: boolean },
   roadmapOwned: boolean,
-): CommandRefusal | { readonly kind: 'settings'; readonly changes: CycleFieldChanges } {
+  /** The cycle's agents now (`selectionSet` of its effective agents). */
+  current: AgentSelections,
+):
+  | CommandRefusal
+  | {
+      readonly kind: 'settings';
+      readonly changes: CycleFieldChanges;
+      /** The purposes whose agent changes, each as it will be; the others are as they are. */
+      readonly agents: Partial<AgentSelections>;
+      readonly maxRunMinutes?: number;
+    } {
   if (cycle.version !== change.expectedVersion)
     return refuse('cycle-changed', 'Cycle changed; refresh before issuing this command');
   if (['stopped', 'completed'].includes(cycle.status))
@@ -200,28 +211,47 @@ export function decideSettingsChange(
       'settings-not-changeable',
       'Only a paused or stopped work item cycle’s time limit and agents change, with no investigation open; a finalization’s are its stages’.',
     );
-  const agents = Object.entries(change.agents ?? {}).filter(
-    (entry): entry is [string, AgentSelection] => entry[1] !== undefined,
-  );
+  // Only what changes counts (increment 3 review M-2): an agent already in effect, or the
+  // minutes the cycle has, change nothing, and a change of nothing is refused.
+  const agents = Object.fromEntries(
+    Object.entries(change.agents ?? {}).flatMap(([purpose, selection]) => {
+      if (selection === undefined) return [];
+      const chosen = selectAgent(selection);
+      const now = current[purpose as keyof AgentSelections];
+      return now && JSON.stringify(selectAgent(now)) === JSON.stringify(chosen)
+        ? []
+        : [[purpose, chosen]];
+    }),
+  ) as Partial<AgentSelections>;
+  const minutes =
+    change.maxRunMinutes !== undefined && change.maxRunMinutes !== cycle.policy.maxRunMinutes
+      ? change.maxRunMinutes
+      : undefined;
+  const named = Object.entries(agents);
+  if (!named.length && minutes === undefined)
+    return refuse(
+      'settings-unchanged',
+      'Nothing changes: the time limit and the agents named are the cycle’s already.',
+      { status: 'invalid-request' },
+    );
   let profiles: Record<string, unknown> | undefined;
-  if (agents.length && !roadmapOwned) {
+  if (named.length && !roadmapOwned) {
     profiles = { ...cycle.profiles };
-    for (const [purpose, selection] of agents) {
-      const step = cycle.profiles[purpose as CycleStep];
-      // A step keeps the permissions it started with (ADR-064: the step owns them).
-      profiles[purpose] = step
-        ? { ...selectAgent(selection), permissionMode: step.permissionMode }
-        : selectAgent(selection);
-    }
+    // A step keeps the permissions it started with (ADR-064: the step owns them); a
+    // specialist is a selection (increment 3 review M-1).
+    for (const [purpose, selection] of named)
+      profiles[purpose] = (CYCLE_STEPS as readonly string[]).includes(purpose)
+        ? { ...selection, permissionMode: cycle.profiles[purpose as CycleStep].permissionMode }
+        : selection;
   }
   return {
     kind: 'settings',
+    agents,
+    ...(minutes === undefined ? {} : { maxRunMinutes: minutes }),
     changes: {
-      ...(change.maxRunMinutes === undefined
-        ? {}
-        : { policy: { ...cycle.policy, maxRunMinutes: change.maxRunMinutes } }),
+      ...(minutes === undefined ? {} : { policy: { ...cycle.policy, maxRunMinutes: minutes } }),
       ...(profiles ? { profiles: profiles as unknown as WorkCycle['profiles'] } : {}),
-      ...(agents.length && cycle.attempt?.providerRecovery
+      ...(named.length && cycle.attempt?.providerRecovery
         ? { attempt: { providerRecovery: undefined } }
         : {}),
     },

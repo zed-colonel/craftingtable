@@ -181,25 +181,34 @@ export class CycleControl {
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
     this.gates.requireNoInvestigation(cycle, false);
+    // Another command's transition writes the cycle once its Git work is done (inc 3 review L-5).
+    if (this.locks.isTransitioning(cycle.id))
+      throw new ExecutionRequestError(
+        'conflict',
+        'Another command is changing this cycle; change its settings once it ends.',
+      );
     const owner = cycleOwnership(this.storage, cycle);
+    const before = selectionSet(cycleAgents(this.storage, cycle));
     const decided = decideSettingsChange(
       cycle,
       { amendmentRetired: () => this.storage.amendments.retired(workspaceId, cycle.worktreeId) },
       change,
       { live: investigationLive(cycle), changeOpen: worktreeChangeOpen(cycle) },
       owner !== undefined,
+      before,
     );
     if (decided.kind === 'refuse') throw new ExecutionRequestError(decided.status, decided.message);
-    const before = selectionSet(cycleAgents(this.storage, cycle));
-    const named = Object.fromEntries(
-      Object.entries(change.agents ?? {}).filter(([, selection]) => selection !== undefined),
-    ) as AgentSelections;
+    const named = decided.agents as AgentSelections;
+    const purposes = Object.keys(named) as (keyof AgentSelections)[];
     const after = { ...before, ...named } as AgentSelections;
-    if (Object.keys(named).length) {
+    if (purposes.length) {
       // Checked as a start and an ADR-064 assignment check agents (design review M-5).
       this.settings.validateAgentSelections(named);
       this.settings.requireModelIds(Object.entries(named), Object.entries(before));
-      if (owner) {
+    }
+    // The roadmap's assignment and the cycle's write commit together (inc 3 review L-1).
+    return this.storage.transaction(() => {
+      if (purposes.length && owner) {
         if (!this.entryAgents)
           throw new ExecutionRequestError(
             'unavailable',
@@ -207,37 +216,27 @@ export class CycleControl {
           );
         this.entryAgents(context, owner, after);
       }
-    }
-    const changedAgents = Object.keys(named).filter(
-      (purpose) =>
-        JSON.stringify(before[purpose as keyof AgentSelections]) !==
-        JSON.stringify(after[purpose as keyof AgentSelections]),
-    );
-    return this.writer.change(cycle, decided.changes, 'change-settings', context, {
-      settings: {
-        ...(change.maxRunMinutes === undefined
-          ? {}
-          : {
-              maxRunMinutes: { from: cycle.policy.maxRunMinutes, to: change.maxRunMinutes },
-            }),
-        ...(changedAgents.length
-          ? {
-              agents: Object.fromEntries(
-                changedAgents.map((purpose) => [
-                  purpose,
-                  {
-                    from: { ...before[purpose as keyof AgentSelections] },
-                    to: { ...after[purpose as keyof AgentSelections] },
-                  },
-                ]),
-              ),
-              through: owner ? 'roadmap-assignment' : 'cycle-profiles',
-            }
-          : {}),
-        ...(cycle.attempt?.providerRecovery && Object.keys(named).length
-          ? { endedProviderRetry: true }
-          : {}),
-      },
+      return this.writer.change(cycle, decided.changes, 'change-settings', context, {
+        settings: {
+          ...(decided.maxRunMinutes === undefined
+            ? {}
+            : { maxRunMinutes: { from: cycle.policy.maxRunMinutes, to: decided.maxRunMinutes } }),
+          ...(purposes.length
+            ? {
+                agents: Object.fromEntries(
+                  purposes.map((purpose) => [
+                    purpose,
+                    { from: { ...before[purpose] }, to: { ...after[purpose] } },
+                  ]),
+                ),
+                through: owner ? 'roadmap-assignment' : 'cycle-profiles',
+              }
+            : {}),
+          ...(cycle.attempt?.providerRecovery && purposes.length
+            ? { endedProviderRetry: true }
+            : {}),
+        },
+      });
     });
   }
 

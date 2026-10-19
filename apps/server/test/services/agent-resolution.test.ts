@@ -202,6 +202,53 @@ describe('a delegated integration resolution’s profile (conflict only)', () =>
       resolveAgent({ purpose: 'conflict', profiles: named, delegation: delegated }).source,
     ).toEqual({ layer: 'saved-definition', slot: 'conflict' });
   });
+  // R-C17 part 4, increment 3 review HIGH-1 (operator decision 2026-10-18, ADR-064 amended): an
+  // assignment's inherited slots never displace a delegated or automation resolver; only an
+  // assignment that names `conflict` itself does.
+  it('beats an ADR-064 assignment’s inherited remediation, and loses to its own conflict', () => {
+    expect(
+      resolveAgent({
+        purpose: 'conflict',
+        profiles: definition,
+        delegation: delegated,
+        assignment,
+      }),
+    ).toEqual({
+      selection: codex('d-conflict'),
+      source: { layer: 'roadmap-delegation', delegationId: 'grant' },
+      permissionMode: 'edit-only',
+      inherited: {
+        selection: codex('a-remediate'),
+        source: { layer: 'roadmap-assignment', slot: 'remediate', assignmentId: 'assignment' },
+      },
+    });
+    expect(
+      resolveAgent({
+        purpose: 'conflict',
+        profiles: definition,
+        delegation: { profile: delegated.profile },
+        assignment,
+      }).source,
+    ).toEqual({ layer: 'roadmap-automation' });
+    const naming = {
+      ...assignment,
+      selections: { ...assignment.selections, conflict: codex('a-conflict') },
+    };
+    expect(
+      resolveAgent({
+        purpose: 'conflict',
+        profiles: definition,
+        delegation: delegated,
+        assignment: naming,
+      }).source,
+    ).toEqual({ layer: 'roadmap-assignment', slot: 'conflict', assignmentId: 'assignment' });
+    // Without a resolver, the assignment's inherited remediation is the conflict agent, as before.
+    expect(resolveAgent({ purpose: 'conflict', profiles: definition, assignment }).source).toEqual({
+      layer: 'roadmap-assignment',
+      slot: 'remediate',
+      assignmentId: 'assignment',
+    });
+  });
   it('is ignored for any other purpose, a specialist that inherits included', () => {
     expect(
       resolveAgent({ purpose: 'remediate', profiles: definition, delegation: delegated }).source,

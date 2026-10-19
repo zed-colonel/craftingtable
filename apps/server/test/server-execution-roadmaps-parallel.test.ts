@@ -433,7 +433,6 @@ it('parallel scheduling cannot release successors from a manual completion of it
     stop: { code: 'item-completed-unmerged' },
   });
   expect(state.context.services.workCycleService.present(stopped).projection.actions).toEqual([
-    'change-settings',
     'stop',
   ]);
   expect(storedRoadmap(state).attempts).toHaveLength(1);

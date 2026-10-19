@@ -502,6 +502,8 @@ describe('changing a stopped cycle’s settings (R-C17 part 4, decision 3)', () 
       cycle('needs-attention', 'step-time-limit'),
       { amendmentRetired: true },
     ],
+    // No step runs again there: Stop is the way on (increment 3 review NIT).
+    ['an item completed but unmerged', cycle('needs-attention', 'item-completed-unmerged'), {}],
   ])('does not hold for %s', (_label, c, facts) =>
     expect(settingsChangeable(c, { ...none, ...facts })).toBe(false),
   );

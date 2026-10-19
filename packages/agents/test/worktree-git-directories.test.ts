@@ -11,7 +11,11 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { resolveGitDirectories, worktreeGitDirectories } from '../src/local-check.js';
+import {
+  repositoryEnablesWorktreeConfig,
+  resolveGitDirectories,
+  worktreeGitDirectories,
+} from '../src/local-check.js';
 import { hostGit } from './host-tools-test-support.js';
 
 const roots: string[] = [];
@@ -108,4 +112,34 @@ it('never resolves through a `commondir` an agent may have planted or rewritten 
     gitDirectory: join(plain.common, 'worktrees', 'worktree'),
     gitCommonDirectory: plain.common,
   });
+});
+
+it('reads whether a repository enables per-worktree configuration without blocking (R-B5)', async () => {
+  const f = fixture();
+  const common = join(f.main, '.git');
+  const set = (value: string | undefined) =>
+    expect(
+      spawnSync(
+        hostGit(),
+        value === undefined
+          ? ['config', '--unset', 'extensions.worktreeConfig']
+          : ['config', 'extensions.worktreeConfig', value],
+        { cwd: f.main, encoding: 'utf8' },
+      ).status,
+    ).toBeLessThanOrEqual(5);
+  // Unset, false: not enabled; true: enabled; an unreadable configuration counts as enabled.
+  expect(await repositoryEnablesWorktreeConfig(hostGit(), common)).toBe(false);
+  set('false');
+  expect(await repositoryEnablesWorktreeConfig(hostGit(), common)).toBe(false);
+  set('true');
+  // The event loop turns while the probe runs: it is no `spawnSync`.
+  let turned = false;
+  const probe = repositoryEnablesWorktreeConfig(hostGit(), common);
+  setImmediate(() => {
+    turned = true;
+  });
+  expect(await probe).toBe(true);
+  expect(turned).toBe(true);
+  writeFileSync(join(common, 'config'), '[broken');
+  expect(await repositoryEnablesWorktreeConfig(hostGit(), common)).toBe(true);
 });

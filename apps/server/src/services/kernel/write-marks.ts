@@ -24,15 +24,18 @@ const WAKING_RUN_EVENTS: ReadonlySet<string> = new Set([
  * merge's reservation, a phase reservation's release, a test's direct write) is seen at once.
  *
  * The storage reports `written` only for record kinds its guard checks, and `ended` for every
- * outermost transaction with how many rows it changed: a committed transaction that reported no
- * guarded write but changed rows wrote only tables the guard does not see (phase reservations,
- * repositories, sessions), and counts as waking; one that changed nothing wakes nothing
+ * outermost transaction with how many rows it changed: a committed transaction that changed more
+ * rows than it reported guarded writes also wrote tables the guard does not see (phase
+ * reservations, repositories, sessions), and counts as waking (a trigger's extra rows only wake it
+ * once more than needed); one that changed nothing wakes nothing
  * (increment 3 review MEDIUM-1: delivery's and the scheduler's empty transactions). A guarded
  * write outside any transaction has no `ended`: it wakes once the task that made it ends, apart
  * from any transaction's flags (LOW-1).
  */
 export function writeMarks(wake: () => void, inTransaction: () => boolean): WriteObserver {
-  let wrote = false;
+  /** Guarded writes this transaction reported: each changes a row, so more rows changed than
+   * these means rows of tables the guard does not see changed too. */
+  let wrote = 0;
   let waking = false;
   let outside = false;
   const waken = (record: { readonly kind?: unknown }, kind: string): boolean => {
@@ -52,15 +55,15 @@ export function writeMarks(wake: () => void, inTransaction: () => boolean): Writ
         });
         return;
       }
-      wrote = true;
+      wrote += 1;
       if (wakes) waking = true;
     },
     beforeCommit() {
       // Nothing: the commit may still fail.
     },
     ended(committed, changed) {
-      const wakes = committed && (waking || (!wrote && changed > 0));
-      wrote = false;
+      const wakes = committed && (waking || changed > wrote);
+      wrote = 0;
       waking = false;
       if (wakes) wake();
     },

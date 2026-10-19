@@ -164,6 +164,7 @@ import {
 } from './runtime-evidence-policy.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
+import { FileWrites } from './file-writes.js';
 /**
  * The Git directory a pinned upstream is fetched from and hidden from check units: the
  * repository's own `.git` when it is a directory, never where a `commondir` file in it points,
@@ -2575,12 +2576,14 @@ export class RuntimeEvidenceService {
         'dependencies',
         `source-${consumer.upstreams.indexOf(alias)}`,
       );
+      // Written off the event loop, a few at once: a tree is thousands of files (R-B5).
+      const writes = new FileWrites();
       for (const file of exported.value) {
         const path = join(root, file.path);
-        mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-        writeFileSync(path, file.content, { mode: file.executable ? 0o500 : 0o400 });
+        await writes.write(path, file.content, { mode: file.executable ? 0o500 : 0o400 });
         files.push({ path, digest: hash(file.content) });
       }
+      await writes.settled();
       const sourcePackages = pin.packages ?? packages(exported.value);
       supplied.push(...sourcePackages.map((p) => ({ name: p.name, path: join(root, p.path) })));
       sources.push({

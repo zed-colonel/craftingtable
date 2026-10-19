@@ -76,7 +76,7 @@ it('keeps the held and terminating texts', async () => {
 it('names, at each site, the operation that holds the worktree there', () => {
   const services = join(import.meta.dirname, '../src/services');
   const expected: Record<string, readonly (readonly [string, WorktreeOperation])[]> = {
-    'run/launch.ts': [['launch', 'run-launch']],
+    'run/launch.ts': [['launchWithin', 'run-launch']],
     'execution-service.ts': [
       ['recordScopeReceipt', 'scope-receipt'],
       ['removeWorktree', 'removal'],

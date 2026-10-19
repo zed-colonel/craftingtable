@@ -478,10 +478,9 @@ export class RunLauncher {
             ? truncateUtf8Bytes(lastTurn.payload.resultText, PARENT_MESSAGE_LIMIT_BYTES)
             : parentRun.outcomeSummary;
       }
-      const artifacts = tx.planning.artifacts
-        .listForVersion(workspaceId, planVersionId)
-        .map((artifact) => tx.planning.artifacts.findWithContent(workspaceId, artifact.id))
-        .filter((artifact) => artifact !== undefined);
+      // Their metadata: each document's bytes are read as it is written into the run, off this
+      // transaction (R-B5 increment 6; design review M-10).
+      const artifacts = tx.planning.artifacts.listForVersion(workspaceId, planVersionId);
       return {
         planVersionId,
         worktree,

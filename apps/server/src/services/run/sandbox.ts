@@ -29,10 +29,10 @@ export class RunSandbox {
    * checkout (R-G14), or nothing when they cannot be resolved or do not agree: the run then
    * cannot commit from a sandbox, and the daemon says why in its log.
    */
-  worktreeGitDirectories(
+  async worktreeGitDirectories(
     workspaceId: WorkspaceId,
     worktree: Pick<Worktree, 'repositoryId' | 'path'>,
-  ): Pick<AgentLaunchRequest, 'gitDirectories'> {
+  ): Promise<Pick<AgentLaunchRequest, 'gitDirectories'>> {
     const repository = this.storage.execution.sourceRepositories.find(
       workspaceId,
       worktree.repositoryId,
@@ -56,7 +56,7 @@ export class RunSandbox {
         ...resolved,
         worktreeConfig:
           gitExecutable === undefined ||
-          repositoryEnablesWorktreeConfig(gitExecutable, resolved.gitCommonDirectory),
+          (await repositoryEnablesWorktreeConfig(gitExecutable, resolved.gitCommonDirectory)),
       },
     };
   }

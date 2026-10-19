@@ -68,7 +68,7 @@ import { RefWatch } from './services/ref-watch.js';
 import { RepositoryChecksService } from './services/repository-checks-service.js';
 import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import { StorageService } from './services/storage-service.js';
-import { daemonGitTrust } from './services/git-trust.js';
+import { daemonGitTrust, trustByGeneration, trustWrites } from './services/git-trust.js';
 import { WorkCycleService } from './services/work-cycle-service.js';
 import { WorkItemService } from './services/work-item-service.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
@@ -225,7 +225,11 @@ export async function createServices(
   // Every daemon Git command runs against Git directories named explicitly: the registered
   // repositories' own, and the worktree entries in them that name their checkout back. A
   // managed worktree whose `.git` says otherwise is refused (R-G14 review MEDIUM-1).
-  const gitTrust = (): GitTrust => daemonGitTrust(storage, config.execution, trustStorage);
+  // Computed again only after a write it reads (a repository, a worktree, the worktree root):
+  // not at every command (R-B5, decision 13).
+  const trust = trustByGeneration(() => daemonGitTrust(storage, config.execution, trustStorage));
+  storage.observeWrites(trustWrites(trust.bump, () => storage.inTransaction));
+  const gitTrust = (): GitTrust => trust.read();
   const unwatchedGit: GitOperations | undefined =
     overrides.gitOperations === undefined
       ? gitExecutable === undefined
@@ -289,6 +293,7 @@ export async function createServices(
   );
   storageService.attachAttention(attention);
   trustStorage = storageService;
+  trust.bump();
   const runtimeEvidenceService = new RuntimeEvidenceService(
     storage,
     workspaceService,

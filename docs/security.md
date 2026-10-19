@@ -308,6 +308,13 @@ Every daemon Git command runs through `packages/git/src/runner.ts` with:
   Commands with no repository yet (`git init` of a scratch store, `git version`) are not pinned;
 - an index file only when the daemon makes one for a single command (`GIT_INDEX_FILE`).
 
+Which Git directories the daemon trusts (the registered repositories' own and their managed
+worktrees' roots) is read again only after a write that can change it: a repository registered or
+retired, a worktree written, the worktree root moved (R-B5, decision 13). A primary checkout whose
+Git directory is moved outside the daemon is therefore seen at the next such write, not at the next
+command; an accident of that kind is the operator's own, and the trust it leaves only refuses
+more (ADR-075).
+
 A repository's own configuration still applies, including its identity, merge drivers, signing
 program and filters; sandboxed agents cannot write it. The daemon deletes only branches whose
 commits are kept: merged ones (an item's branch after its merge, an integration branch after

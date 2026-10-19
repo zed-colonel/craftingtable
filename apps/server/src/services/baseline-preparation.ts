@@ -20,6 +20,7 @@ import { prepareHistoricalCargoLauncher } from '@craftingtable/agents';
 import type { ExecutionConfig } from '../config.js';
 import { resolveExecutable } from './executables.js';
 import { ExecutionRequestError } from './errors.js';
+import { FileWrites } from './file-writes.js';
 
 const hash = (s: string | Uint8Array) => createHash('sha256').update(s).digest('hex');
 function conflict(s: string): never {
@@ -327,12 +328,23 @@ export class BaselinePreparationService {
       // Re-export exact Git objects rather than trusting mutable files left by earlier agents.
       const exported = await this.requireGit().exportCommit(repo.rootPath, source.commitSha);
       if (!exported.ok) conflict(exported.failure.message);
+      // Written off the event loop, a few at once (R-B5); each directory still made private
+      // and checked once, before its first file.
+      const writes = new FileWrites();
+      const made = new Set<string>();
       for (const file of exported.value) {
         const path = join(root, source.directoryName, file.path);
-        privateDirectory(dirname(path));
-        writeFileSync(path, file.content, { mode: file.executable ? 0o700 : 0o600, flag: 'wx' });
+        if (!made.has(dirname(path))) {
+          privateDirectory(dirname(path));
+          made.add(dirname(path));
+        }
+        await writes.write(path, file.content, {
+          mode: file.executable ? 0o700 : 0o600,
+          flag: 'wx',
+        });
         files.push({ path, digest: hash(file.content) });
       }
+      await writes.settled();
     }
     const consumer = p.sources.find((s) => s.alias === p.consumerAlias)!;
     const directory = join(runDirectory, 'historical-evidence');

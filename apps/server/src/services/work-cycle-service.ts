@@ -296,16 +296,12 @@ export class WorkCycleService {
    * idle (`kernel-busy`), so its end marks the cycle (R-B5). A round's own refresh marks nothing:
    * that would wake the round that ran it, again and again (increment 3 review HIGH-1).
    */
-  async refreshIntegration(
-    cycle: WorkCycle,
-    parent?: AgentRun,
-    launching = false,
-  ): Promise<boolean> {
-    try {
-      return await this.integration.refreshIntegration(cycle, parent, launching);
-    } finally {
-      this.kernel.mark('release', [cycle.id]);
-    }
+  refreshIntegration(cycle: WorkCycle, parent?: AgentRun, launching = false): Promise<boolean> {
+    const answer = this.integration.refreshIntegration(cycle, parent, launching);
+    void Promise.resolve(answer)
+      .catch(() => undefined)
+      .then(() => this.kernel.mark('release', [cycle.id]));
+    return answer;
   }
   resolveIntegration(
     context: CommandContext,

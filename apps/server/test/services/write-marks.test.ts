@@ -79,6 +79,15 @@ it('wakes for a committed transaction that changed rows the guard does not repor
   expect(wakes()).toBe(1);
 });
 
+it('wakes for rows the guard does not report beside quiet guarded writes', async () => {
+  // A phase reservation's release beside its audit row: two rows changed, one reported.
+  const { marks, wakes } = observer();
+  marks.written('audit-event' as Kind, {} as never);
+  marks.ended(true, 2);
+  await settled();
+  expect(wakes()).toBe(1);
+});
+
 it('does not wake for a committed transaction that changed nothing (review MEDIUM-1)', async () => {
   const { marks, wakes } = observer();
   marks.ended(true, 0);

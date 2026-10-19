@@ -171,6 +171,7 @@ it("marks a cycle when the scheduler's own integration refresh of it ends", asyn
   await waitUntil(() => runLive(f, cycle), 'the design run is live');
   const before = kernelOf(f).causes.get('release') ?? 0;
   await f.services.workCycleService.refreshIntegration(storedCycle(f, cycle.id));
+  await new Promise((resolve) => setImmediate(resolve));
   expect(kernelOf(f).causes.get('release')).toBe(before + 1);
 });
 

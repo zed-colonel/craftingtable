@@ -37,6 +37,7 @@ import { type StoppedWorktree, writeRunHandoff } from '../../run-handoff.js';
 import { latestReviewReport, runCutOff } from '../../run-lineage.js';
 import { scopeRepairPacket } from '../../scope-repair.js';
 import type { InvestigationLaunch, StartRunInput } from '../shared.js';
+import { FileWrites } from '../../file-writes.js';
 
 /** What the launch read in its snapshot transaction, for the run's documents and brief. */
 export interface LaunchSnapshot {
@@ -55,7 +56,8 @@ export interface LaunchSnapshot {
   readonly predecessors: readonly import('@craftingtable/storage').WorkItemDependencySummary[];
   readonly parentRun: AgentRun | undefined;
   readonly parentFinalMessage: string | undefined;
-  readonly artifacts: readonly import('@craftingtable/storage').StoredPlanArtifact[];
+  /** The plan's documents, metadata only: `materializeRunFiles` reads each one's bytes. */
+  readonly artifacts: readonly import('@craftingtable/domain').PlanArtifact[];
 }
 
 /** The launch a run's documents and brief are for. */
@@ -116,20 +118,27 @@ export async function materializeRunFiles(
   } = launch;
   const planDirectory = join(runDirectory, 'plan');
   mkdirSync(planDirectory, { recursive: true, mode: 0o700 });
-  const planDocuments = prepared.artifacts.map((artifact) => {
+  // The plan's documents and the run's records off the event loop, a few at once (R-B5): a plan
+  // can be megabytes. Every write has landed before the documents are returned.
+  const writes = new FileWrites();
+  const planDocuments: BriefPlanDocument[] = [];
+  for (const artifact of prepared.artifacts) {
+    const stored = storage.planning.artifacts.findWithContent(workspaceId, artifact.id);
+    if (stored === undefined) continue;
     const path = join(planDirectory, artifact.logicalFilename);
-    writeFileSync(path, artifact.content, { mode: 0o600 });
-    return { filename: artifact.logicalFilename, role: artifact.role, path };
-  });
+    await writes.write(path, stored.content, { mode: 0o600 });
+    planDocuments.push({ filename: artifact.logicalFilename, role: artifact.role, path });
+  }
   // CraftingTable's own files for the run, each named in the brief with what it holds, and
   // the directories it supplies, each listed once (AGT-50, AGT-58).
   const records: BriefRecord[] = [];
   const directories: BriefDirectory[] = [];
   for (const record of input.records ?? []) {
     const path = join(planDirectory, record.filename);
-    writeFileSync(path, record.content, { mode: 0o600 });
+    await writes.write(path, record.content, { mode: 0o600 });
     records.push({ path, about: record.about });
   }
+  await writes.settled();
   if (preparation) {
     const directory = join(runDirectory, 'decision-preparation');
     mkdirSync(directory, { recursive: true, mode: 0o700 });

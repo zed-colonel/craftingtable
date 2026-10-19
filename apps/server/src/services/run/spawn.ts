@@ -223,7 +223,7 @@ export class RunSpawner {
         cwd: prepared.worktree.path,
         // The worktree's Git directories, so a sandboxed run can stage and commit (R-G14,
         // operator decision 2026-10-08); only when they are the repository's own.
-        ...this.sandbox.worktreeGitDirectories(workspaceId, prepared.worktree),
+        ...(await this.sandbox.worktreeGitDirectories(workspaceId, prepared.worktree)),
         temporaryDirectory,
         processTemporaryDirectory,
         ...(buildCacheDirectory ? { buildCacheDirectory } : {}),

@@ -35,3 +35,50 @@ export function daemonGitTrust(
     worktreeRoots: [...new Set(worktreeRoots)],
   };
 }
+
+/**
+ * When the daemon's Git trust must be read again (R-B5, decision 13): what `daemonGitTrust` reads
+ * from the database changes only with a write of a worktree or of the storage settings (its
+ * worktree root), or of a repository, which the record guard does not report: a committed
+ * transaction that changed more rows than it reported guarded writes counts too. `bump` is called for
+ * each, and the trust is computed again at the next command, not at every command.
+ */
+export function trustWrites(
+  bump: () => void,
+  inTransaction: () => boolean,
+): import('@craftingtable/storage').WriteObserver {
+  let wrote = 0;
+  return {
+    written(kind) {
+      if (kind === 'worktree' || kind === 'storage-settings') bump();
+      if (inTransaction()) wrote += 1;
+    },
+    beforeCommit() {
+      // Nothing: a bump already made errs only towards reading the trust again.
+    },
+    ended(committed, changed) {
+      // More rows changed than guarded writes reported: a table the guard does not see, such as
+      // a repository's registration beside its audit row.
+      if (committed && changed > wrote) bump();
+      wrote = 0;
+    },
+  };
+}
+
+/** The trust, computed once per generation (decision 13). */
+export function trustByGeneration(compute: () => GitTrust): {
+  readonly read: () => GitTrust;
+  readonly bump: () => void;
+} {
+  let generation = 0;
+  let held: { readonly generation: number; readonly value: GitTrust } | undefined;
+  return {
+    read: () => {
+      if (held?.generation !== generation) held = { generation, value: compute() };
+      return held.value;
+    },
+    bump: () => {
+      generation += 1;
+    },
+  };
+}

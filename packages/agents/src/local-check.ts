@@ -306,23 +306,30 @@ export function worktreeGitDirectories(
 export function repositoryEnablesWorktreeConfig(
   gitExecutable: string,
   gitCommonDirectory: string,
-): boolean {
-  const read = spawnSync(
-    gitExecutable,
-    [
-      'config',
-      '--file',
-      join(gitCommonDirectory, 'config'),
-      '--no-includes',
-      '--type=bool',
-      '--get',
-      'extensions.worktreeConfig',
-    ],
-    { encoding: 'utf8', timeout: 10000, maxBuffer: 65536, env: daemonGitEnvironment() },
-  );
-  // Exit 1: the key is not set.
-  if (read.status === 1 && !read.stdout?.trim()) return false;
-  return read.status !== 0 || read.stdout?.trim() !== 'false';
+): Promise<boolean> {
+  // Asynchronous, so a slow Git never holds the daemon's event loop during a launch (R-B5).
+  return new Promise((resolve) => {
+    execFile(
+      gitExecutable,
+      [
+        'config',
+        '--file',
+        join(gitCommonDirectory, 'config'),
+        '--no-includes',
+        '--type=bool',
+        '--get',
+        'extensions.worktreeConfig',
+      ],
+      { encoding: 'utf8', timeout: 10000, maxBuffer: 65536, env: daemonGitEnvironment() },
+      (error, stdout) => {
+        // A run that ended by itself has its exit code; a killed one (the timeout) has none.
+        const status = error === null ? 0 : typeof error.code === 'number' ? error.code : null;
+        // Exit 1: the key is not set.
+        if (status === 1 && !stdout?.trim()) resolve(false);
+        else resolve(status !== 0 || stdout?.trim() !== 'false');
+      },
+    );
+  });
 }
 
 /** The same observation without blocking the daemon's event loop, on the pinned git directory. */

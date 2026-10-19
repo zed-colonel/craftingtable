@@ -128,6 +128,7 @@ export class CycleInvestigations {
     );
     // Settling waits for this launch; a record with neither a run nor a launch is over (M3).
     this.locks.launchingInvestigations.add(record.id);
+    this.locks.holdForCommand(id);
     let updated: WorkCycle;
     try {
       updated = this.writer.change(
@@ -138,7 +139,7 @@ export class CycleInvestigations {
       );
     } catch (error) {
       this.locks.launchingInvestigations.delete(record.id);
-      this.locks.released(id);
+      this.locks.releaseCommand(id);
       throw error;
     }
     const check = () => {
@@ -185,7 +186,7 @@ export class CycleInvestigations {
       throw error;
     } finally {
       this.locks.launchingInvestigations.delete(record.id);
-      this.locks.released(id);
+      this.locks.releaseCommand(id);
     }
     return this.storage.execution.cycles.find(workspaceId, id) ?? updated;
   }

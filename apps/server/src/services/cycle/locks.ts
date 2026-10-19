@@ -26,6 +26,12 @@ export class CycleLocks {
   /** Cycles and commits already sent back for their adopted checks (LIVE-24). */
   readonly declaredReviews = new Set<string>();
   private readonly transitioning = new Set<string>();
+  /**
+   * The cycles a command holds now (R-B5, decision 15): a recovery's preparation or an
+   * investigation's launch. The controller's rounds leave such a cycle alone until the command
+   * releases it, which marks it; a second command is refused as before.
+   */
+  private readonly commandHolds = new Map<string, number>();
   /** The controller worker's stop: once given, every module stops at its next check. */
   private readonly abort = new AbortController();
 
@@ -38,6 +44,21 @@ export class CycleLocks {
   /** A hold on the cycle ended: its integration refresh, transition or investigation (R-B5). */
   released(id: string): void {
     this.onRelease(id);
+  }
+
+  /** Whether a command holds the cycle, so the controller leaves it (decision 15). */
+  heldByCommand(id: string): boolean {
+    return this.commandHolds.has(id);
+  }
+  /** A command takes the cycle; `releaseCommand` gives it back and marks it. */
+  holdForCommand(id: string): void {
+    this.commandHolds.set(id, (this.commandHolds.get(id) ?? 0) + 1);
+  }
+  releaseCommand(id: string): void {
+    const left = (this.commandHolds.get(id) ?? 1) - 1;
+    if (left > 0) this.commandHolds.set(id, left);
+    else this.commandHolds.delete(id);
+    this.released(id);
   }
 
   /** Stops the controller (`WorkCycleService.shutdown`). */
@@ -64,6 +85,7 @@ export class CycleLocks {
     if (this.transitioning.has(id))
       throw new ExecutionRequestError('conflict', 'Recovery is already being prepared.');
     this.transitioning.add(id);
+    this.holdForCommand(id);
     this.notifier.notify('activity');
     try {
       return await operation();
@@ -73,7 +95,7 @@ export class CycleLocks {
       // failure must not wake its own retry loop without a durable state change.
       this.notifier.notify('activity');
       // The controller looks at the cycle once more, as the next loop pass did (R-B5).
-      this.released(id);
+      this.releaseCommand(id);
     }
   }
 }

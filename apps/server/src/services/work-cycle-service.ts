@@ -788,7 +788,10 @@ export class WorkCycleService {
     // An ended cycle needs no look of its own any more (R-B5).
     if (marked === 'all') this.kernel.keepDue(new Set(active.map((cycle) => cycle.id)));
     for (const cycle of prioritizeRoadmapCycles(
-      marked === 'all' ? active : active.filter((cycle) => marked.has(cycle.id)),
+      // A cycle a command holds is left to it (decision 15); its release marks it.
+      (marked === 'all' ? active : active.filter((cycle) => marked.has(cycle.id))).filter(
+        (cycle) => !this.locks.heldByCommand(cycle.id),
+      ),
       (cycle) => cycleOwnership(snapshot, cycle),
     )) {
       if (this.locks.stopping()) break;

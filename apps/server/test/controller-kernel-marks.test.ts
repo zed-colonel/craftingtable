@@ -103,3 +103,24 @@ it("marks a cycle when a command's transition on it ends", async () => {
   await locks.duringTransition(cycle.id, async () => undefined);
   expect(kernelOf(f).causes.get('release')).toBe(before + 1);
 });
+
+it('takes a cycle once the investigation a command launches has started (its hold released)', async () => {
+  const { f } = await freeRunning();
+  const cycle = await startCycle(f, f.worktreeId);
+  await waitUntil(() => runLive(f, cycle), 'the design run is live');
+  const locks = (
+    f.services.workCycleService as unknown as {
+      locks: {
+        holdForCommand(id: string): void;
+        releaseCommand(id: string): void;
+        heldByCommand(id: string): boolean;
+      };
+    }
+  ).locks;
+  const before = kernelOf(f).causes.get('release') ?? 0;
+  locks.holdForCommand(cycle.id);
+  expect(locks.heldByCommand(cycle.id)).toBe(true);
+  locks.releaseCommand(cycle.id);
+  expect(locks.heldByCommand(cycle.id)).toBe(false);
+  expect(kernelOf(f).causes.get('release')).toBe(before + 1);
+});

@@ -259,7 +259,8 @@ it('applies a run outcome during a drain and launches nothing (a drain refuses o
   expect(f.backend.sessions).toHaveLength(2);
 });
 
-it("takes a cycle while a command prepares its transition (flips with the kernel's holds)", async () => {
+it('leaves a cycle to a command preparing its transition, and takes it once released (decision 15)', async () => {
+  // Flipped in increment 4: before it, the pass launched the reserved step beside the command.
   const f = await createCycleFixture();
   const cycle = await startCycle(f, f.worktreeId);
   const locks = (
@@ -275,12 +276,18 @@ it("takes a cycle while a command prepares its transition (flips with the kernel
         release = resolve;
       }),
   );
+  const seen: string[] = [];
+  f.services.workCycleService.observePass({ cycle: (c) => seen.push(c.id) });
   try {
     await f.services.workCycleService.tick();
-    // The pass launched the reserved step beside the command's transition.
-    expect(f.backend.sessions).toHaveLength(1);
+    expect(seen).toEqual([]);
+    expect(f.backend.sessions).toHaveLength(0);
   } finally {
     release();
     await transition;
   }
+  await f.services.workCycleService.tick();
+  expect(seen).toEqual([cycle.id]);
+  expect(f.backend.sessions).toHaveLength(1);
+  f.services.workCycleService.observePass(undefined);
 });

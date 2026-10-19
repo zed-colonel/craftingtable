@@ -611,7 +611,12 @@ describe('question stop investigations (R-C16)', () => {
     // Before its deadline it waits on the run.
     await stepDaemons(3);
     expect(currentCycle(state, cycle).investigation?.result).toBeUndefined();
-    now = new Date(now.getTime() + 33 * 60_000);
+    // Until two minutes past it (R-B5 increment 1 review M-3: the grace pinned from below too).
+    const deadline = Date.parse(currentCycle(state, cycle).investigation?.deadlineAt ?? '');
+    now = new Date(deadline + 2 * 60_000 - 1000);
+    await stepDaemons(3);
+    expect(currentCycle(state, cycle).investigation?.result).toBeUndefined();
+    now = new Date(deadline + 2 * 60_000 + 1000);
     await waitFor(() => !!currentCycle(state, cycle).investigation?.result, 'closed');
     expect(currentCycle(state, cycle).investigation?.result).toMatchObject({
       outcome: 'cancelled',

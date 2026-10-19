@@ -111,10 +111,20 @@ it("holds another cycle's deadline while one launch waits in its Git preflight (
   try {
     const a = await startCycle(f, f.worktreeId);
     await waitUntil(() => entered, "A's launch is held in its Git preflight");
+    // The held call is A's preflight: its cancel is registered for exactly that window.
+    const launches = (
+      f.services.agentRunService as unknown as {
+        state: { pendingCycleLaunches: ReadonlyMap<string, unknown> };
+      }
+    ).state.pendingCycleLaunches;
+    expect(launches.has(storedCycle(f, a.id).currentRunId)).toBe(true);
+    const opened = f.services.controllerPasses.current;
     deadlinePassed(f, b);
-    // Three loop intervals: the pass awaits A's launch, so B's passed deadline is not enforced.
+    // Three loop intervals: the pass awaits A's launch, so B's passed deadline is not enforced,
+    // and the cycle controller completes no pass begun since.
     await new Promise((resolve) => setTimeout(resolve, 3000));
     expect(storedCycle(f, b.id).status).toBe('running');
+    expect(f.services.controllerPasses.quietSince(opened)).toBe(false);
     expect(storedRun(f, storedCycle(f, a.id).currentRunId)).toBeUndefined();
   } finally {
     release();
@@ -158,7 +168,9 @@ it.each(['stop', 'pause'] as const)(
       held = undefined;
       release();
     }
-    // The launch goes on and starts its agent.
+    // The launch goes on and starts its agent. (Held here after the run's record; the window
+    // before it, the evidence and the documents, has the same gap: no cancel is registered from
+    // the preflight's end to the session's start, `run/launch.ts:531` to `run/spawn.ts:460`.)
     await waitUntil(() => f.backend.sessions.length === 1, 'the agent started');
     const runId = storedCycle(f, cycle.id).currentRunId;
     if (action === 'stop') {
@@ -187,6 +199,31 @@ it('takes each active cycle once per tick: a write during the pass waits for the
   f.services.workCycleService.observePass(undefined);
 });
 
+it('takes the active cycles in their order, one after another, and passes again after a write', async () => {
+  const f = await createCycleFixture({ independent: true });
+  const other = await secondWorktree(f);
+  const first = await startCycle(f, f.worktreeId);
+  const second = await startCycle({ ...f, workItemId: item2 }, other);
+  const seen: string[] = [];
+  f.services.workCycleService.observePass({ cycle: (c) => seen.push(c.id) });
+  await f.services.workCycleService.tick();
+  // Neither roadmap-owned: the stored order, each once (`prioritizeRoadmapCycles` reorders only a
+  // running parallel roadmap's own, `cycle-priority.test.ts`).
+  expect(seen).toEqual([first.id, second.id]);
+  f.services.workCycleService.observePass(undefined);
+});
+
+it('passes again at once after a pass that wrote (the free-running loop)', async () => {
+  const f = await createCycleFixture({ workers: true });
+  const seen: string[] = [];
+  f.services.workCycleService.observePass({ cycle: (c) => seen.push(c.id) });
+  const cycle = await startCycle(f, f.worktreeId);
+  // The start wakes a pass, which launches the step (a write), and that wakes the next.
+  await waitUntil(() => seen.filter((id) => id === cycle.id).length >= 2, 'a second pass');
+  expect(runLive(f, cycle)).toBe(true);
+  f.services.workCycleService.observePass(undefined);
+});
+
 it('applies a run outcome during a drain and launches nothing (a drain refuses only launches)', async () => {
   const f = await createCycleFixture();
   const cycle = await startCycle(f, f.worktreeId);
@@ -195,15 +232,22 @@ it('applies a run outcome during a drain and launches nothing (a drain refuses o
   f.services.agentRunService.beginDrain();
   try {
     f.backend.latest.release(designDone);
-    await f.services.agentRunService.quiesce();
-    await f.services.workCycleService.tick();
-    await f.services.agentRunService.quiesce();
-    await f.services.workCycleService.tick();
+    // The turn's end, then its outcome: the implement step reserved.
+    for (let step = 0; step < 2; step++) {
+      await f.services.agentRunService.quiesce();
+      await f.services.workCycleService.tick();
+    }
     expect(storedCycle(f, cycle.id)).toMatchObject({ status: 'running', step: 'implement' });
+    // The reserved step is not launched while the drain lasts.
+    await f.services.agentRunService.quiesce();
+    await f.services.workCycleService.tick();
     expect(f.backend.sessions).toHaveLength(1);
   } finally {
     f.services.agentRunService.cancelDrain();
   }
+  // Once it is lifted, the next pass launches it.
+  await f.services.workCycleService.tick();
+  expect(f.backend.sessions).toHaveLength(2);
 });
 
 it("takes a cycle while a command prepares its transition (flips with the kernel's holds)", async () => {

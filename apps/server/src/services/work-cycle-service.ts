@@ -729,7 +729,8 @@ export class WorkCycleService {
         !this.kernel.pending() &&
         !this.rounding &&
         this.passing === undefined &&
-        this.job === undefined,
+        this.job === undefined &&
+        this.laneWaiting.size === 0,
     );
     this.kernel.start();
     this.task = this.loop();
@@ -789,12 +790,13 @@ export class WorkCycleService {
     this.passing = this.pass(marked, lanes ? round : undefined).finally(() => {
       this.passing = undefined;
       // A pass that failed still gave automation its chance; pushes do not wait on it. While the
-      // slow lane's job runs (this round's or an earlier one's), automation has not had it yet:
-      // the round completes when the job has (design review M-1).
+      // slow lane has a job, or cycles waiting for it, automation has not had it yet: the round
+      // completes with the first round after the lane is free and nobody waits (design review
+      // M-1; increment 5 review MEDIUM-2).
       if (started === undefined) return;
-      const job = round.dispatched ?? this.job?.done;
-      if (job) void job.finally(() => this.passes?.completed('cycles', started));
-      else this.passes?.completed('cycles', started);
+      this.uncompleted.push(started);
+      if (this.job || this.laneWaiting.size) return;
+      for (const pass of this.uncompleted.splice(0)) this.passes?.completed('cycles', pass);
     });
     await this.passing;
   }
@@ -806,8 +808,13 @@ export class WorkCycleService {
   private job:
     | { readonly cycleId: string; readonly done: Promise<void>; markedMeanwhile: boolean }
     | undefined;
-  /** Cycles whose slow decision found the lane taken: decided afresh when it frees (H-2). */
+  /**
+   * Cycles whose slow decision found the lane taken or another waiting first, in the order they
+   * came: decided afresh when it frees, and admitted first (H-2; increment 5 review MEDIUM-3).
+   */
   private readonly laneWaiting = new Set<string>();
+  /** Rounds whose controller pass waits for the lane to be free and nobody waiting. */
+  private readonly uncompleted: number[] = [];
   /** The workflow generation the declared attention was last brought up to date at. */
   private attentionGeneration = -1;
 
@@ -830,8 +837,12 @@ export class WorkCycleService {
       this.storage.windDowns.settling().map((record) => record.roadmapId),
     );
     const active = this.storage.execution.cycles.listActive();
-    // An ended cycle needs no look of its own any more (R-B5).
-    if (marked === 'all') this.kernel.keepDue(new Set(active.map((cycle) => cycle.id)));
+    // An ended cycle needs no look of its own any more, nor a place in the lane (R-B5).
+    if (marked === 'all') {
+      const ids = new Set<string>(active.map((cycle) => cycle.id));
+      this.kernel.keepDue(ids);
+      for (const id of this.laneWaiting) if (!ids.has(id)) this.laneWaiting.delete(id);
+    }
     for (const cycle of prioritizeRoadmapCycles(
       // A cycle a command holds is left to it (decision 15); its release marks it. So is the
       // slow lane's cycle (design review M-2): a mark it meets now is kept for the job's end.
@@ -926,6 +937,10 @@ export class WorkCycleService {
     lane?: { dispatched?: Promise<void> },
   ): Promise<void> {
     const now = this.now();
+    // The first cycle waiting for the slow lane that a command does not hold: it goes next.
+    const first = lane
+      ? [...this.laneWaiting].find((id) => !this.locks.heldByCommand(id))
+      : undefined;
     let guard: CycleGuard | undefined;
     let decision: CycleDecision;
     try {
@@ -940,6 +955,7 @@ export class WorkCycleService {
       );
     } catch (error) {
       met.guard = guard;
+      this.laneWaiting.delete(cycle.id);
       this.observer?.decided?.(cycle, { failed: error, guard });
       return this.refused(cycle, error, guard);
     }
@@ -947,11 +963,12 @@ export class WorkCycleService {
     try {
       this.observer?.decided?.(cycle, { decision: decided });
       if (lane && decisionLane(decided) === 'slow') {
-        if (this.job) {
+        if (this.job || (first !== undefined && first !== cycle.id)) {
           this.laneWaiting.add(cycle.id);
           this.lookAgain(cycle, decided);
           return;
         }
+        this.laneWaiting.delete(cycle.id);
         const done = this.carryOut(cycle, decided)
           .catch((error) => this.refused(cycle, error, decided.guard))
           .catch((error) => this.failed(cycle, error, decided.guard))
@@ -965,12 +982,13 @@ export class WorkCycleService {
             const again = this.job?.markedMeanwhile ? [cycle.id] : [];
             this.job = undefined;
             this.kernel.mark('lane', [...again, ...this.laneWaiting]);
-            this.laneWaiting.clear();
           });
         this.job = { cycleId: cycle.id, done, markedMeanwhile: false };
         lane.dispatched = done;
         return;
       }
+      // A cycle that waited and no longer needs the lane gives up its place.
+      this.laneWaiting.delete(cycle.id);
       await this.carryOut(cycle, decided);
     } catch (error) {
       met.guard = decided.guard;

@@ -381,7 +381,12 @@ export class RunSpawner {
       }
       if (cycle !== undefined) {
         const latest = this.storage.execution.cycles.find(workspaceId, cycle.id);
-        if (latest?.status === 'stopped' || latest?.currentRunId !== runId) {
+        // Stopped, replaced, or withdrawn (a pause) as the session started (decision 7).
+        if (
+          latest?.status === 'stopped' ||
+          latest?.currentRunId !== runId ||
+          this.state.cycleLaunches.get(runId)?.signal.aborted
+        ) {
           liveRun.cancelRequested = true;
           session.kill();
         }
@@ -461,6 +466,10 @@ export class RunSpawner {
       };
     });
     this.state.pendingCycleLaunches.set(cycle.currentRunId, cancel);
+    // A withdrawal during the session's start (the catalog's first look, the backend's launch)
+    // cancels it too (increment 5 review MEDIUM-1).
+    const withdrawal = this.state.cycleLaunches.get(cycle.currentRunId)?.signal;
+    withdrawal?.addEventListener('abort', cancel, { once: true });
     const timeout = setTimeout(
       cancel,
       Math.max(1, Date.parse(cycle.runDeadlineAt) - this.now().getTime()),
@@ -479,6 +488,7 @@ export class RunSpawner {
       return await Promise.race([launching, cancellation]);
     } finally {
       clearTimeout(timeout);
+      withdrawal?.removeEventListener('abort', cancel);
       this.state.pendingCycleLaunches.delete(cycle.currentRunId);
     }
   }

@@ -1,6 +1,9 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { asWorkItemId, type WorkCycle, type WorktreeId } from '@craftingtable/domain';
 import { createWorktreeResponseSchema } from '@craftingtable/contracts';
 import { afterEach, expect, it } from 'vitest';
+import { TypedRefusalError } from '../src/services/errors.js';
 import {
   type CycleFixture,
   createCycleFixture,
@@ -334,4 +337,163 @@ it('leaves a cycle to a command preparing its transition, and takes it once rele
   expect(seen).toEqual([cycle.id]);
   expect(f.backend.sessions).toHaveLength(1);
   f.services.workCycleService.observePass(undefined);
+});
+
+/** The launch's state the drain and the withdrawal read, for "nothing left behind". */
+const launchState = (f: CycleFixture) =>
+  (
+    f.services.agentRunService as unknown as {
+      state: {
+        pendingCycleLaunches: ReadonlyMap<string, unknown>;
+        cycleLaunches: ReadonlyMap<string, unknown>;
+        startingLaunches: ReadonlySet<unknown>;
+      };
+    }
+  ).state;
+
+it.each(['stop', 'pause'] as const)(
+  'withdraws a launch before its record on %s: no run, no reservation, nothing left (decision 7)',
+  async (action) => {
+    // Held in the documents' repository-policy read: the preflight's `resolveBranch` is past
+    // (its cancel is gone), the run not yet recorded.
+    let held: Promise<void> | undefined;
+    let entered = false;
+    let release: () => void = () => undefined;
+    let runId: string | undefined;
+    const f = await createCycleFixture({
+      workers: true,
+      git: (real) => ({
+        ...real,
+        resolveBranch: async (path, branch) => {
+          if (held && runId && !launchState(f).pendingCycleLaunches.has(runId)) {
+            entered = true;
+            await held;
+          }
+          return real.resolveBranch(path, branch);
+        },
+      }),
+    });
+    held = new Promise((resolve) => {
+      release = resolve;
+    });
+    let cycle: WorkCycle;
+    try {
+      cycle = await startCycle(f, f.worktreeId);
+      runId = storedCycle(f, cycle.id).currentRunId;
+      await waitUntil(() => entered, 'the launch is in its documents');
+      expect(f.context.storage.maintenance.launchReservation(runId as never)).toBeDefined();
+      await control(f, cycle, action);
+    } finally {
+      held = undefined;
+      release();
+    }
+    await waitUntil(
+      () => launchState(f).startingLaunches.size === 0 && launchState(f).cycleLaunches.size === 0,
+      'the launch ended',
+    );
+    expect(storedRun(f, runId as string)).toBeUndefined();
+    expect(f.context.storage.maintenance.launchReservation(runId as never)).toBeUndefined();
+    expect(existsSync(join(f.context.config.execution.runsRoot, runId as string))).toBe(false);
+    expect(f.backend.sessions).toHaveLength(0);
+    expect(storedCycle(f, cycle.id).status).toBe(action === 'stop' ? 'stopped' : 'paused');
+  },
+);
+
+it('withdraws a launch paused while its session starts, and launches it again on Resume', async () => {
+  const f = await createCycleFixture({ workers: true });
+  let release: () => void = () => undefined;
+  let entered = false;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const launch = f.backend.launch.bind(f.backend);
+  f.backend.launch = async (request) => {
+    entered = true;
+    await held;
+    return launch(request);
+  };
+  const cycle = await startCycle(f, f.worktreeId);
+  await waitUntil(() => entered, "the backend's launch is under way");
+  await control(f, cycle, 'pause');
+  release();
+  const runId = storedCycle(f, cycle.id).currentRunId;
+  await waitUntil(() => storedRun(f, runId)?.status === 'cancelled', 'the run withdrawn');
+  // A session the backend still made is ended at once: no agent runs under the paused cycle.
+  await waitUntil(() => f.backend.sessions.every((s) => !s.send()), 'its session ended');
+  expect(storedCycle(f, cycle.id).status).toBe('paused');
+  f.backend.launch = launch;
+  const resumed = await f.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${f.workspaceId}/cycles/${cycle.id}/control`,
+    headers: f.headers,
+    payload: { action: 'resume', expectedVersion: storedCycle(f, cycle.id).version },
+  });
+  expect(resumed.statusCode, resumed.body).toBe(200);
+  await waitUntil(() => runLive(f, cycle), 'the resumed step runs');
+});
+
+it("stops a cycle waiting for the lane at its own due time, with nothing written (H-2's timer)", async () => {
+  const clock = new ManualClock();
+  const gate: { held?: Promise<void>; entered: boolean; release: () => void } = {
+    entered: false,
+    release: () => undefined,
+  };
+  const f = await createCycleFixture({
+    workers: true,
+    independent: true,
+    now: clock.date,
+    kernelClock: clock,
+    git: (real) => ({
+      ...real,
+      resolveBranch: async (path, branch) => {
+        if (gate.held) {
+          gate.entered = true;
+          await gate.held;
+        }
+        return real.resolveBranch(path, branch);
+      },
+    }),
+  });
+  const other = await secondWorktree(f);
+  gate.held = new Promise((resolve) => {
+    gate.release = resolve;
+  });
+  try {
+    await startCycle(f, f.worktreeId);
+    await waitUntil(() => gate.entered, "A's launch is held");
+    const b = await startCycle({ ...f, workItemId: item2 }, other);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Only the clock moves: B's deadline timer, armed while it waited, stops it.
+    clock.advance(Date.parse(storedCycle(f, b.id).runDeadlineAt) - clock.now() + 1000);
+    await waitUntil(
+      () => storedCycle(f, b.id).stop?.code === 'step-time-limit',
+      "B's deadline stop by its timer",
+    );
+  } finally {
+    gate.release();
+  }
+});
+
+it("records a job's refusal and an unexpected failure as a pass did (the slow lane's errors)", async () => {
+  const f = await createCycleFixture({ workers: true, independent: true });
+  const runs = f.services.agentRunService;
+  const start = runs.startForCycle.bind(runs);
+  runs.startForCycle = async () => {
+    throw new TypedRefusalError('worktree-state', 'The worktree is not on its managed branch');
+  };
+  const refused = await startCycle(f, f.worktreeId);
+  await waitUntil(
+    () => storedCycle(f, refused.id).stop?.code === 'worktree-state',
+    "the job's refusal stop",
+  );
+  runs.startForCycle = async () => {
+    throw new Error('unexpected');
+  };
+  const other = await secondWorktree(f);
+  const failed = await startCycle({ ...f, workItemId: item2 }, other);
+  await waitUntil(
+    () => storedCycle(f, failed.id).stop?.code === 'controller-error',
+    "the job's failure stop",
+  );
+  runs.startForCycle = start;
 });

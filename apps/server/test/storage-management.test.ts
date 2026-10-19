@@ -840,6 +840,14 @@ it('queues end-of-run cleanup behind existing maintenance without losing the req
   expect(existsSync(s.cache)).toBe(false);
   expect(s.service.isCleaningRun(s.worktreeId)).toBe(false);
 });
+it("cleans after a run only its own worktree's caches (R-B5 increment 2's mutation round)", async () => {
+  const s = await runFixture();
+  // Another worktree's run ended: this worktree's ended run's cache is not its to clean.
+  await s.service.cleanupAfterRun(asWorktreeId('another-worktree'));
+  expect(existsSync(s.cache)).toBe(true);
+  await s.service.cleanupAfterRun(s.worktreeId);
+  expect(existsSync(s.cache)).toBe(false);
+});
 it('protects prior run caches while another run in that worktree is live', async () => {
   const s = await runFixture();
   const source = s.context.storage.execution.runs.find(s.workspaceId, s.runId);

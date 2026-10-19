@@ -278,8 +278,10 @@ export class CycleControl {
   ): WorkCycle {
     if (decision.kind === 'refuse')
       throw new ExecutionRequestError(decision.status, decision.message);
-    if (decision.cancelChecks) this.runs.cancelStartingChecks(cycle.currentRunId);
     const written = this.writer.change(cycle, decision.changes, action, context);
+    // After the write: a refused command (a newer version) withdraws nothing (R-B5 increment 5
+    // review LOW-2).
+    if (decision.cancelChecks) this.runs.cancelStartingChecks(cycle.currentRunId);
     if (decision.endTurn) this.runs.finishCycleTurn(written, true);
     return written;
   }

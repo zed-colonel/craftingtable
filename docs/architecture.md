@@ -203,6 +203,14 @@ golden test over scenario snapshots); `controller:replay --scheduler` does the s
 `RoadmapService.tick()`, recording each entry's decision, the command it would issue, the status
 lists and the attention items, with every command and Git call intercepted. Tests step the
 controller with `WorkCycleService.tick()` and `AgentRunService.quiesce()`, not wall-clock time.
+
+The running daemon drives the controller through its kernel (`services/kernel/`, ADR-077): a
+committed write that is not only quiet, a workflow notification or a hold's release marks cycles,
+a cycle's due time (`cycle/core/next-look.ts`) marks it, and a 30 s sweep marks every one. A
+round decides the marked cycles and applies at once every decision that awaits nothing
+(`cycle/core/lanes.ts`); one that awaits I/O runs as the slow lane's one job beside later rounds.
+`tick()` stays one serial round over every active cycle. The owner-only diagnostics carry the
+kernel's figures.
 `pnpm replays` (`scripts/replays.mjs`) is the replay gate: its manifest names each live
 snapshot and golden by a path relative to `$XDG_DATA_HOME` with its SHA-256 (the snapshots hold
 real plans and stay outside the repository) and each expected difference with its reason, and it

@@ -1,8 +1,14 @@
 import { cycleAgents } from './agent-profile-policy.js';
 import { selectionSet } from './agent-resolution.js';
-import type { SourceRepositoryId, WorkCycleId, MapAmendmentId } from '@craftingtable/domain';
+import {
+  InvariantError,
+  type SourceRepositoryId,
+  type WorkCycleId,
+  type MapAmendmentId,
+} from '@craftingtable/domain';
 import type {
   AuthorizeWorkCycleRemediationRequest,
+  ControllerSummary,
   ControlFinalizationRequest,
   IntegrationResolutionRequest,
   PrepareBaselineRequest,
@@ -45,6 +51,8 @@ import {
   type Marked,
   systemClock,
 } from './kernel/controller-kernel.js';
+import { ControllerFigures } from './kernel/figures.js';
+import type { RunLog } from './run/shared.js';
 import {
   decideRestart,
   guidedRemediationRefused,
@@ -100,6 +108,9 @@ import { CycleRestart } from './cycle/effects/restart.js';
 
 export type { CyclePassObserver } from './cycle/shared.js';
 
+/** A slow job or a command's hold this old is logged (design review L-13). */
+const LONG_MS = 10 * 60_000;
+
 /** Single-daemon controller. Reservations precede process launch; restart never replays a launch. */
 export class WorkCycleService {
   private task: Promise<void> | undefined;
@@ -118,12 +129,18 @@ export class WorkCycleService {
     execution: ExecutionService,
     runtimeEvidence: RuntimeEvidenceService,
     clock: KernelClock = systemClock(now),
+    /** The daemon's log: a broken invariant, a failure it could not record (decision 8). */
+    private readonly log: Pick<RunLog, 'warn'> = { warn: () => undefined },
   ) {
     this.kernel = new ControllerKernel(clock);
     // Every workflow notification marks every active cycle, as the one-second loop's wake re-ran
     // the whole pass (R-B5, decision 2); so does a hold's release, for its cycle.
     notifier.onWorkflow(() => this.kernel.mark('workflow'));
-    this.locks = new CycleLocks(notifier, (id) => this.kernel.mark('release', [id]));
+    this.locks = new CycleLocks(
+      notifier,
+      (id) => this.kernel.mark('release', [id]),
+      () => this.now().getTime(),
+    );
     this.writer = new CycleWriter(
       storage,
       workspaceService,
@@ -762,10 +779,12 @@ export class WorkCycleService {
         await this.kernel.marked(this.locks.signal);
         continue;
       }
+      const began = this.figure.started();
       try {
         await this.round(marked, true);
       } finally {
         this.rounding = false;
+        this.figure.rounded(began);
       }
       // A macrotask between rounds: rounds that await no I/O never starve the event loop's timers
       // and requests, whatever marks them (increment 3 review HIGH-1).
@@ -774,6 +793,42 @@ export class WorkCycleService {
   }
   /** From the loop's take to its round's end: not idle, though nothing is marked (LOW-5). */
   private rounding = false;
+  private readonly figure = new ControllerFigures();
+
+  /** The controller's figures for the owner-only diagnostics (R-B5, decision 9). */
+  figures(): ControllerSummary {
+    const now = this.now().getTime();
+    return this.figure.summary(
+      this.kernel,
+      {
+        runningForMs: this.job === undefined ? undefined : now - this.job.startedAt,
+        waiting: this.laneWaiting.size,
+      },
+      now,
+    );
+  }
+
+  /**
+   * A slow job or a command's hold older than ten minutes is logged once (design review L-13,
+   * increment 5 review LOW-5): either leaves its cycle out of every round, its deadline included.
+   */
+  private warnLong(): void {
+    const now = this.now().getTime();
+    const job = this.job;
+    if (job && !job.warned && now - job.startedAt > LONG_MS) {
+      job.warned = true;
+      this.log.warn('A cycle controller job has run for over ten minutes', {
+        cycleId: job.cycleId,
+      });
+    }
+    for (const [cycleId, hold] of this.locks.commandHeld()) {
+      const key = `${cycleId}:${hold.since}`;
+      if (now - hold.since <= LONG_MS || this.warnedHolds.has(key)) continue;
+      this.warnedHolds.add(key);
+      this.log.warn('A command has held a cycle for over ten minutes', { cycleId });
+    }
+  }
+  private readonly warnedHolds = new Set<string>();
 
   /**
    * One controller pass over every cycle, serialized with the worker loop. Tests step the
@@ -806,7 +861,14 @@ export class WorkCycleService {
    * free-running loop. While it runs its cycle is left out of every round.
    */
   private job:
-    | { readonly cycleId: string; readonly done: Promise<void>; markedMeanwhile: boolean }
+    | {
+        readonly cycleId: string;
+        readonly done: Promise<void>;
+        /** Wall-clock milliseconds, as a hold's start. */
+        readonly startedAt: number;
+        markedMeanwhile: boolean;
+        warned: boolean;
+      }
     | undefined;
   /**
    * Cycles whose slow decision found the lane taken or another waiting first, in the order they
@@ -839,6 +901,7 @@ export class WorkCycleService {
     const active = this.storage.execution.cycles.listActive();
     // An ended cycle needs no look of its own any more, nor a place in the lane (R-B5).
     if (marked === 'all') {
+      this.warnLong();
       const ids = new Set<string>(active.map((cycle) => cycle.id));
       this.kernel.keepDue(ids);
       for (const id of this.laneWaiting) if (!ids.has(id)) this.laneWaiting.delete(id);
@@ -878,12 +941,13 @@ export class WorkCycleService {
     settling: ReadonlySet<string>,
     lane?: { dispatched?: Promise<void> },
   ): Promise<void> {
-    // The guard the failure met, which the step history records with it (R-B4 decision 9).
-    const met: { guard?: CycleGuard } = {};
+    // The guard the failure met, and the decision being carried out, which the step history
+    // and the log record with it (R-B4 decision 9; R-B5 decision 8).
+    const met: { guard?: CycleGuard; decision?: CycleDecision } = {};
     try {
       await this.reconcile(cycle, owner, settling, met, lane);
     } catch (error) {
-      await this.failed(cycle, error, met.guard);
+      await this.failed(cycle, error, met.guard, met.decision);
     }
   }
 
@@ -891,15 +955,32 @@ export class WorkCycleService {
    * An error that escaped a cycle's reconciliation: only contention and an unexpected exception
    * reach here (R-B4); every expected refusal was decided where it was met.
    */
-  private async failed(cycle: WorkCycle, error: unknown, guard: CycleGuard | undefined) {
+  private async failed(
+    cycle: WorkCycle,
+    error: unknown,
+    guard: CycleGuard | undefined,
+    decision?: CycleDecision,
+  ) {
     const failure = decideFailure(error);
     // Contention is retried a second later, as the next pass of the one-second loop did (R-B5).
     if (failure.kind === 'retry') {
       this.kernel.dueAt(cycle.id, this.now().getTime() + 1000);
       return;
     }
+    // A broken invariant is logged, whether or not its stop is written (decision 8): where the
+    // cycle changed meanwhile and nothing is written, only the log keeps it.
+    const invariant = error instanceof InvariantError ? error.what : undefined;
+    if (error instanceof InvariantError)
+      this.log.warn('The cycle controller met a broken invariant', {
+        cycleId: cycle.id,
+        workspaceId: cycle.workspaceId,
+        ...(guard ? { guard } : {}),
+        ...(decision ? { decision: decisionSummary(decision).kind } : {}),
+        invariant: error.message,
+        stack: error.stack ?? '',
+      });
     // Recorded in the step history as the pass's own stop (R-B4 decision 9), as a refusal is.
-    await this.writer.decided({ kind: 'failure', guard, code: failure.code }, async () =>
+    await this.writer.decided({ kind: 'failure', guard, code: failure.code, invariant }, async () =>
       this.stopAfterFailure(cycle, failure),
     );
   }
@@ -933,7 +1014,7 @@ export class WorkCycleService {
     cycle: WorkCycle,
     owner: () => ReturnType<typeof cycleOwnership>,
     settling: ReadonlySet<string>,
-    met: { guard?: CycleGuard } = {},
+    met: { guard?: CycleGuard; decision?: CycleDecision } = {},
     lane?: { dispatched?: Promise<void> },
   ): Promise<void> {
     const now = this.now();
@@ -955,6 +1036,7 @@ export class WorkCycleService {
       );
     } catch (error) {
       met.guard = guard;
+      met.decision = undefined;
       this.laneWaiting.delete(cycle.id);
       this.observer?.decided?.(cycle, { failed: error, guard });
       return this.refused(cycle, error, guard);
@@ -969,11 +1051,19 @@ export class WorkCycleService {
           return;
         }
         this.laneWaiting.delete(cycle.id);
+        this.figure.jobStarted();
         const done = this.carryOut(cycle, decided)
           .catch((error) => this.refused(cycle, error, decided.guard))
-          .catch((error) => this.failed(cycle, error, decided.guard))
-          // A failure that cannot even be recorded leaves the cycle to the next look.
-          .catch(() => undefined)
+          .catch((error) => this.failed(cycle, error, decided.guard, decided))
+          // A failure that cannot even be recorded leaves the cycle to the next look, logged
+          // (increment 5 review LOW-1).
+          .catch((error) =>
+            this.log.warn('The cycle controller could not record a job’s failure', {
+              cycleId: cycle.id,
+              workspaceId: cycle.workspaceId,
+              error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+            }),
+          )
           .finally(() => {
             // Every cycle that waited for the lane is decided afresh, and the job's own only if
             // something marked it meanwhile: its writes mark it themselves, and a job that wrote
@@ -983,7 +1073,13 @@ export class WorkCycleService {
             this.job = undefined;
             this.kernel.mark('lane', [...again, ...this.laneWaiting]);
           });
-        this.job = { cycleId: cycle.id, done, markedMeanwhile: false };
+        this.job = {
+          cycleId: cycle.id,
+          done,
+          startedAt: this.now().getTime(),
+          markedMeanwhile: false,
+          warned: false,
+        };
         lane.dispatched = done;
         return;
       }
@@ -992,6 +1088,7 @@ export class WorkCycleService {
       await this.carryOut(cycle, decided);
     } catch (error) {
       met.guard = decided.guard;
+      met.decision = decided;
       return this.refused(cycle, error, decided.guard);
     }
   }

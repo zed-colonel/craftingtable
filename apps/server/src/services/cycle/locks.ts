@@ -31,7 +31,7 @@ export class CycleLocks {
    * investigation's launch. The controller's rounds leave such a cycle alone until the command
    * releases it, which marks it; a second command is refused as before.
    */
-  private readonly commandHolds = new Map<string, number>();
+  private readonly commandHolds = new Map<string, { count: number; readonly since: number }>();
   /** The controller worker's stop: once given, every module stops at its next check. */
   private readonly abort = new AbortController();
 
@@ -39,6 +39,8 @@ export class CycleLocks {
     private readonly notifier: WorkspaceEventNotifier,
     /** Tells the controller a cycle it may have left alone is free again (R-B5). */
     private readonly onRelease: (id: string) => void = () => undefined,
+    /** Wall-clock milliseconds, for a hold's age (increment 5 review LOW-5). */
+    private readonly now: () => number = Date.now,
   ) {}
 
   /** A hold on the cycle ended: its integration refresh, transition or investigation (R-B5). */
@@ -52,13 +54,19 @@ export class CycleLocks {
   }
   /** A command takes the cycle; `releaseCommand` gives it back and marks it. */
   holdForCommand(id: string): void {
-    this.commandHolds.set(id, (this.commandHolds.get(id) ?? 0) + 1);
+    const held = this.commandHolds.get(id);
+    if (held) held.count += 1;
+    else this.commandHolds.set(id, { count: 1, since: this.now() });
   }
   releaseCommand(id: string): void {
-    const left = (this.commandHolds.get(id) ?? 1) - 1;
-    if (left > 0) this.commandHolds.set(id, left);
+    const held = this.commandHolds.get(id);
+    if (held && held.count > 1) held.count -= 1;
     else this.commandHolds.delete(id);
     this.released(id);
+  }
+  /** The cycles commands hold, each with when its first hold began. */
+  commandHeld(): ReadonlyMap<string, { readonly since: number }> {
+    return this.commandHolds;
   }
 
   /** Stops the controller (`WorkCycleService.shutdown`). */

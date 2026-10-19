@@ -695,6 +695,11 @@ describe('daemon diagnostics (R-D3)', () => {
     expect(cycles?.count).toBe(2);
     expect(cycles?.maxBytes).toBeGreaterThan(0);
     expect(diagnostics.eventLoopDelay.sinceStart.windowMs).toBeGreaterThan(0);
+    // The cycle controller's figures (R-B5, decision 9): no cycle runs here.
+    expect(diagnostics.controller).toMatchObject({
+      lane: { jobs: 0, running: false, waiting: 0 },
+      timers: { due: 0 },
+    });
 
     const editor = await memberSession(f, 'editor');
     expect((await f.get(`/api/workspaces/${f.workspaceId}/diagnostics`, editor)).statusCode).toBe(

@@ -6,9 +6,12 @@
  * (`controller-error`) and a command answers 500, as before.
  */
 export class InvariantError extends Error {
+  /** What was absent, as `required` was told: the controller's step history records it (R-B5). */
+  readonly what: string;
   constructor(what: string) {
     super(`Invariant failed: ${what}`);
     this.name = 'InvariantError';
+    this.what = what;
   }
 }
 

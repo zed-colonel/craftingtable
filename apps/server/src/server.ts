@@ -205,7 +205,11 @@ export function buildServer(
   installBrowserSecurity(app, config);
   installRouteAccess(app, deps.authService, deps.workspaceService, config);
   installResponseEncoding(app);
-  registerDiagnosticsRoutes(app, deps.workspaceService, new DaemonDiagnostics());
+  registerDiagnosticsRoutes(
+    app,
+    deps.workspaceService,
+    new DaemonDiagnostics(() => deps.workCycleService.figures()),
+  );
 
   app.addHook('onReady', async () => {
     if (options.startWorkers === false) return;

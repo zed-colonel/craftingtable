@@ -402,6 +402,7 @@ export async function createServices(
     executionService,
     runtimeEvidenceService,
     overrides.kernelClock,
+    overrides.runLog,
   );
   workCycleService.attachPasses(controllerPasses);
   // What wakes the cycle controller besides notifications (R-B5, decision 2): every committed

@@ -220,6 +220,8 @@ export async function createCycleFixture(
     readonly now?: () => Date;
     /** The controller kernel's clock (R-B5); give `now` from the same clock. */
     readonly kernelClock?: import('../src/services/kernel/controller-kernel.js').KernelClock;
+    /** The daemon's warnings, as the run service and the controller give them (R-B5). */
+    readonly runLog?: import('../src/services/run/shared.js').RunLog;
   } = {},
 ): Promise<CycleFixture> {
   const backend = new HeldBackend();
@@ -231,6 +233,7 @@ export async function createCycleFixture(
     ...(options.env === undefined ? {} : { env: options.env }),
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.kernelClock === undefined ? {} : { kernelClock: options.kernelClock }),
+    ...(options.runLog === undefined ? {} : { runLog: options.runLog }),
   });
   contexts.push(context);
   if (options.workers) markFreeRunning(context);

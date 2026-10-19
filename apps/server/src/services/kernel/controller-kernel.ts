@@ -43,6 +43,8 @@ export class ControllerKernel {
   private running = false;
   /** How many marks each cause made, since start (decision 9's figures read them). */
   readonly causes = new Map<string, number>();
+  /** When the sweep last marked everything (wall-clock milliseconds), for the figures. */
+  lastSweepAt: number | undefined;
 
   constructor(
     private readonly clock: KernelClock,
@@ -111,6 +113,11 @@ export class ControllerKernel {
     if (changed) this.arm();
   }
 
+  /** How many aggregates have a due time, for the figures. */
+  dueCount(): number {
+    return this.due.size;
+  }
+
   /** The earliest due time, for the figures and the tests. */
   nextDue(): number | undefined {
     let earliest: number | undefined;
@@ -139,6 +146,7 @@ export class ControllerKernel {
   private scheduleSweep(): void {
     if (!this.running) return;
     this.sweepTimer = this.clock.setTimeout(() => {
+      this.lastSweepAt = this.clock.now();
       this.mark('sweep');
       // Due times are wall-clock and the timer runs on the monotonic clock: a clock stepped
       // forward, or a suspend, would leave the timer late; the sweep re-arms it from the wall clock.

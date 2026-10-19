@@ -79,19 +79,30 @@ export class CycleWriter {
     readonly kind: string;
     readonly guard: string | undefined;
     readonly code: string | undefined;
+    readonly invariant: string | undefined;
     open: boolean;
   }>();
 
-  /** Carries out `apply` as the pass's decision of `kind` at `guard`, carrying `code`. */
+  /**
+   * Carries out `apply` as the pass's decision of `kind` at `guard`, carrying `code`, and for a
+   * failure on a broken invariant what was absent (R-B5, decision 8).
+   */
   async decided<T>(
     decision: {
       readonly kind: string;
       readonly guard: string | undefined;
       readonly code?: string | undefined;
+      readonly invariant?: string | undefined;
     },
     apply: () => Promise<T>,
   ): Promise<T> {
-    const scope = { kind: decision.kind, guard: decision.guard, code: decision.code, open: true };
+    const scope = {
+      kind: decision.kind,
+      guard: decision.guard,
+      code: decision.code,
+      invariant: decision.invariant,
+      open: true,
+    };
     try {
       return await this.deciding.run(scope, apply);
     } finally {
@@ -355,6 +366,7 @@ export class CycleWriter {
               decision: decision.kind,
               ...(decision.guard ? { guard: decision.guard } : {}),
               ...(decision.code ? { decisionCode: decision.code } : {}),
+              ...(decision.invariant ? { invariant: decision.invariant } : {}),
             }
           : {}),
         step: cycle.step,

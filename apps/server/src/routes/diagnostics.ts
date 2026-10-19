@@ -1,5 +1,6 @@
 import { type IntervalHistogram, monitorEventLoopDelay } from 'node:perf_hooks';
 import {
+  type ControllerSummary,
   type DaemonDiagnosticsResponse,
   daemonDiagnosticsResponseSchema,
   type EventLoopDelaySummary,
@@ -105,6 +106,9 @@ export class DaemonDiagnostics {
     { method: string; route: string; samples: RouteSamples }
   >();
 
+  /** `controller`: the cycle controller's figures, when the daemon runs one (R-B5). */
+  constructor(private readonly controller?: () => ControllerSummary) {}
+
   start(): void {
     if (this.rotation !== undefined) return;
     this.sinceStart.enable();
@@ -143,6 +147,7 @@ export class DaemonDiagnostics {
         .map((entry) => entry.samples.summary(entry.method, entry.route))
         .toSorted((a, b) => b.p95Ms - a.p95Ms)
         .slice(0, 1000),
+      ...(this.controller === undefined ? {} : { controller: this.controller() }),
     };
   }
 

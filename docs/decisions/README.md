@@ -41,8 +41,8 @@ Some decisions are spread over several records. Read the latest first:
 - **Agent backends:** ADR-020 (the execution model and Claude Code; it superseded ADR-004, 006 and
   007), ADR-022 and ADR-023 (Codex; ADR-005 before them), ADR-068 (what the journal keeps).
 - **Work items and merges:** ADR-021 (lifecycle and the review-gated merge; ADR-014 before it),
-  ADR-025 (cycles), ADR-026 (integration branches), ADR-033 (delegated integration merges and
-  explicit finalization), ADR-032 (conflict resolution).
+  ADR-025 (cycles) and ADR-077 (the controller kernel), ADR-026 (integration branches), ADR-033
+  (delegated integration merges and explicit finalization), ADR-032 (conflict resolution).
 - **Roadmaps:** ADR-029 and ADR-030 (sequential and parallel execution), ADR-073 (stopping,
   winding down and cleaning up).
 - **Finalization:** ADR-042 (every finalization is staged) over ADR-033, refined by ADR-035, 036,
@@ -140,3 +140,4 @@ Some decisions are spread over several records. Read the latest first:
 | [ADR-074](ADR-074-python-toolchains-and-pypi-wheels.md) | Python toolchains and PyPI wheels for checks | partly superseded | 2026-10-13 | superseded in part by ADR-076, R-G19; refines ADR-053 |
 | [ADR-075](ADR-075-an-accelerator-not-a-guardian.md) | An accelerator, not a guardian | accepted | 2026-10-14 | refines ADR-074, R-G19 |
 | [ADR-076](ADR-076-python-checks-install-with-uv-sync.md) | Python checks install with uv sync | accepted | 2026-10-14 | supersedes ADR-074; refines ADR-053, ADR-075 |
+| [ADR-077](ADR-077-the-controller-kernel.md) | The controller kernel | accepted | 2026-10-19 | refines ADR-025, ADR-066 |

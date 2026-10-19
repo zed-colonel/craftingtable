@@ -319,6 +319,8 @@ export class ScriptedSession implements AgentSession {
   private turns = 0;
   private delayed = false;
   private exitReason: AgentExitReason | undefined;
+  /** The last reply was Claude Code's stream, so the session ends as the adapter's does. */
+  private streamed = false;
   private readonly exitAfterKill: Promise<void> | undefined;
   /** Normalizes `claudeStream` replies, as the Claude adapter does. */
   private readonly claude: ClaudeStreamNormalizer;
@@ -385,6 +387,7 @@ export class ScriptedSession implements AgentSession {
     const reply = this.replies.shift();
     this.exitReason = reply?.exitReason;
     this.backgroundWorkPending = reply?.backgroundWorkPending ?? false;
+    this.streamed = !!reply?.claudeStream;
     if (reply?.claudeStream) {
       for (const message of reply.claudeStream)
         for (const event of this.claude.normalizeLine(JSON.stringify(message)))
@@ -512,11 +515,18 @@ export class ScriptedSession implements AgentSession {
     // As the Claude adapter does: a result standing when the session ends is its turn (R-G11).
     const intermediate = this.claude.takeIntermediateResult();
     if (intermediate) this.push({ type: 'event', event: intermediate });
+    // As the adapter does: a session that ends with background work it never collected
+    // (`claude-code/backend.ts`) ends `background-work-incomplete` (R-C17 part 4 inc 0 review L-1).
+    const reason =
+      this.exitReason ??
+      (this.streamed && this.claude.hasUncollectedBackgroundWork
+        ? ('background-work-incomplete' as const)
+        : undefined);
     this.push({
       type: 'exited',
       exitCode,
       signal,
-      ...(this.exitReason ? { reason: this.exitReason } : {}),
+      ...(reason ? { reason } : {}),
     });
     this.closed = true;
     if (this.waiter !== undefined) {

@@ -701,16 +701,39 @@ describe('recorded provider failures', () => {
       const tooled = normalizer();
       feed(tooled, [started('a'), result('Waiting for a.'), called]);
       expect(held(tooled)).toMatchObject({ afterLaterWork: true });
+      // A sub-agent's message is the session's work too (a background agent streaming).
+      const delegated = normalizer();
+      feed(delegated, [
+        started('a'),
+        result('Waiting for a.'),
+        { ...said('Sub-agent: reading the queue.'), parent_tool_use_id: 'agent-1' },
+      ]);
+      expect(held(delegated)).toMatchObject({ afterLaterWork: true });
+      // The result is taken once, so each negative case below reads it once (inc 0 review M-1).
+      const unmarked = (subject: ClaudeStreamNormalizer, resultText: string) => {
+        const payload = held(subject);
+        expect(payload).toMatchObject({ resultText });
+        expect(payload).not.toHaveProperty('afterLaterWork');
+      };
       // Work before the held result, and notices after it, do not mark it.
       const quiet = normalizer();
       feed(quiet, [said('Fixed the loop.'), started('a'), result('Waiting for a.'), notified('a')]);
-      expect(held(quiet)).toMatchObject({ resultText: 'Waiting for a.' });
-      expect(held(quiet) ?? {}).not.toHaveProperty('afterLaterWork');
+      unmarked(quiet, 'Waiting for a.');
+      // Nor does a tool's result: only the session's own messages and calls are work.
+      const answered = normalizer();
+      feed(answered, [
+        started('a'),
+        result('Waiting for a.'),
+        {
+          type: 'user',
+          message: { content: [{ type: 'tool_result', tool_use_id: 't0', content: 'ok' }] },
+        },
+      ]);
+      unmarked(answered, 'Waiting for a.');
       // A later held result starts afresh: the work before it is behind it.
       const again = normalizer();
       feed(again, [started('a'), result('First.'), said('Working.'), result('Still waiting.')]);
-      expect(held(again)).toMatchObject({ resultText: 'Still waiting.' });
-      expect(held(again) ?? {}).not.toHaveProperty('afterLaterWork');
+      unmarked(again, 'Still waiting.');
       // A result that completes the turn is never marked, whatever came before.
       const collected = normalizer();
       const events = feed(collected, [

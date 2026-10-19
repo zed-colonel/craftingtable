@@ -395,7 +395,11 @@ it('hands on the record of a Claude run cut off while working past a result held
   const handoff = join(root, 'handoff');
   const manifest = JSON.parse(readFileSync(join(handoff, 'manifest.json'), 'utf8'));
   expect(manifest.sources[0]).toMatchObject({ runId: cutOff, cutOff: '0000-cut-off.md' });
-  expect(manifest.warnings).toEqual([]);
+  // The adapter ends such a session `background-work-incomplete` (inc 0 review L-1): its warning
+  // stands beside the record, and no "no completed turn" warning.
+  expect(manifest.warnings).toEqual([
+    `${cutOff}: the agent exited before collecting background work and reporting completion; inspect its preserved verification records before continuing.`,
+  ]);
   const record = readFileSync(join(handoff, '0000-cut-off.md'), 'utf8');
   expect(record).toContain('was cut off in a turn after its last completed one');
   expect(record).toContain('Bisecting the slow test now.');

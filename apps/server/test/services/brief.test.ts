@@ -821,10 +821,22 @@ describe("composeBrief: the parent's final message as a bounded digest (R-G6, G6
         messages: 2,
         headSha: 'f'.repeat(40),
         uncommitted: { paths: [], total: 0 },
-        endedInError: true,
+        end: 'error-turn',
       }),
     ).toContain(
       `The previous run's last completed turn ended in error, so its final-message file holds only that turn's result. Where it stopped is in \`${path}\`: its last 2 assistant messages; the worktree as this run starts: head commit \`${'f'.repeat(12)}\`, with nothing uncommitted. Read it and check the worktree before redoing its work.`,
+    );
+    // A parent cut off in a turn after its last completed one (R-C17 part 4, part 2's other half).
+    expect(
+      files({
+        path,
+        messages: 3,
+        headSha: 'f'.repeat(40),
+        uncommitted: { paths: [{ path: 'wip.txt', untracked: true }], total: 1 },
+        end: 'later-turn',
+      }),
+    ).toContain(
+      `The previous run was cut off in a turn after its last completed one, so its final-message file holds only that earlier turn's result. Where it stopped is in \`${path}\`: its last 3 assistant messages; the worktree as this run starts: head commit \`${'f'.repeat(12)}\`, and 1 uncommitted file: \`wip.txt\` (untracked). Read it and check the worktree before redoing its work.`,
     );
   });
 });

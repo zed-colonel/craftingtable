@@ -34,7 +34,7 @@ import {
 import { operatorDecisions } from '../../operator-decisions.js';
 import { policyMismatch, REPOSITORY_POLICY_RULES, worktreePlan } from '../../repository-policy.js';
 import { type StoppedWorktree, writeRunHandoff } from '../../run-handoff.js';
-import { latestReviewReport } from '../../run-lineage.js';
+import { latestReviewReport, runCutOff } from '../../run-lineage.js';
 import { scopeRepairPacket } from '../../scope-repair.js';
 import type { InvestigationLaunch, StartRunInput } from '../shared.js';
 
@@ -83,9 +83,8 @@ export interface RunFiles {
 }
 
 /**
- * Where a worktree stands, for the handoff of a run that never completed a turn or whose latest
- * completed turn ended in error: its head commit and uncommitted files, or why they could not
- * be read (R-C17 part 2 and its L-4).
+ * Where a worktree stands, for the handoff of a run that was cut off (`runCutOff`): its head
+ * commit and uncommitted files, or why they could not be read (R-C17 part 2, its L-4 and part 4).
  */
 async function whereStopped(branches: BranchService, worktree: Worktree): Promise<StoppedWorktree> {
   try {
@@ -260,6 +259,10 @@ export async function materializeRunFiles(
   const parentTurn =
     prepared.parentRun &&
     storage.execution.runEvents.latestOfKind(workspaceId, prepared.parentRun.id, 'turn-completed');
+  // A parent cut off (it never completed a turn, its latest completed turn ended in error, or it
+  // was cut off in a later turn) left its work in the worktree: where it stopped goes into the
+  // handoff (R-C17 part 2, its L-4 and part 4). Read once, for the worktree read and the record.
+  const cutOff = prepared.parentRun && runCutOff(storage.execution, prepared.parentRun);
   const handoff =
     prepared.parentRun === undefined
       ? undefined
@@ -267,12 +270,9 @@ export async function materializeRunFiles(
           storage.execution,
           prepared.parentRun,
           join(runDirectory, 'handoff'),
-          // A parent cut off with no completed turn, or whose latest completed turn ended in
-          // error, left its work in the worktree: where it stopped goes into the handoff
-          // (R-C17 part 2 and its L-4).
-          parentTurn?.kind === 'turn-completed' && parentTurn.payload.outcome !== 'error'
+          cutOff === undefined
             ? undefined
-            : await whereStopped(branches, prepared.worktree),
+            : { end: cutOff, worktree: await whereStopped(branches, prepared.worktree) },
         );
   const parentAssessment =
     prepared.parentRun && latestReviewReport(storage.execution, prepared.parentRun);

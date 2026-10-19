@@ -491,6 +491,12 @@ export class ScriptedSession implements AgentSession {
     this.respondNow('Background completed');
   }
 
+  /** The agent works on after its last result, in a new turn that reports messages only. */
+  workOn(messages: readonly string[]): void {
+    for (const text of messages)
+      this.push({ type: 'event', event: { kind: 'assistant-message', payload: { text } } });
+  }
+
   end(): void {
     this.endCount++;
     this.exit(0, null);

@@ -1231,6 +1231,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **R-B4b deployed, 2026-10-18.** R-B4b (the cycle's state shape, migration 0047, with the history's decision code the operator asked for) was deployed at 5fc0175 after `db:verify` passed on a backup of the live database. Next: R-C17's part 4, with part 2's other half.
 
+**R-C17's part 4 designed and decided, 2026-10-18.** Part 2's other half is built (a run cut off in a later turn hands on its cut-off record, 9a5f9cb). [R-C17](register.md#r-c17)'s entry holds part 4's design (the time-limit stop's guidance, the general control of a stopped cycle's limit and agents, the workspace default), its independent review, settled, and the operator's eleven decisions, all as recommended: among them a roadmap cycle's agents change through an ADR-064 assignment for its entry (review evidence keeps accepting it), ADR-030's and ADR-064's Decisions are amended, and two forward migrations (0048, a run-event field for Claude's held result; 0049, the workspace default's table). The order above is unchanged: R-B5 follows.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

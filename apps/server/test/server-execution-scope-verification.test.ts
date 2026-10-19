@@ -1,3 +1,4 @@
+import { cycleEnd } from '@craftingtable/domain';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -181,6 +182,8 @@ itNeedsCargo(
       .listForWorkspace(ws)
       .find((c) => c.executionScope?.kind === 'slice-verification' && c.status === 'completed')!;
     expect(cycle).toBeDefined();
+    // Completed by its recorded scope evidence, the end it records (R-B4b increment 2 review).
+    expect(cycleEnd(cycle)).toBe('scope-evidence-recorded');
     const tree = state.context.storage.execution.worktrees.find(ws, cycle.worktreeId)!;
     const receipts = state.context.storage.scopeReceipts.list(ws, state.workItemId);
     const count = state.context.storage.execution.worktrees.listForWorkItem(

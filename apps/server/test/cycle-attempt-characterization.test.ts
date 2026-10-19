@@ -524,6 +524,58 @@ describe("the step changes that bypass next() (R-B7's note for R-B4b)", () => {
     });
   });
 
+  // R-B4b (increment 2 review, LOW-4): the resolution's resume goes on with the same resolution
+  // and its edits, so its new run carries the attempt on (`keepAttempt`).
+  it("an integration resolution's resume keeps the attempt but the repair, and both waits", async () => {
+    const { state, backend, worktree, root } = await cycleFixture([
+      designDone,
+      implementationDone,
+      { resultText: reviewText([]) },
+    ]);
+    backend.onLaunch = (request) => {
+      if (request.model === 'implement-model')
+        commitFile(worktree.path, 'README.md', 'item behavior\n');
+    };
+    const cycle = await startCycle(state, worktree.id);
+    await waitFor(() => currentCycle(state, cycle).status === 'awaiting-merge', 'the approval');
+    await controlCycle(state, currentCycle(state, cycle), 'pause');
+    commitFile(root, 'README.md', 'integration behavior\n');
+    const resolution = (input: Record<string, unknown>) =>
+      state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/integration-resolution`,
+        headers: mutationHeaders(state),
+        payload: { expectedVersion: currentCycle(state, cycle).version, ...input },
+      });
+    expect((await resolution({ action: 'inspect' })).statusCode).toBe(200);
+    backend.replyForRequest = () => ({
+      resultText: 'Need a semantic choice.\n\n## Resolution status\nblocked',
+    });
+    backend.onLaunch = () => undefined;
+    const started = await resolution({
+      action: 'start',
+      profile: { ...cycleProfiles.remediate, model: 'resolution-model' },
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    await waitFor(
+      () => currentCycle(state, cycle).status === 'needs-attention',
+      'the resolution question',
+    );
+    const seeded = seed(state, cycle);
+    const written = writes(state);
+    const resumed = await resolution({ action: 'resume', instructions: 'Preserve both behaviors' });
+    expect(resumed.statusCode, resumed.body).toBe(200);
+    expect(perStep(seeded, written('resolution-resumed')!)).toEqual({
+      stepGuidance: 'kept',
+      housekeepingInstructions: 'kept',
+      resultContinuations: 'kept',
+      outputRepair: null,
+      providerRecovery: 'kept',
+      designWait: 'kept',
+      phaseWait: 'kept',
+    });
+  });
+
   it('adopting a newer manual run keeps every per-step field but the repair, and the phase wait', async () => {
     const { state, worktree, cycle } = await designStop([designDone]);
     await runToFinish(state, worktree.id, {

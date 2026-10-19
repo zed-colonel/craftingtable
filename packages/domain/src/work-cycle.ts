@@ -319,9 +319,10 @@ export type CycleEndCode = (typeof CYCLE_END_CODES)[number];
 
 /**
  * A cycle's stop (R-B4 decision 5). `attention` is an operator's stop (or one automation claims),
- * `gate` one of the merge boundary's gates (`AWAITING_MERGE_GATES`), each with when it began; a
- * pause keeps the stop it was taken at, as it was. `ended` is how a stopped or completed cycle
- * ended, and when.
+ * `gate` one of the merge boundary's gates (`AWAITING_MERGE_GATES`). A stop's `since` is when the
+ * cycle last entered the status that carries it: it holds while the status does (its code
+ * changed or refreshed), a pause keeps the stop it was taken at with its `since`, and entering the
+ * status again begins it anew. `ended` is how a stopped or completed cycle ended, and when.
  */
 export type CycleStop =
   | (import('./attention.js').CycleAttention & {

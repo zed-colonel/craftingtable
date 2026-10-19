@@ -1,6 +1,7 @@
 import type {
   CycleAttention,
   CycleEndCode,
+  CycleStop,
   CycleWaits,
   StepAttempt,
   WorkCycle,
@@ -20,6 +21,7 @@ import type {
  *   recorded by action); the stop half is derived from the code, not recorded.
  * - Waits sit beside the stop on every status, as stored: nothing clears them when a cycle stops,
  *   pauses or ends, and clearing them would be a change of behaviour.
+ * - An end's code says how the cycle ended, and so which status it ends in (`END_STATUS`).
  * - `stopped` is terminal; `completed` is reopened only by review again on an independent review
  *   (`review-again`), which clears its end record.
  * - A write that keeps the status is not a status change; it is checked only for what it carries.
@@ -46,7 +48,20 @@ export type CycleFieldChanges = Omit<
   readonly attempt?: { readonly [K in keyof StepAttempt]?: StepAttempt[K] | undefined };
   readonly waits?: WaitChanges;
   readonly keepAttempt?: true;
+  readonly restore?: undefined;
 };
+
+/** The status each end code ends a cycle in (R-B4 decision 7). */
+export const END_STATUS = {
+  'operator-stopped': 'stopped',
+  'roadmap-wound-down': 'stopped',
+  'amendment-retired': 'stopped',
+  integrated: 'completed',
+  'scope-evidence-recorded': 'completed',
+} as const satisfies Record<CycleEndCode, 'stopped' | 'completed'>;
+type EndIn<S extends 'stopped' | 'completed'> = {
+  [K in CycleEndCode]: (typeof END_STATUS)[K] extends S ? K : never;
+}[CycleEndCode];
 
 /**
  * A cycle write. Entering `needs-attention` or `awaiting-merge` must declare its attention,
@@ -62,14 +77,26 @@ export type CycleChanges = CycleFieldChanges &
         readonly end?: undefined;
       }
     | { readonly status: 'paused'; readonly attention?: CycleAttention; readonly end?: undefined }
+    | { readonly status: 'stopped'; readonly end: EndIn<'stopped'>; readonly attention?: undefined }
     | {
-        readonly status: 'stopped' | 'completed';
-        readonly end: CycleEndCode;
+        readonly status: 'completed';
+        readonly end: EndIn<'completed'>;
         readonly attention?: undefined;
       }
     | { readonly status?: 'running'; readonly attention?: undefined; readonly end?: undefined }
     | { readonly status?: undefined; readonly attention: CycleAttention; readonly end?: undefined }
   );
+
+/**
+ * Undoing a reservation (R-B7): the status and the stop record the reservation replaced, put back
+ * as stored, its `since` or `at` included.
+ */
+export type CycleRestore = Omit<CycleFieldChanges, 'restore'> & {
+  readonly status: Status;
+  readonly restore: CycleStop | undefined;
+  readonly attention?: undefined;
+  readonly end?: undefined;
+};
 
 /** A status's allowed next statuses, and what it may carry. */
 interface StatusRule {
@@ -131,7 +158,7 @@ export function checkTransition(
           : carried === 'ended'
             ? kind === 'ended'
             : kind === undefined || kind === 'attention';
-  if (!fits)
+  if (!fits || (to.stop?.kind === 'ended' && END_STATUS[to.stop.code] !== to.status))
     throw new CycleTransitionError(
       `A ${to.status} cycle cannot carry ${to.stop === undefined ? 'no stop' : `the ${to.stop.kind} ${to.stop.code}`} (${action}).`,
     );

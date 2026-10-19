@@ -1,5 +1,5 @@
 {
-  "description": "The completed legacy (improvement-round) finalization and its cycle, copied read-only from the live database on 2026-09-25 (R-B10). It must stay readable and renderable after the legacy controller branches are removed. Its cycle is in the shape migration 0047 stores (R-B4b): the retired fields in `retiredFinalization`, the step's own in `attempt`, and its end record, `integrated` at its last write.",
+  "description": "The completed legacy (improvement-round) finalization and its cycle, copied read-only from the live database on 2026-09-25 (R-B10). It must stay readable and renderable after the legacy controller branches are removed. Its cycle was since reshaped by hand into the shape migration 0047 writes (R-B4b): the retired fields under `retiredFinalization`, the step's own under `attempt`, and an end record, `integrated` at its `updatedAt` (it has no audit rows here); nothing else in it changed.",
   "finalization": {
     "id": "5ab4d7a5-ccdf-4d38-9b15-0081cf8332b2",
     "workspaceId": "6bf6915a-6cd0-47cc-b853-fcbc04f02f3d",

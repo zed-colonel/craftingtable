@@ -3,6 +3,7 @@ import {
   asMergeOperationId,
   asRoadmapId,
   asRoadmapWindDownId,
+  cycleEnd,
   type Roadmap,
   WIND_DOWN_STEPS,
 } from '@craftingtable/domain';
@@ -84,8 +85,11 @@ describe('settling a roadmap (R-B11)', () => {
     expect(roadmap.reason).toBe(
       'Roadmap stopped. Existing worktrees remain available for manual work.',
     );
-    for (const attempt of [first, third])
+    for (const attempt of [first, third]) {
       expect(cycleOf(state, attempt.cycleId).status).toBe('stopped');
+      // The end it records (R-B4b increment 2 review, MEDIUM-2).
+      expect(cycleEnd(cycleOf(state, attempt.cycleId))).toBe('roadmap-wound-down');
+    }
     // The held design run was ended with its cycle.
     await stepDaemon(state.context.services);
     expect(

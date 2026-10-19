@@ -41,7 +41,12 @@ import {
 } from '../errors.js';
 import { finalizationForCycle } from '../finalization-policy.js';
 import { reviewCapture } from '../review-capture.js';
-import { type CycleChanges, type CycleFieldChanges, checkTransition } from './core/transitions.js';
+import {
+  type CycleChanges,
+  type CycleFieldChanges,
+  type CycleRestore,
+  checkTransition,
+} from './core/transitions.js';
 import { drainInterrupted } from '../restart-resume.js';
 import { workflowContext } from '../workflow-policy.js';
 import type { WorkspaceEventNotifier } from '../workspace-event-notifier.js';
@@ -93,7 +98,7 @@ export class CycleWriter {
 
   change(
     cycle: WorkCycle,
-    input: CycleChanges,
+    input: CycleChanges | CycleRestore,
     action = 'advance',
     context?: CommandContext,
   ): WorkCycle {
@@ -106,12 +111,18 @@ export class CycleWriter {
       attempt: declaredAttempt,
       waits: waitChanges,
       keepAttempt,
+      restore,
       ...fields
     } = input;
+    // Undoing a reservation puts back the stop record it replaced, its `since` or `at` included.
+    const restoring = 'restore' in input;
     const nextStatus = fields.status ?? cycle.status;
     const at = this.now().toISOString();
-    let attention =
-      ATTENTION_STATUSES.has(nextStatus) || (nextStatus === 'paused' && cycle.status === 'paused')
+    let attention = restoring
+      ? restore?.kind === 'ended'
+        ? undefined
+        : restore
+      : ATTENTION_STATUSES.has(nextStatus) || (nextStatus === 'paused' && cycle.status === 'paused')
         ? (declared ?? heldStop(cycle))
         : nextStatus === 'paused'
           ? declared
@@ -124,20 +135,22 @@ export class CycleWriter {
           currentCycleAttention(this.storage, {
             ...cycle,
             ...fields,
-            stop: this.stopFor(cycle, declared, at),
+            stop: this.stopFor(cycle, declared, nextStatus, at),
           }) ?? declared;
       } catch {
         attention = declared;
       }
-    const stop: CycleStop | undefined = attention
-      ? this.stopFor(cycle, attention, at)
-      : nextStatus === 'stopped' || nextStatus === 'completed'
-        ? end
-          ? { kind: 'ended', code: end, at }
-          : nextStatus === cycle.status
-            ? cycle.stop
-            : undefined
-        : undefined;
+    const stop: CycleStop | undefined = restoring
+      ? restore
+      : attention
+        ? this.stopFor(cycle, attention, nextStatus, at)
+        : nextStatus === 'stopped' || nextStatus === 'completed'
+          ? end
+            ? { kind: 'ended', code: end, at }
+            : nextStatus === cycle.status
+              ? cycle.stop
+              : undefined
+          : undefined;
     // A step attempt belongs to its run (R-B4 decision 6): a write that reserves another run
     // writes the attempt it declares and nothing of the last one, unless it carries the attempt
     // on (`keepAttempt`); any other write changes only the attempt fields it names.
@@ -249,12 +262,20 @@ export class CycleWriter {
 
   /**
    * The stop record for a stop a write declares or keeps: a gate exactly when its code is one of
-   * the merge boundary's, beginning now unless the cycle already holds a stop of the same code
-   * (refreshed, paused at, or resumed to), whose start it keeps.
+   * the merge boundary's. Its `since` is when the cycle entered the status that carries it, as
+   * migration 0047 reads it from the audit (R-B4b): a write that keeps the status keeps it, its
+   * code changed or refreshed, and so does a pause taken at the stop; entering the status again
+   * (a resume to the stop) begins it now.
    */
-  private stopFor(cycle: WorkCycle, attention: CycleAttention, at: string): CycleStop {
+  private stopFor(
+    cycle: WorkCycle,
+    attention: CycleAttention,
+    nextStatus: WorkCycle['status'],
+    at: string,
+  ): CycleStop {
     const held = cycle.stop?.kind === 'ended' ? undefined : cycle.stop;
-    return stopRecord(attention, held && held.code === attention.code ? held.since : at);
+    const kept = held && (nextStatus === cycle.status || nextStatus === 'paused');
+    return stopRecord(attention, kept ? held.since : at);
   }
 
   record(

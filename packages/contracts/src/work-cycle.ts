@@ -465,7 +465,8 @@ export const workCycleSchema = z
       cycle.workItemId !== undefined
         ? cycle.planVersionId === undefined &&
           cycle.finalizationId === undefined &&
-          cycle.retiredFinalization === undefined &&
+          // As before R-B4b: deferred nits are a finalization's; a polish round was never refused.
+          cycle.retiredFinalization?.deferredNits === undefined &&
           cycle.findingFocus === undefined &&
           cycle.finalizationAgentOverride === undefined &&
           cycle.finalizationProgress === undefined

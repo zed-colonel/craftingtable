@@ -1,4 +1,4 @@
-import { asMapAmendmentId, type WorkCycle } from '@craftingtable/domain';
+import { asMapAmendmentId, cycleEnd, type WorkCycle } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import {
   cleanupExecutionFixtures,
@@ -18,8 +18,10 @@ import {
 
 /**
  * R-B4b's characterization (increment 1): the audit action each way a cycle ends writes, from
- * which migration 0047 gives a cycle that ended before end codes its code (R-B4 decision 7). The
- * wind-down's `roadmap-wound-down` is pinned in `roadmap-wind-down.test.ts`.
+ * which migration 0047 gives a cycle that ended before end codes its code (R-B4 decision 7), and
+ * the end code the daemon itself now records (increment 2 review, MEDIUM-2). The wind-down's
+ * `roadmap-wound-down` is pinned in `roadmap-wind-down.test.ts`, a completion by scope evidence in
+ * `server-execution-scope-evidence.test.ts`.
  */
 
 afterEach(cleanupExecutionFixtures);
@@ -50,6 +52,7 @@ it("the operator's stop enters stopped by stop", async () => {
   const { state, cycle } = await designStop();
   await controlCycle(state, currentCycle(state, cycle), 'stop');
   expect(entered(state, cycle).at(-1)).toEqual(['stop', 'stopped']);
+  expect(cycleEnd(currentCycle(state, cycle))).toBe('operator-stopped');
 });
 
 it("an amendment's retirement enters stopped by amendment-retired", async () => {
@@ -61,6 +64,7 @@ it("an amendment's retirement enters stopped by amendment-retired", async () => 
     asMapAmendmentId('6a1f0c5e-0000-4000-8000-0000000000aa'),
   );
   expect(entered(state, cycle).at(-1)).toEqual(['amendment-retired', 'stopped']);
+  expect(cycleEnd(currentCycle(state, cycle))).toBe('amendment-retired');
 });
 
 it('an integrated cycle enters completed by advance', async () => {
@@ -80,4 +84,5 @@ it('an integrated cycle enters completed by advance', async () => {
   await waitFor(() => currentCycle(state, cycle).status === 'completed', 'the completion');
   expect(currentCycle(state, cycle).reason).toBe('Worktree integrated; cycle complete.');
   expect(entered(state, cycle).at(-1)).toEqual(['advance', 'completed']);
+  expect(cycleEnd(currentCycle(state, cycle))).toBe('integrated');
 });

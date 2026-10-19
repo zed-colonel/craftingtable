@@ -252,3 +252,24 @@ it("reads an investigation recorded before the worktree check, and validates the
   ])
     expect(investigation.safeParse(invalid).success).toBe(false);
 });
+
+it("holds a stop record's kind to its code, and an end to its codes (R-B4b)", () => {
+  const stop = workCycleSchema.shape.stop.unwrap();
+  const since = '2026-10-18T10:00:00.000Z';
+  const valid = (value: unknown) => stop.safeParse(value).success;
+  expect(valid({ kind: 'attention', code: 'step-incomplete', owner: 'operator', since })).toBe(
+    true,
+  );
+  expect(valid({ kind: 'gate', code: 'merge-approval', owner: 'operator', since })).toBe(true);
+  expect(valid({ kind: 'ended', code: 'integrated', at: since })).toBe(true);
+  // A gate is a gate exactly when its code is one of the merge boundary's.
+  expect(valid({ kind: 'attention', code: 'merge-approval', owner: 'operator', since })).toBe(
+    false,
+  );
+  expect(valid({ kind: 'gate', code: 'step-incomplete', owner: 'operator', since })).toBe(false);
+  // A stop records when it began; an end, when and how the cycle ended.
+  expect(valid({ kind: 'attention', code: 'step-incomplete', owner: 'operator' })).toBe(false);
+  expect(valid({ kind: 'ended', code: 'abandoned', at: since })).toBe(false);
+  expect(valid({ kind: 'ended', code: 'integrated', since })).toBe(false);
+  expect(valid({ kind: 'ended', code: 'integrated' })).toBe(false);
+});

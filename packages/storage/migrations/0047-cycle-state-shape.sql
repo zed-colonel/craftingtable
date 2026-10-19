@@ -45,11 +45,35 @@ CREATE TEMP TABLE m0047_before AS SELECT
   (SELECT COUNT(*) FROM work_cycles WHERE
      json_type(state_json, '$.polishRound') IS NOT NULL
      OR json_type(state_json, '$.deferredNits') IS NOT NULL) AS retired,
+  -- Each moved field, so a value dropped on the way (`''`, `0` and `null` included) fails.
+  (SELECT COUNT(*) FROM work_cycles WHERE json_type(state_json, '$.stepGuidance') IS NOT NULL)
+    AS step_guidance,
+  (SELECT COUNT(*) FROM work_cycles
+     WHERE json_type(state_json, '$.housekeepingInstructions') IS NOT NULL) AS housekeeping,
+  (SELECT COUNT(*) FROM work_cycles
+     WHERE json_type(state_json, '$.resultContinuations') IS NOT NULL) AS continuations,
+  (SELECT COUNT(*) FROM work_cycles WHERE json_type(state_json, '$.outputRepair') IS NOT NULL)
+    AS output_repair,
+  (SELECT COUNT(*) FROM work_cycles WHERE json_type(state_json, '$.providerRecovery') IS NOT NULL)
+    AS provider_recovery,
+  (SELECT COUNT(*) FROM work_cycles WHERE json_type(state_json, '$.polishRound') IS NOT NULL)
+    AS polish_round,
+  (SELECT COUNT(*) FROM work_cycles WHERE json_type(state_json, '$.deferredNits') IS NOT NULL)
+    AS deferred_nits,
+  -- The stops a pause kept.
+  (SELECT COUNT(*) FROM work_cycles WHERE status = 'paused'
+     AND json_type(state_json, '$.attention') IS NOT NULL) AS kept,
   (SELECT COUNT(*) FROM work_cycles, json_each(work_cycles.state_json, '$.phaseWait.blockers'))
     AS blockers,
   (SELECT COUNT(*) FROM work_cycles WHERE json_type(state_json, '$.attention') IS NOT NULL
      AND status IN ('running', 'stopped', 'completed')) AS stray,
   (SELECT COUNT(*) FROM roadmaps) AS roadmaps;
+
+-- Each stored stop's code, which the rewrite must keep.
+CREATE TEMP TABLE m0047_codes AS
+SELECT id, state_json ->> '$.attention.code' AS code FROM work_cycles
+WHERE status IN ('needs-attention', 'awaiting-merge', 'paused')
+  AND state_json ->> '$.attention.code' IS NOT NULL;
 
 -- The audit rows that changed each cycle's status, the insert's included.
 CREATE TEMP TABLE m0047_entered AS
@@ -137,8 +161,9 @@ WITH cycles AS (
                  WHEN 'stop' THEN 'operator-stopped'
                  WHEN 'roadmap-wound-down' THEN 'roadmap-wound-down'
                  WHEN 'amendment-retired' THEN 'amendment-retired' END
+        -- The row that entered `stopped`, which `at` reads too (it is terminal: there is one).
         FROM m0047_entered e WHERE e.cycle_id = work_cycles.id AND e.status = 'stopped'
-        ORDER BY e.sequence LIMIT 1)
+        ORDER BY e.sequence DESC LIMIT 1)
       WHEN status = 'completed' THEN CASE
         WHEN json_type(state_json, '$.executionScope') = 'object'
           AND state_json ->> '$.executionScope.kind' <> 'slice'
@@ -188,7 +213,8 @@ blockers AS (
 ),
 keyed AS (
   -- A resource blocker stored before its key: `^Waiting for (\S+):`, the run of non-space
-  -- characters after the prefix, up to its last colon.
+  -- characters after the prefix, up to its last colon. The daemon wrote these messages with an
+  -- ASCII space after the key, so the split on ' ' is the regex's on every stored message.
   SELECT id, position, blocker,
     CASE WHEN blocker ->> '$.code' = 'resource-busy'
            AND json_type(blocker, '$.refs.resourceKey') IS NULL
@@ -207,8 +233,8 @@ phase AS (
         THEN json_set(blocker, '$.refs.resourceKey',
           substr(rtrim(token, replace(token, ':', '')), 1,
                  length(rtrim(token, replace(token, ':', ''))) - 1))
-      ELSE blocker END)) AS blockers
-  FROM (SELECT * FROM keyed ORDER BY id, position)
+      ELSE blocker END) ORDER BY position) AS blockers
+  FROM keyed
   GROUP BY id
 )
 SELECT c.id,
@@ -219,6 +245,8 @@ SELECT c.id,
              coalesce((SELECT e.occurred_at FROM m0047_entered e WHERE e.cycle_id = c.id
                          AND e.status = c.status ORDER BY e.sequence DESC LIMIT 1),
                       c.s ->> '$.updatedAt')) END
+    -- `json_patch` would drop a null member, which the contract never let a stop hold; the
+    -- `stop-codes` and `stops` checkpoints hold the code and `since` it must keep.
     WHEN a.attention IS NOT NULL THEN json_patch(
       json_object('kind', CASE WHEN a.attention ->> '$.code' IN ('merge-approval',
           'merge-requirements', 'final-promotion', 'record-scope-evidence', 'controller-wait',
@@ -251,7 +279,8 @@ FROM cycles c
 LEFT JOIN attentions a ON a.id = c.id
 LEFT JOIN phase p ON p.id = c.id;
 
--- A stopped cycle whose end this mapping does not know fails the migration (see above).
+-- A stopped cycle whose end this mapping does not know fails the migration (see above). The
+-- `stops` checkpoint would refuse it too; this one names the case.
 INSERT INTO migration_0047_guard (checkpoint, ok)
 SELECT 'every-end-known', CASE WHEN (SELECT COUNT(*) FROM m0047_parts WHERE unmapped) = 0
   THEN 1 ELSE 0 END;
@@ -308,15 +337,25 @@ SELECT 'cycles', CASE WHEN
 INSERT INTO migration_0047_guard (checkpoint, ok)
 SELECT 'stops', CASE WHEN NOT EXISTS (SELECT 1 FROM work_cycles WHERE CASE status
       WHEN 'needs-attention' THEN state_json ->> '$.stop.kind' IS NOT 'attention'
-        OR state_json ->> '$.stop.code' IS NULL
+        OR state_json ->> '$.stop.code' IS NULL OR json_type(state_json, '$.stop.since') IS NOT 'text'
       WHEN 'awaiting-merge' THEN state_json ->> '$.stop.kind' IS NOT 'gate'
-        OR state_json ->> '$.stop.code' IS NULL
+        OR state_json ->> '$.stop.code' IS NULL OR json_type(state_json, '$.stop.since') IS NOT 'text'
       WHEN 'paused' THEN json_type(state_json, '$.stop') IS NOT NULL
         AND (state_json ->> '$.stop.kind' IS NOT 'attention'
-          OR state_json ->> '$.stop.code' IS NULL)
+          OR state_json ->> '$.stop.code' IS NULL
+          OR json_type(state_json, '$.stop.since') IS NOT 'text')
       WHEN 'running' THEN json_type(state_json, '$.stop') IS NOT NULL
       ELSE state_json ->> '$.stop.kind' IS NOT 'ended' OR state_json ->> '$.stop.code' IS NULL
         OR state_json ->> '$.stop.at' IS NULL END)
+  THEN 1 ELSE 0 END;
+
+-- Every stored code kept, and every stop a pause kept still held.
+INSERT INTO migration_0047_guard (checkpoint, ok)
+SELECT 'stop-codes', CASE WHEN
+    NOT EXISTS (SELECT 1 FROM m0047_codes c JOIN work_cycles w ON w.id = c.id
+      WHERE w.state_json ->> '$.stop.code' IS NOT c.code)
+    AND (SELECT COUNT(*) FROM work_cycles WHERE status = 'paused'
+         AND json_type(state_json, '$.stop') IS NOT NULL) = (SELECT kept FROM m0047_before)
   THEN 1 ELSE 0 END;
 
 INSERT INTO migration_0047_guard (checkpoint, ok)
@@ -330,6 +369,27 @@ SELECT 'waits-attempts-retired', CASE WHEN
     AND (SELECT COUNT(*) FROM work_cycles
          WHERE json_type(state_json, '$.retiredFinalization') = 'object')
       = (SELECT retired FROM m0047_before)
+    AND (SELECT COUNT(*) FROM work_cycles
+         WHERE json_type(state_json, '$.attempt.stepGuidance') IS NOT NULL)
+      = (SELECT step_guidance FROM m0047_before)
+    AND (SELECT COUNT(*) FROM work_cycles
+         WHERE json_type(state_json, '$.attempt.housekeepingInstructions') IS NOT NULL)
+      = (SELECT housekeeping FROM m0047_before)
+    AND (SELECT COUNT(*) FROM work_cycles
+         WHERE json_type(state_json, '$.attempt.resultContinuations') IS NOT NULL)
+      = (SELECT continuations FROM m0047_before)
+    AND (SELECT COUNT(*) FROM work_cycles
+         WHERE json_type(state_json, '$.attempt.outputRepair') IS NOT NULL)
+      = (SELECT output_repair FROM m0047_before)
+    AND (SELECT COUNT(*) FROM work_cycles
+         WHERE json_type(state_json, '$.attempt.providerRecovery') IS NOT NULL)
+      = (SELECT provider_recovery FROM m0047_before)
+    AND (SELECT COUNT(*) FROM work_cycles
+         WHERE json_type(state_json, '$.retiredFinalization.polishRound') IS NOT NULL)
+      = (SELECT polish_round FROM m0047_before)
+    AND (SELECT COUNT(*) FROM work_cycles
+         WHERE json_type(state_json, '$.retiredFinalization.deferredNits') IS NOT NULL)
+      = (SELECT deferred_nits FROM m0047_before)
     AND (SELECT COUNT(*) FROM work_cycles, json_each(work_cycles.state_json, '$.waits.phase.blockers'))
       = (SELECT blockers FROM m0047_before)
     AND NOT EXISTS (SELECT 1 FROM work_cycles, json_each(work_cycles.state_json, '$.waits.phase.blockers') b
@@ -358,6 +418,7 @@ INSERT INTO stored_vocabulary (kind, value, introduced_in_schema) VALUES
   ('cycle-end', 'integrated', 47),
   ('cycle-end', 'scope-evidence-recorded', 47);
 
+DROP TABLE m0047_codes;
 DROP TABLE m0047_parts;
 DROP TABLE m0047_entered;
 DROP TABLE m0047_before;

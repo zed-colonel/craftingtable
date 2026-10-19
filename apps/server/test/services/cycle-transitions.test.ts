@@ -18,7 +18,13 @@ const at = (status: WorkCycle['status'], code?: Parameters<typeof cycleAttention
   ({
     status,
     ...(status === 'stopped' || status === 'completed'
-      ? { stop: { kind: 'ended', code: 'operator-stopped', at: T } }
+      ? {
+          stop: {
+            kind: 'ended',
+            code: status === 'stopped' ? 'operator-stopped' : 'integrated',
+            at: T,
+          },
+        }
       : code
         ? { stop: stopRecord(cycleAttention(code), T) }
         : {}),
@@ -143,6 +149,22 @@ describe('CYCLE_TRANSITIONS', () => {
       at('awaiting-merge'),
       at('needs-attention'),
       'advance',
+    ],
+    // An end's code names the status it ends in (R-B4b increment 2 review, MEDIUM-2).
+    [
+      'a completion does not record a stop',
+      at('running'),
+      {
+        status: 'completed',
+        stop: { kind: 'ended', code: 'operator-stopped', at: T },
+      } as WorkCycle,
+      'advance',
+    ],
+    [
+      'a stop does not record a completion',
+      at('running'),
+      { status: 'stopped', stop: { kind: 'ended', code: 'integrated', at: T } } as WorkCycle,
+      'stop',
     ],
   ] as const)('refuses: %s', (_name, from, to, action) =>
     expect(() => checkTransition(from, to, action)).toThrow(CycleTransitionError),

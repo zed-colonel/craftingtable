@@ -605,14 +605,15 @@ const actorRows: readonly {
     expected: { kind: 'write', changes: { status: 'running', integrationRefreshes: 2 } },
   },
   {
-    name: 'an undone reservation restores the stop',
+    // The stop record itself, its start included (R-B4b increment 2 review, LOW-2).
+    name: 'an undone reservation restores the stop as stored',
     run: () => restoredStatus(cycleOf()),
-    expected: { status: 'needs-attention', attention: { code: 'step-incomplete' } },
+    expected: { status: 'needs-attention', restore: cycleOf().stop },
   },
   {
     name: 'an undone reservation restores a status without a stop',
     run: () => restoredStatus(cycleOf({ status: 'running', stop: undefined })),
-    expected: { status: 'running' },
+    expected: { status: 'running', restore: undefined },
   },
   {
     name: 'a completed independent review is reviewed again',

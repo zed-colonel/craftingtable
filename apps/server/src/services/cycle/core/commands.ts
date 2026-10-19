@@ -11,12 +11,10 @@ import {
   resumeRedirect,
   type SourceRepositoryId,
   type WorkCycle,
-  cycleEnd,
   cycleStop,
   heldStop,
-  required,
 } from '@craftingtable/domain';
-import type { CycleChanges } from './transitions.js';
+import type { CycleChanges, CycleRestore } from './transitions.js';
 
 /**
  * The operator's cycle commands through the core (R-B4 increment 6). `decideCommand` decides
@@ -511,15 +509,8 @@ export function resumeAtRoundLimit(
 export const NO_WRITE = { kind: 'none' } as const;
 
 /** Puts a cycle back in the status (and stop) it had before an undone reservation. */
-export function restoredStatus(cycle: WorkCycle): CycleChanges {
-  if (cycle.status === 'stopped' || cycle.status === 'completed')
-    return { status: cycle.status, end: required(cycleEnd(cycle), "the cycle's end record") };
-  if (cycle.status !== 'needs-attention' && cycle.status !== 'awaiting-merge')
-    return { status: cycle.status };
-  return {
-    status: cycle.status,
-    attention: required(cycleStop(cycle), "the cycle's stop"),
-  };
+export function restoredStatus(cycle: WorkCycle): CycleRestore {
+  return { status: cycle.status, restore: cycle.stop };
 }
 
 /** A roadmap's wind-down stops its cycle (R-B11), unless a merge or a resolution is its own. */

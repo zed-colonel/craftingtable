@@ -77,6 +77,8 @@ export class IntegrationHeldError extends ExecutionRequestError {
 export class BranchService {
   private readonly saving = new Set<string>();
   private readonly mergingRepositories = new Set<string>();
+  /** Told when a repository's merge lane is released (R-B5): see `duringMerge`. */
+  onRelease: (() => void) | undefined;
   constructor(
     private readonly storage: CraftingTableStorage,
     private readonly workspaceService: WorkspaceService,
@@ -1027,6 +1029,8 @@ export class BranchService {
       return await operation();
     } finally {
       this.mergingRepositories.delete(repositoryPath);
+      // A cycle that woke on the merge's own notification found the repository busy (R-B5).
+      this.onRelease?.();
     }
   }
 

@@ -37,6 +37,13 @@ import type { ExecutionService } from './execution-service.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { cycleOwnership } from './cycle-ownership.js';
 import { cycleFacts, type KernelFacts } from './cycle/core/facts.js';
+import { nextLook } from './cycle/core/next-look.js';
+import {
+  ControllerKernel,
+  type KernelClock,
+  type Marked,
+  systemClock,
+} from './kernel/controller-kernel.js';
 import {
   decideRestart,
   guidedRemediationRefused,
@@ -109,8 +116,13 @@ export class WorkCycleService {
     baselines: BaselinePreparationService,
     execution: ExecutionService,
     runtimeEvidence: RuntimeEvidenceService,
+    clock: KernelClock = systemClock(now),
   ) {
-    this.locks = new CycleLocks(notifier);
+    this.kernel = new ControllerKernel(clock);
+    // Every workflow notification marks every active cycle, as the one-second loop's wake re-ran
+    // the whole pass (R-B5, decision 2); so does a hold's release, for its cycle.
+    notifier.onWorkflow(() => this.kernel.mark('workflow'));
+    this.locks = new CycleLocks(notifier, (id) => this.kernel.mark('release', [id]));
     this.writer = new CycleWriter(
       storage,
       workspaceService,
@@ -230,6 +242,7 @@ export class WorkCycleService {
       this.starts,
     );
   }
+  private readonly kernel: ControllerKernel;
   private readonly locks: CycleLocks;
   private readonly writer: CycleWriter;
   private readonly gates: CycleGates;
@@ -688,9 +701,20 @@ export class WorkCycleService {
     this.passes = passes;
   }
   private passes: import('./attention-gates.js').ControllerPasses | undefined;
+
+  /**
+   * Marks every active cycle for a look (R-B5): a committed write, or the release of a lock outside
+   * the cycle (a repository's merge lane, a worktree's guard) that a cycle may have idled on.
+   */
+  wake(cause: string): void {
+    this.kernel.mark(cause);
+  }
+
   startWorker(): void {
     if (this.task !== undefined) return;
-    this.passes?.register('cycles');
+    // Idle when nothing is marked and no round runs: it has had its chance (R-B5).
+    this.passes?.register('cycles', () => !this.kernel.pending() && this.passing === undefined);
+    this.kernel.start();
     this.task = this.loop();
   }
   /**
@@ -699,30 +723,39 @@ export class WorkCycleService {
    */
   async shutdown(): Promise<void> {
     this.locks.stop();
+    this.kernel.stop();
     this.passes?.unregister('cycles');
     await this.task;
   }
+  /**
+   * The controller (R-B5): a round over the cycles marked since the last, then a wait for the next
+   * mark (a write, a notification, a hold released, a due time, the sweep). The first round looks
+   * at every active cycle, as the loop's first pass did.
+   */
   private async loop(): Promise<void> {
+    this.kernel.mark('start');
     while (!this.locks.stopping()) {
-      const generation = this.notifier.workflowGeneration;
-      await this.tick();
-      await this.notifier.waitForChangeOrTimeout({
-        channel: 'workflow',
-        generation,
-        timeoutMs: 1000,
-        signal: this.locks.signal,
-      });
+      const marked = this.kernel.take();
+      if (marked === undefined) {
+        await this.kernel.marked(this.locks.signal);
+        continue;
+      }
+      await this.round(marked);
     }
   }
 
   /**
    * One controller pass over every cycle, serialized with the worker loop. Tests step the
-   * controller with it instead of waiting on wall-clock time (R-B2).
+   * controller with it instead of waiting on wall-clock time (R-B2); it stays one round over
+   * every active cycle, its decisions applied in turn (R-B5 design review H-1).
    */
-  async tick(): Promise<void> {
+  tick(): Promise<void> {
+    return this.round('all');
+  }
+  private async round(marked: Marked): Promise<void> {
     while (this.passing) await this.passing;
     const started = this.passes?.started();
-    this.passing = this.pass().finally(() => {
+    this.passing = this.pass(marked).finally(() => {
       this.passing = undefined;
       // A pass that failed still gave automation its chance; pushes do not wait on it.
       if (started !== undefined) this.passes?.completed('cycles', started);
@@ -743,7 +776,7 @@ export class WorkCycleService {
       if (ATTENTION_STATUSES.has(cycle.status)) this.writer.refreshAttention(cycle);
   }
 
-  private async pass(): Promise<void> {
+  private async pass(marked: Marked = 'all'): Promise<void> {
     // Attention depends only on stored state, so refresh it when that state has changed.
     if (this.notifier.workflowGeneration !== this.attentionGeneration) this.declareAttention();
     const snapshot = mapReadSnapshot(this.storage);
@@ -751,8 +784,11 @@ export class WorkCycleService {
     const settling = new Set<string>(
       this.storage.windDowns.settling().map((record) => record.roadmapId),
     );
+    const active = this.storage.execution.cycles.listActive();
+    // An ended cycle needs no look of its own any more (R-B5).
+    if (marked === 'all') this.kernel.keepDue(new Set(active.map((cycle) => cycle.id)));
     for (const cycle of prioritizeRoadmapCycles(
-      this.storage.execution.cycles.listActive(),
+      marked === 'all' ? active : active.filter((cycle) => marked.has(cycle.id)),
       (cycle) => cycleOwnership(snapshot, cycle),
     )) {
       if (this.locks.stopping()) break;
@@ -783,6 +819,8 @@ export class WorkCycleService {
       // Only contention and an unexpected exception reach here (R-B4): every expected refusal
       // was decided where it was met.
       const failure = decideFailure(error);
+      // Contention is retried a second later, as the next pass of the one-second loop did (R-B5).
+      if (failure.kind === 'retry') this.kernel.dueAt(cycle.id, this.now().getTime() + 1000);
       // Recorded in the step history as the pass's own stop (R-B4 decision 9), as a refusal is.
       if (failure.kind !== 'retry')
         await this.writer.decided(
@@ -838,6 +876,16 @@ export class WorkCycleService {
       const { kind, code } = decisionSummary(decided);
       await this.writer.decided({ kind, guard: decided.guard, code }, () =>
         this.apply(cycle, decided),
+      );
+      // When the cycle next needs a look by itself, from what was decided (R-B5).
+      this.kernel.dueAt(
+        cycle.id,
+        nextLook(
+          cycle,
+          decided,
+          { restoredCheckedAt: (id) => this.locks.restoredChecks.get(id) },
+          this.now(),
+        ),
       );
     } catch (error) {
       met.guard = decision?.guard ?? guard;

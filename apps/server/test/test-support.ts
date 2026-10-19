@@ -86,6 +86,8 @@ export async function createTestContext(
     readonly workers?: boolean;
     /** False skips the cleanup's record check, for tests that store invalid rows on purpose. */
     readonly verifyRecords?: boolean;
+    /** The controller kernel's clock and timers (R-B5): a test's `ManualClock`. */
+    readonly kernelClock?: import('../src/services/kernel/controller-kernel.js').KernelClock;
   } = {},
 ): Promise<TestContext> {
   const directory = mkdtempSync(join(testDataRoot(), 'craftingtable-server-test-'));
@@ -134,6 +136,7 @@ export async function createTestContext(
         gitOperations: options.gitOperations === undefined ? null : options.gitOperations,
         agentBackends: options.agentBackends ?? new Map(),
         ...(options.runLog === undefined ? {} : { runLog: options.runLog }),
+        ...(options.kernelClock === undefined ? {} : { kernelClock: options.kernelClock }),
       },
       server: {
         ...(options.loggerStream === undefined

@@ -26,6 +26,8 @@ import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { FastifyInstance } from 'fastify';
 import type { ServerConfig } from './config.js';
 import { openDaemonStorage } from './persisted-records.js';
+import type { KernelClock } from './services/kernel/controller-kernel.js';
+import { writeMarks } from './services/kernel/write-marks.js';
 import { CredentialFile } from './security/credential-file.js';
 import { Argon2PasswordHasher, type PasswordHasher } from './security/password-hasher.js';
 import { SessionTokenService } from './security/session-tokens.js';
@@ -145,6 +147,8 @@ export interface ServiceOverrides {
   readonly restartRecovery?: false;
   /** Test seam: how long recovery lets a surviving agent group end on SIGTERM (R-G11). */
   readonly recoveryTerminationGraceMs?: number;
+  /** Test seam: the controller kernel's clock and timers (R-B5), the daemon's `now` by default. */
+  readonly kernelClock?: KernelClock;
 }
 
 function privateDirectory(path: string): string {
@@ -392,8 +396,14 @@ export async function createServices(
     baselineService,
     executionService,
     runtimeEvidenceService,
+    overrides.kernelClock,
   );
   workCycleService.attachPasses(controllerPasses);
+  // What wakes the cycle controller besides notifications (R-B5, decision 2): every committed
+  // write that is not only quiet, and the release of a worktree or of a repository's merge lane.
+  storage.observeWrites(writeMarks(() => workCycleService.wake('write')));
+  worktreeMutations.onRelease = () => workCycleService.wake('release');
+  executionService.branches.onRelease = () => workCycleService.wake('release');
   if (recovering) workCycleService.recoverInterrupted({ cleanStop });
   const roadmapService = new RoadmapService(
     storage,

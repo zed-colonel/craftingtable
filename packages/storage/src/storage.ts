@@ -92,10 +92,11 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   private readonly definitions = new DefinitionCache();
   /** The runs whose journal says how they ended, extended as the journal grows (R-B5). */
   private readonly exited = new ExitedRuns();
-  private observer: WriteObserver | undefined;
+  /** The write observers, in the order installed: the attention projection, then the controller's marks (R-B5). */
+  private readonly observers: WriteObserver[] = [];
   private depth = 0;
   private committed = 0;
-  /** Every write passes the contract guard, then the observer sees it. */
+  /** Every write passes the contract guard, then the observers see it. */
   private readonly guard: RecordGuard;
 
   constructor(
@@ -106,7 +107,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   ) {
     this.guard = (kind, record) => {
       contractGuard(kind, record);
-      this.observer?.written(kind, record);
+      for (const observer of this.observers) observer.written(kind, record);
     };
     const repos = repositories(database, this.guard, this.definitions, this.exited);
     this.amendments = repos.amendments;
@@ -130,7 +131,7 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
   }
 
   observeWrites(observer: WriteObserver): void {
-    this.observer = observer;
+    this.observers.push(observer);
   }
 
   get commits(): number {
@@ -147,17 +148,17 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
         .transaction(() => {
           const tx = repositories(this.database, this.guard, this.definitions, this.exited);
           const value = operation(tx);
-          if (outermost) this.observer?.beforeCommit(tx);
+          if (outermost) for (const observer of this.observers) observer.beforeCommit(tx);
           return value;
         })
         .immediate();
       this.definitions.commit();
       if (outermost) this.committed += 1;
-      if (outermost) this.observer?.ended(true);
+      if (outermost) for (const observer of this.observers) observer.ended(true);
       return result;
     } catch (error) {
       this.definitions.rollback();
-      if (outermost) this.observer?.ended(false);
+      if (outermost) for (const observer of this.observers) observer.ended(false);
       throw error;
     } finally {
       this.depth -= 1;

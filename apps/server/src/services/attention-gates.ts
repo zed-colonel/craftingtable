@@ -10,17 +10,21 @@ export class ControllerPasses {
   private sequence = 0;
   /** Per running worker: the start of its latest completed pass. */
   private readonly workers = new Map<string, number>();
+  /** Workers that wait for events, each with whether it has nothing to look at now (R-B5). */
+  private readonly idle = new Map<string, () => boolean>();
 
   /** The latest pass start; an item records it when it opens. */
   get current(): number {
     return this.sequence;
   }
   /** A worker's loop started; its passes gate pushes until it stops. */
-  register(worker: string): void {
+  register(worker: string, idle?: () => boolean): void {
     if (!this.workers.has(worker)) this.workers.set(worker, -1);
+    if (idle) this.idle.set(worker, idle);
   }
   unregister(worker: string): void {
     this.workers.delete(worker);
+    this.idle.delete(worker);
   }
   /** Returns the pass's start, which `completed` takes back. */
   started(): number {
@@ -33,7 +37,10 @@ export class ControllerPasses {
   }
   /** Whether every running worker has completed a pass that began after `opened`. */
   quietSince(opened: number): boolean {
-    for (const completed of this.workers.values()) if (completed <= opened) return false;
+    // A worker that waits for events and has nothing to look at has had its chance: no
+    // second-long loop will start a pass to say so (R-B5).
+    for (const [worker, completed] of this.workers)
+      if (completed <= opened && !this.idle.get(worker)?.()) return false;
     return true;
   }
 }

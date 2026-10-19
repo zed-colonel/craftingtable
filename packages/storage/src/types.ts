@@ -292,7 +292,10 @@ export interface WriteObserver {
 export interface CraftingTableStorage extends StorageRepositories {
   readonly databasePath: string;
   readonly migrationStatus: MigrationStatus;
-  /** Installs the one write observer; the daemon's attention projection. */
+  /**
+   * Adds a write observer, seen after those installed before it: the daemon's attention projection,
+   * then the controller kernel's marks (R-B5).
+   */
   observeWrites(observer: WriteObserver): void;
   transaction<T>(operation: (tx: StorageRepositories) => T): T;
   readTransaction<T>(operation: (tx: StorageRepositories) => T): T;

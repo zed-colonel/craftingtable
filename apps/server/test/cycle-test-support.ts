@@ -218,6 +218,8 @@ export async function createCycleFixture(
     /** Leaves the two items independent: no required edge from item-1 to item-2. */
     readonly independent?: boolean;
     readonly now?: () => Date;
+    /** The controller kernel's clock (R-B5); give `now` from the same clock. */
+    readonly kernelClock?: import('../src/services/kernel/controller-kernel.js').KernelClock;
   } = {},
 ): Promise<CycleFixture> {
   const backend = new HeldBackend();
@@ -228,6 +230,7 @@ export async function createCycleFixture(
     workers: options.workers ?? false,
     ...(options.env === undefined ? {} : { env: options.env }),
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.kernelClock === undefined ? {} : { kernelClock: options.kernelClock }),
   });
   contexts.push(context);
   if (options.workers) markFreeRunning(context);
@@ -347,4 +350,56 @@ export function runFinished(f: CycleFixture, id: string) {
     'run-finished',
   );
   return event?.kind === 'run-finished' ? event.payload : undefined;
+}
+
+/**
+ * A clock tests move by hand, for the daemon's `now` and the controller kernel's timers (R-B5):
+ * a timer fires only when `advance` passes its time, so nothing but a mark wakes the kernel
+ * meanwhile (no sweep, no due time), and a test can tell which mark did. Timers run on their own
+ * monotonic time, as Node's do; `step` moves only the wall clock, as a clock change does.
+ */
+export class ManualClock {
+  private wall: number;
+  private monotonic = 0;
+  private readonly timers = new Map<number, { readonly at: number; readonly fire: () => void }>();
+  private next = 0;
+
+  constructor(start = Date.parse('2026-10-19T12:00:00.000Z')) {
+    this.wall = start;
+  }
+
+  readonly now = (): number => this.wall;
+  readonly date = (): Date => new Date(this.wall);
+
+  readonly setTimeout = (fire: () => void, ms: number): unknown => {
+    const handle = this.next++;
+    this.timers.set(handle, { at: this.monotonic + Math.max(0, ms), fire });
+    return handle;
+  };
+
+  readonly clearTimeout = (handle: unknown): void => {
+    this.timers.delete(handle as number);
+  };
+
+  /** Moves both clocks on, firing each timer whose time it passes, in time order. */
+  advance(ms: number): void {
+    const until = this.monotonic + ms;
+    for (;;) {
+      const due = [...this.timers.entries()]
+        .filter(([, timer]) => timer.at <= until)
+        .sort(([, a], [, b]) => a.at - b.at)[0];
+      if (!due) break;
+      this.timers.delete(due[0]);
+      this.wall += Math.max(0, due[1].at - this.monotonic);
+      this.monotonic = Math.max(this.monotonic, due[1].at);
+      due[1].fire();
+    }
+    this.wall += until - this.monotonic;
+    this.monotonic = until;
+  }
+
+  /** Steps the wall clock alone, firing nothing, as a clock set by the system would. */
+  step(ms: number): void {
+    this.wall += ms;
+  }
 }

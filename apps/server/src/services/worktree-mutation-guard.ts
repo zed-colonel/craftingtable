@@ -58,6 +58,11 @@ export class WorktreeMutationGuard {
   private readonly held = new Map<WorktreeId, number>();
   /** Worktrees where an agent process that lost supervision has not yet exited. */
   private readonly terminating = new Map<WorktreeId, number>();
+  /**
+   * Told when a worktree is released, so a controller that found it held looks again (R-B5): a
+   * cycle idles on a held worktree, and nothing else would wake it.
+   */
+  onRelease: (() => void) | undefined;
   requireAvailable(id: WorktreeId): void {
     const holder = this.busy.get(id);
     if (holder !== undefined) throw new WorktreeMutationBusyError(WORKTREE_HELD_BY[holder]);
@@ -89,6 +94,7 @@ export class WorktreeMutationGuard {
       return await operation();
     } finally {
       this.busy.delete(id);
+      this.onRelease?.();
     }
   }
   /**
@@ -102,6 +108,7 @@ export class WorktreeMutationGuard {
       const remaining = (this.held.get(id) ?? 1) - 1;
       if (remaining > 0) this.held.set(id, remaining);
       else this.held.delete(id);
+      this.onRelease?.();
     };
     // Released either way; a rejection is the launch's to report, never an unhandled one here.
     until.then(release, release);
@@ -119,6 +126,7 @@ export class WorktreeMutationGuard {
       const remaining = (this.terminating.get(id) ?? 1) - 1;
       if (remaining > 0) this.terminating.set(id, remaining);
       else this.terminating.delete(id);
+      this.onRelease?.();
     }
   }
 }

@@ -59,12 +59,6 @@ export function latestOutsideLineage(
   }
 }
 
-/** How often an open worktree change is compared with its record again (R-C16). */
-export const RESTORED_CHECK_MS = 60_000;
-
-/** How long past its deadline an unfinished investigation run is closed (R-C16 review M3). */
-export const STUCK_INVESTIGATION_MS = 2 * 60_000;
-
 /** The workspace-wide list leaves an investigation's proposals to the item's own read (PERF-05). */
 export function withoutFindings(cycle: WorkCycle): WorkCycle {
   const result = cycle.investigation?.result;

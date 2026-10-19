@@ -4,6 +4,7 @@ import { afterEach, expect, it } from 'vitest';
 import {
   type CycleFixture,
   createCycleFixture,
+  ManualClock,
   storedCycle,
   storedRun,
 } from './cycle-test-support.js';
@@ -71,13 +72,21 @@ function deadlinePassed(f: CycleFixture, cycle: WorkCycle): void {
   expect(f.context.storage.execution.cycles.replace(moved, current.version)).toBeTruthy();
 }
 
-it('finds a passed step deadline by itself, with nothing written (the one-second loop)', async () => {
-  let clock = Date.now();
-  const f = await createCycleFixture({ workers: true, now: () => new Date(clock) });
+it('finds a passed step deadline by itself, with nothing written (its due time, R-B5)', async () => {
+  // Since increment 3 the loop's one-second look is the kernel's due time: only the clock moves,
+  // and the deadline's timer marks the cycle (`controller-kernel-marks.test.ts` has the rest).
+  const clock = new ManualClock();
+  const f = await createCycleFixture({ workers: true, now: clock.date, kernelClock: clock });
   const cycle = await startCycle(f, f.worktreeId);
   await waitUntil(() => runLive(f, cycle), 'the design run is live');
-  // Only the clock moves: no write, no notification.
-  clock = Date.parse(storedCycle(f, cycle.id).runDeadlineAt) + 1000;
+  const generation = f.services.workspaceEventNotifier.workflowGeneration;
+  const deadline = Date.parse(storedCycle(f, cycle.id).runDeadlineAt);
+  clock.advance(deadline - clock.now() - 1);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  // Up to the deadline nothing is written or notified, and the cycle runs.
+  expect(f.services.workspaceEventNotifier.workflowGeneration).toBe(generation);
+  expect(storedCycle(f, cycle.id).status).toBe('running');
+  clock.advance(1000);
   await waitUntil(
     () => storedCycle(f, cycle.id).stop?.code === 'step-time-limit',
     'the deadline stop',

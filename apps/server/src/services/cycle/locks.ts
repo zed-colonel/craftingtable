@@ -29,7 +29,16 @@ export class CycleLocks {
   /** The controller worker's stop: once given, every module stops at its next check. */
   private readonly abort = new AbortController();
 
-  constructor(private readonly notifier: WorkspaceEventNotifier) {}
+  constructor(
+    private readonly notifier: WorkspaceEventNotifier,
+    /** Tells the controller a cycle it may have left alone is free again (R-B5). */
+    private readonly onRelease: (id: string) => void = () => undefined,
+  ) {}
+
+  /** A hold on the cycle ended: its integration refresh, transition or investigation (R-B5). */
+  released(id: string): void {
+    this.onRelease(id);
+  }
 
   /** Stops the controller (`WorkCycleService.shutdown`). */
   stop(): void {
@@ -63,6 +72,8 @@ export class CycleLocks {
       // Real state mutations already wake workflow workers. A transient resource
       // failure must not wake its own retry loop without a durable state change.
       this.notifier.notify('activity');
+      // The controller looks at the cycle once more, as the next loop pass did (R-B5).
+      this.released(id);
     }
   }
 }

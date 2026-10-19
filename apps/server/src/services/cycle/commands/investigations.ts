@@ -37,7 +37,7 @@ import type { WorktreeMutationGuard } from '../../worktree-mutation-guard.js';
 import type { CycleWriter } from '../writer.js';
 import type { CycleGates } from '../gates.js';
 import type { CycleLocks } from '../locks.js';
-import { RESTORED_CHECK_MS, STUCK_INVESTIGATION_MS } from '../shared.js';
+import { RESTORED_CHECK_MS, STUCK_INVESTIGATION_MS } from '../core/next-look.js';
 
 export class CycleInvestigations {
   constructor(
@@ -138,6 +138,7 @@ export class CycleInvestigations {
       );
     } catch (error) {
       this.locks.launchingInvestigations.delete(record.id);
+      this.locks.released(id);
       throw error;
     }
     const check = () => {
@@ -184,6 +185,7 @@ export class CycleInvestigations {
       throw error;
     } finally {
       this.locks.launchingInvestigations.delete(record.id);
+      this.locks.released(id);
     }
     return this.storage.execution.cycles.find(workspaceId, id) ?? updated;
   }
@@ -295,6 +297,7 @@ export class CycleInvestigations {
         change = worktreeChange(investigation.worktree, await this.investigatedTree(cycle));
       } finally {
         this.locks.settlingInvestigations.delete(investigation.id);
+        this.locks.released(cycle.id);
       }
       // The inspection awaited Git: settle what the cycle holds now.
       const reread = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);

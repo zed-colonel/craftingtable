@@ -18,6 +18,7 @@ export class WorkspaceEventNotifier {
   private currentGeneration = 0;
   private currentWorkflowGeneration = 0;
   private readonly waiters = new Set<Waiter>();
+  private readonly workflowListeners = new Set<() => void>();
 
   get generation(): number {
     return this.currentGeneration;
@@ -30,11 +31,18 @@ export class WorkspaceEventNotifier {
   notify(kind: 'workflow' | 'activity' = 'workflow'): void {
     this.currentGeneration += 1;
     if (kind === 'workflow') this.currentWorkflowGeneration += 1;
+    if (kind === 'workflow') for (const listener of this.workflowListeners) listener();
     for (const waiter of [...this.waiters]) {
       if (waiter.generation !== this.generationFor(waiter.channel)) {
         this.finish(waiter);
       }
     }
+  }
+
+  /** Called on every workflow notification: the controller kernel's mark (R-B5). */
+  onWorkflow(listener: () => void): () => void {
+    this.workflowListeners.add(listener);
+    return () => this.workflowListeners.delete(listener);
   }
 
   waitForChangeOrTimeout(options: WorkspaceEventWaitOptions): Promise<void> {

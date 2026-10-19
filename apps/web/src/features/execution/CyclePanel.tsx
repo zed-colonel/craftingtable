@@ -16,7 +16,7 @@ import {
   remediationAllowance,
   type WorktreeId,
 } from '@craftingtable/domain';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { About } from '../../components/About.js';
 import { ActionBar } from '../../components/ActionBar.js';
 import { Section } from '../../components/Section.js';
@@ -53,7 +53,13 @@ export function CyclePanel({
   onOpenRun,
   selectedWorktreeId,
   onSelectWorktree,
+  workspaceId,
 }: {
+  /**
+   * The workspace, for its default step time limit; else read from a worktree (increment 5
+   * review M-1: an item with no worktree yet still seeds the form).
+   */
+  workspaceId?: WorkspaceId;
   selectedWorktreeId?: WorktreeId;
   onSelectWorktree?: (id: WorktreeId) => void;
   /** The work item's cycles as the daemon read them: each record beside its projection. */
@@ -118,6 +124,13 @@ export function CyclePanel({
   const active = activeView?.cycle;
   const projection = activeView?.projection;
   const [policy, setPolicy] = useState(DEFAULT_COMPLETION_POLICY);
+  // The operator's own minutes are never replaced by the workspace's default arriving later
+  // (increment 5 review L-1); the rest of the policy does not count.
+  const minutesTouched = useRef(false);
+  const changePolicy = (next: typeof policy) => {
+    if (next.maxRunMinutes !== policy.maxRunMinutes) minutesTouched.current = true;
+    setPolicy(next);
+  };
   const [instructions, setInstructions] = useState('');
   // The cycle start's override (R-E5b): the operator's change for this cycle; without one it
   // starts with the daemon's workspace defaults.
@@ -409,15 +422,11 @@ export function CyclePanel({
           onToggle={(event) => {
             // The workspace's default step time limit seeds the form once it opens, unless the
             // operator changed the policy already (R-C17 part 4, decision 9).
-            const workspaceId = worktrees[0]?.workspaceId;
-            if (!(event.currentTarget as HTMLDetailsElement).open || !workspaceId) return;
-            void cycleDefaultMinutes(workspaceId as WorkspaceId).then((maxRunMinutes) =>
-              setPolicy((current) =>
-                current === DEFAULT_COMPLETION_POLICY
-                  ? { ...DEFAULT_COMPLETION_POLICY, maxRunMinutes }
-                  : current,
-              ),
-            );
+            const workspace = workspaceId ?? worktrees[0]?.workspaceId;
+            if (!(event.currentTarget as HTMLDetailsElement).open || !workspace) return;
+            void cycleDefaultMinutes(workspace as WorkspaceId).then((maxRunMinutes) => {
+              if (!minutesTouched.current) setPolicy((current) => ({ ...current, maxRunMinutes }));
+            });
           }}
         >
           <summary>Set up a cycle</summary>
@@ -457,7 +466,7 @@ export function CyclePanel({
                 ))}
               </select>
             </label>
-            <PolicyFields policy={policy} setPolicy={setPolicy} disabled={disabled} />
+            <PolicyFields policy={policy} setPolicy={changePolicy} disabled={disabled} />
             {startAgents && (
               <ul aria-label="Cycle agents">
                 {CYCLE_STEPS.map((step) => (

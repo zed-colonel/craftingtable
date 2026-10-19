@@ -154,7 +154,8 @@ version was imported, it was identical to one, or validation failed, with its di
 
 `/settings[/agents|/capacity|/notifications|/storage]`, one page per section behind `PageTabs`:
 General (the workspace's name, renamed by an owner), Agents (the workspace's agent defaults: four
-step defaults and optional specialist overrides, each with its effective selection and source),
+step defaults and optional specialist overrides, each with its effective selection and source,
+and the step time limit new cycles and roadmap entries start with),
 Capacity (the workstation's development and verification slots and each parallel roadmap's limits),
 and, for an owner, Notifications (Pushover) and Storage. A link stored before Settings was split
 opens the page holding its element.

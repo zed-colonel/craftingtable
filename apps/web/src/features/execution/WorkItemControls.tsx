@@ -149,6 +149,7 @@ export function CycleControls({
       key={worktreeId === undefined ? detail.workItem.id : `${detail.workItem.id}:${worktreeId}`}
       {...(selected ? { selectedWorktreeId: selected } : {})}
       onSelectWorktree={focus.focus}
+      workspaceId={workspaceId}
       cycles={cycles}
       worktrees={execution.worktrees}
       runs={execution.runs}

@@ -89,9 +89,14 @@ export function CycleDefaultsPanel({
               max={1440}
               value={minutes}
               disabled={!canEdit || busy}
-              onChange={(event) => setMinutes(Number(event.target.value))}
+              onChange={(event) => {
+                setMinutes(Number(event.target.value));
+                // A notice is about the value saved, not the one being edited (review N-2).
+                setNotice(undefined);
+              }}
             />
           </label>
+          {!valid && <p className="hint">Between 1 and 1440 minutes.</p>}
           <button
             type="submit"
             className="primary-button"

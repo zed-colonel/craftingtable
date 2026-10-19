@@ -201,7 +201,8 @@ it('is locked while disabled, and posts once, then waits for the changed cycle',
 it('counts an agent changed and changed back as no change, whatever its keys’ order', () => {
   const seeded = {
     ...now,
-    implement: { reasoningEffort: 'high', backend: 'claude-code', model: 'opus' },
+    // The daemon's order (selectAgent's), unlike the editor's (re-check R-2).
+    implement: { backend: 'claude-code', model: 'opus', reasoningEffort: 'high' },
   } as unknown as AgentSelections;
   render(
     <CycleSettings
@@ -296,4 +297,29 @@ it('starts afresh when the cycle’s version or its agents change elsewhere', ()
       nextAgentSelections: { ...now, review: { backend: 'claude-code', model: 'sonnet' } },
     }),
   ).not.toBe(key);
+});
+
+// Increment 4 re-check R-1: the Needs-you item hands a review-only cycle's flag to the form.
+it('shows a review-only cycle’s Needs-you item its review agent alone', () => {
+  // The scope repair beside it reads the item's scopes.
+  vi.mocked(request).mockResolvedValue({ sources: [], owners: [], choices: [] });
+  render(
+    <CycleDecision
+      cycle={{ ...cycle, step: 'review', currentRunId: 'run-1', reason: 'Stopped.' } as WorkCycle}
+      projection={{ actions: ['resume', 'change-settings', 'stop'], nextAgentSelections: now }}
+      runs={[]}
+      readOnly
+      backends={backends}
+      csrfToken="csrf"
+      canMutate
+      busy={false}
+      onChanged={vi.fn()}
+      onOpenRun={vi.fn()}
+      onOpenWorktree={vi.fn()}
+      inInbox
+    />,
+  );
+  const form = screen.getByRole('form', { name: 'Time limit and agents' });
+  expect(within(form).getByRole('group', { name: 'Review' })).toBeTruthy();
+  expect(within(form).queryByRole('group', { name: 'Implementation' })).toBeNull();
 });

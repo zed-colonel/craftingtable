@@ -54,6 +54,13 @@ it('reads 120 minutes until a default is saved, then the saved one, audited (R-C
     ]),
   );
   expect(audit.every((event) => event.targetType === 'workspace')).toBe(true);
+  // The same value again changes nothing and is not audited (increment 5 review N-5).
+  expect((await save(state, { maxRunMinutes: 300 })).statusCode).toBe(200);
+  expect(
+    state.context.storage.audit
+      .listWorkspace({ workspaceId: state.workspaceId, limit: 50 })
+      .filter((event) => event.action === 'cycle-defaults.updated'),
+  ).toHaveLength(2);
 });
 
 it('refuses a limit out of bounds or anything beside it (R-C17 part 4)', async () => {

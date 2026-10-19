@@ -169,6 +169,7 @@ export function CycleSettings({
       <button type="submit" className="secondary-button" disabled={locked || !changed}>
         Save time limit and agents
       </button>
+      {sent && <p role="status">Saved. The cycle’s new settings show once it is read again.</p>}
       {error && <p role="alert">{error}</p>}
     </form>
   );

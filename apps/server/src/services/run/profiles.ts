@@ -122,9 +122,10 @@ export class RunProfileCatalog {
     });
     const occurredAt = this.now().toISOString();
     this.storage.transaction((tx) => {
-      const before =
-        tx.execution.cycleDefaults.find(workspaceId)?.maxRunMinutes ??
-        DEFAULT_COMPLETION_POLICY.maxRunMinutes;
+      const saved = tx.execution.cycleDefaults.find(workspaceId)?.maxRunMinutes;
+      // The same value saved again changes nothing and is not audited (increment 5 review N-5).
+      if (saved === maxRunMinutes) return;
+      const before = saved ?? DEFAULT_COMPLETION_POLICY.maxRunMinutes;
       tx.execution.cycleDefaults.save(workspaceId, {
         maxRunMinutes,
         updatedAt: occurredAt,

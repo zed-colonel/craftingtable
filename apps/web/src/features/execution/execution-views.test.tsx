@@ -1620,6 +1620,45 @@ describe('automated cycle controls', () => {
       maxRunMinutes: 45,
     });
   });
+  // Increment 5 review M-1 and L-1: the workspace comes from the page, so an item with no worktree
+  // yet still reads its default; and minutes the operator typed are never replaced.
+  it('reads the default with no worktree yet, and keeps minutes the operator typed first', async () => {
+    let answer: (minutes: number) => void = () => {};
+    vi.mocked(cycleDefaultMinutes).mockReturnValueOnce(
+      new Promise<number>((resolve) => (answer = resolve)),
+    );
+    const props = {
+      cycles: daemon([]),
+      runs: [],
+      backends,
+      startProfiles,
+      startAgents,
+      canMutate: true,
+      busy: false,
+      admitted: true,
+      onStart: vi.fn(),
+      csrfToken: 'csrf',
+      onChanged: vi.fn(),
+      onOpenRun: vi.fn(),
+    };
+    const view = render(
+      <CyclePanel {...props} worktrees={[]} workspaceId={worktree.workspaceId as WorkspaceId} />,
+    );
+    fireEvent.click(screen.getByText('Set up a cycle'));
+    await waitFor(() => expect(cycleDefaultMinutes).toHaveBeenCalledWith(worktree.workspaceId));
+    view.rerender(
+      <CyclePanel
+        {...props}
+        worktrees={[worktree]}
+        workspaceId={worktree.workspaceId as WorkspaceId}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Minutes per step'), { target: { value: '90' } });
+    fireEvent.change(screen.getByLabelText('Allowed nits'), { target: { value: '1' } });
+    answer(45);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((screen.getByLabelText('Minutes per step') as HTMLInputElement).value).toBe('90');
+  });
   it('starts a cycle with the daemon’s defaults, named with their source, unless changed for this cycle (R-E5b)', () => {
     const onStart = vi.fn();
     render(
@@ -1703,6 +1742,35 @@ describe('automated cycle controls', () => {
     );
     fireEvent.click(screen.getByText('Cycle settings and future agents'));
     expect(screen.getByRole('form', { name: 'Time limit and agents' })).toBeTruthy();
+    // Keyed by the cycle's agents too (increment 4 re-check R-1): agents changed elsewhere, at
+    // the same version, start the form afresh.
+    fireEvent.change(
+      screen.getByLabelText('Minutes per step', {
+        selector: 'form[aria-label="Time limit and agents"] input',
+      }),
+      {
+        target: { value: '300' },
+      },
+    );
+    view.rerender(
+      <CyclePanel
+        {...props}
+        cycles={daemon([paused], {
+          actions: ['resume', 'change-settings', 'stop'],
+          nextAgentSelections: {
+            ...agentSelections(paused.profiles),
+            review: { backend: 'claude-code', model: 'changed-elsewhere' },
+          },
+        })}
+      />,
+    );
+    expect(
+      (
+        screen.getByLabelText('Minutes per step', {
+          selector: 'form[aria-label="Time limit and agents"] input',
+        }) as HTMLInputElement
+      ).value,
+    ).toBe('120');
     const merging: WorkCycle = {
       ...base,
       status: 'awaiting-merge',

@@ -253,3 +253,27 @@ it('shows each default’s source as the daemon reports it, and one section per 
   // Notifications and storage are offered only to whoever can use them.
   expect(within(tabs).queryByRole('link', { name: 'Storage' })).toBeNull();
 });
+
+// R-C17 part 4 (increment 5 review L-4): the step time limit sits in the Agents section only.
+it('shows the step time limit in the Agents section, and nowhere else', () => {
+  const slot = <p>Step time limit slot</p>;
+  const page = (section: 'agents' | 'general') =>
+    render(
+      <SettingsPage
+        section={section}
+        workspace={workspace}
+        canEdit
+        busy={false}
+        onRename={vi.fn()}
+        backends={backends}
+        defaults={defaultsOf(profiles)}
+        onSaveProfiles={vi.fn()}
+        cycleDefaults={slot}
+      />,
+    );
+  const agents = page('agents');
+  expect(screen.getByText('Step time limit slot')).toBeTruthy();
+  agents.unmount();
+  page('general');
+  expect(screen.queryByText('Step time limit slot')).toBeNull();
+});

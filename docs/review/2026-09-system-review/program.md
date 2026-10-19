@@ -1239,6 +1239,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **R-B5 designed and decided, 2026-10-19.** [R-B5](register.md#r-b5)'s entry holds the baseline (a dev daemon on a copy of the 2026-10-07 snapshot, three rounds and a profile, by a harness the done-when repeats), the design, its independent review, settled, and the operator's fifteen decisions, all as recommended. R-B5 is three parts, in order: the cycle kernel (with the storage service's run-directory query, which the baseline found behind every idle stall), the scheduler and delivery on it, the streams and the journal. The order above is otherwise unchanged; the phase blockers' evidence evaluation the profile measured is R-D6's input.
 
+**R-B5's part 1 built, 2026-10-19.** The cycle kernel, increments 1 to 7 on this line ([R-B5](register.md#r-b5), "Build of part 1"): characterization first; the storage service's run-directory query (decision 11); the kernel's marks, due times and 30 s sweep in place of the one-second loop; the holds and the commands' holds (decision 15); the slow lane, its launch job withdrawn by a stop, a pause or its deadline (decision 7); the launch's files written off the event loop and Git's trust on a generation (decision 13); the controller's log and figures (decisions 8 and 9, ADR-077). Every review and mutation round settled. Its done-when, measured at b32d818 against the baseline: idle CPU 0.38 % of a core (1.1 to 1.2 %), no idle stall (one every 30 s), idle rounds only the sweep's, and the slow-preflight test passes. Not deployed; no migration. Next: part 2, the scheduler and delivery on the kernel.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

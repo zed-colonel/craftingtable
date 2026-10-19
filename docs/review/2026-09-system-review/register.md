@@ -22,7 +22,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B3](#r-b3) | P1 | M | done (82ae8ab) | Explicit cycle ownership; roadmap state references its definition |
 | [R-B4](#r-b4) | P4 | L | built on `remediation/p4` 2026-10-16 (not merged or deployed) | Pure cycle decision core with an explicit state machine |
 | [R-B4b](#r-b4b) | P4 | M | built on `remediation/p4` 2026-10-18 and deployed at 5fc0175 (migration 0047; not merged); decided 2026-10-15 (split from R-B4) | Cycle state shape: stop, waits and attempt records, end codes, step history |
-| [R-B5](#r-b5) | P4 | L | open; designed and decided 2026-10-19, part 1 building | Event-driven controller kernel |
+| [R-B5](#r-b5) | P4 | L | open; designed and decided 2026-10-19; part 1 built (not deployed), part 2 next | Event-driven controller kernel |
 | [R-B6](#r-b6) | P4 | M-L | open | Scoped consistency instead of whole-roadmap pause |
 | [R-B7](#r-b7) | P4 | L | open; cycle half designed and decided 2026-10-17 (all six as recommended); being built on `remediation/p4` from 2026-10-17 (see the entry's Build progress) | Decompose the controller services along real boundaries |
 | [R-B8](#r-b8) | P1 | M | done (c0ccf3b, 9fe2152) | Remove dead and vestigial paths |
@@ -1066,7 +1066,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B5
 
-**Event-driven controller kernel** · Phase P4 · Effort L · Status: open; designed 2026-10-19 at 280dabe (three parts), decided the same day (all fifteen as recommended); part 1 building on `remediation/p4`
+**Event-driven controller kernel** · Phase P4 · Effort L · Status: open; designed 2026-10-19 at 280dabe (three parts), decided the same day (all fifteen as recommended); part 1 built on `remediation/p4` (ba3a1c6 to d51317a, its done-when met at b32d818), not deployed; part 2 next
 
 - **Resolves:** [CTRL-08](findings/CTRL-controller.md#ctrl-08-the-controller-polls-costs-1520--cpu-when-idle-and-blocks-the-event-loop), [CTRL-17](findings/CTRL-controller.md#ctrl-17-about-nine-uncoordinated-in-memory-locks-with-different-semantics), [PERF-07](findings/PERF-browser-and-read-performance.md#perf-07-browser-refetch-storms-run-on-the-controllers-event-loop-ui-load-slows-automation-and-vice-versa), [NOTIF-14](findings/NOTIF-attention-notifications.md#notif-14-sse-wakeups-are-unscoped), [AGT-15](findings/AGT-GIT-SEC-agents-git-security.md#agt-15-each-agent-event-is-a-separate-fsyncd-transaction-plus-a-notifier-broadcast-on-the-main-event-loop)
 - **Change:** Replace the three polling loops and the nine in-memory lock sets with a dirty-set kernel: events mark aggregates dirty, deadlines and backoffs become precise timers, a 30-60 s safety sweep covers external Git changes, and a per-aggregate async mutex with bounded concurrency means one launch preflight never blocks another cycle. Move launch materialization to async FS. Scope notifier channels per workspace/run and batch agent-event writes.

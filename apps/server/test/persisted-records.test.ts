@@ -136,6 +136,62 @@ describe("the daemon's record guard (R-H3, TS-M5)", () => {
     }
   });
 
+  it('refuses a roadmap or an entry hold that needs attention without its code (R-B4b)', () => {
+    // Readers take the stored code and never the reason (increment 3; its review's MEDIUM-1).
+    const { storage, seed } = daemonStorage();
+    try {
+      const id = asRoadmapId(randomUUID());
+      const draft: Roadmap = {
+        id,
+        workspaceId: seed.workspaceId,
+        version: 1,
+        status: 'draft',
+        reason: 'Saved',
+        createdAt: SEED_NOW,
+        updatedAt: SEED_NOW,
+        createdByUserId: seed.userId,
+        attempts: [],
+        definition: {
+          roadmapId: id,
+          revision: 1,
+          name: 'Queue',
+          entries: [],
+          createdAt: SEED_NOW,
+          createdByUserId: seed.userId,
+        },
+      };
+      expect(storage.roadmaps.save(draft, 0)).toBe(true);
+      const attention = { code: 'legacy-attention', owner: 'operator' } as const;
+      const entry = randomUUID();
+      const refused = (update: Partial<Roadmap>) =>
+        expect(() => storage.roadmaps.save({ ...draft, version: 2, ...update }, 1)).toThrow(
+          InvalidRecordError,
+        );
+      refused({ status: 'needs-attention', reason: 'Stopped.' });
+      refused({
+        status: 'running',
+        entryHolds: { [entry]: { status: 'needs-attention', reason: 'Held.' } },
+      });
+      expect(storage.roadmaps.find(seed.workspaceId, id)).toEqual(draft);
+      // With their codes they are stored; a paused hold needs none.
+      const coded: Roadmap = {
+        ...draft,
+        version: 2,
+        status: 'needs-attention',
+        reason: 'Stopped.',
+        attention,
+        entryHolds: {
+          [entry]: { status: 'needs-attention', reason: 'Held.', attention },
+          [randomUUID()]: { status: 'paused', reason: 'Item paused by operator.' },
+        },
+      };
+      expect(storage.roadmaps.save(coded, 1)).toBe(true);
+      expect(storage.roadmaps.find(seed.workspaceId, id)).toEqual(coded);
+    } finally {
+      storage.close();
+    }
+  });
+
   it('refuses a wind-down whose status and settled time disagree (R-B11)', () => {
     const { storage, seed } = daemonStorage();
     try {

@@ -7,13 +7,13 @@ import {
   roadmapAttention,
 } from './attention.js';
 import type { PhaseBlocker } from './phase-scheduling.js';
+import type { Roadmap, RoadmapEntryHold } from './roadmap.js';
+import type { WorkCycle } from './work-cycle.js';
 
 /** A phase blocker as releases before R-A3 could store it, without its code. */
 export type LegacyPhaseBlocker = Omit<PhaseBlocker, 'code'> & {
   readonly code?: PhaseBlockerCode;
 };
-import type { Roadmap, RoadmapEntryHold } from './roadmap.js';
-import type { WorkCycle } from './work-cycle.js';
 
 /**
  * Attention for records written before codes existed (R-A3).

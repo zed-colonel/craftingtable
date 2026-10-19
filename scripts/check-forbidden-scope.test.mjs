@@ -1364,6 +1364,10 @@ describe('only the operator-wait measure decodes text written before codes (rule
         'apps/server/src/services/operator-wait-service.ts': `import { phaseBlockerCode } from '${decoders}';\nexport const measure = phaseBlockerCode;\n`,
         'apps/server/src/services/roadmap-service.ts': `import { phaseBlockerCode } from '${decoders}';\nexport const read = phaseBlockerCode;\n`,
         'apps/server/src/services/typed.ts': `export type Decode = typeof import('${decoders}').phaseBlockerCode;\n`,
+        // By its entry's name, unresolved: the browser reads the domain through its build, which
+        // an unbuilt tree lacks (the review's LOW-2).
+        'apps/web/src/legacy.ts':
+          "import { phaseBlockerCode } from '@craftingtable/domain/attention-legacy';\nexport const read = phaseBlockerCode;\n",
         // A test may decode, as migration 0047's test does for its reference.
         'apps/server/test/decode.test.ts': `import { phaseBlockerCode } from '../../../packages/domain/src/attention-legacy.js';\nphaseBlockerCode({});\n`,
       }),
@@ -1374,6 +1378,7 @@ describe('only the operator-wait measure decodes text written before codes (rule
       [
         decodes('apps/server/src/services/roadmap-service.ts'),
         decodes('apps/server/src/services/typed.ts'),
+        decodes('apps/web/src/legacy.ts'),
         decodes('packages/domain/src/index.ts'),
       ].sort(),
     );

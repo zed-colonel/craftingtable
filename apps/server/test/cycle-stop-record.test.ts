@@ -159,3 +159,35 @@ it('removes the waits record once every wait in it is cleared (increment 2 revie
   writer.change(one, { waits: { design: null } });
   expect('waits' in storedCycle(f, cycle.id)).toBe(false);
 });
+
+it("lists a cycle as waiting for a host pool by its blocker's stored key (increment 3 review, LOW-3)", async () => {
+  const { f, writer, cycle } = await stopped();
+  // The service's own list: this fixture's work item id is no UUID, which the route's response
+  // contract would refuse.
+  const service = (
+    f.services as unknown as {
+      hostSchedulingService: { get: (context: unknown, workspaceId: string) => HostScheduling };
+    }
+  ).hostSchedulingService;
+  type HostScheduling = { readonly waiting: readonly { readonly id: string }[] };
+  const waitingFor = async () =>
+    service
+      .get({ user: { id: f.userId } }, f.workspaceId)
+      .waiting.filter((w) => w.id.startsWith(cycle.id))
+      .map((w) => w.id);
+  const blocker = (resourceKey: string) => ({
+    kind: 'resource' as const,
+    code: 'resource-busy' as const,
+    refs: { resourceKey },
+    message: `Waiting for ${resourceKey}: 1/1 reservations occupied.`,
+  });
+  writer.change(cycle, {
+    waits: { phase: { since: EARLIER, blockers: [blocker('local-verification')] } },
+  });
+  expect(await waitingFor()).toEqual([`${cycle.id}:local-verification`]);
+  // Another resource's wait is not the host pool's.
+  writer.change(storedCycle(f, cycle.id), {
+    waits: { phase: { since: EARLIER, blockers: [blocker('controlled-native-test-host')] } },
+  });
+  expect(await waitingFor()).toEqual([]);
+});

@@ -215,6 +215,8 @@ export const REPLAY_HOST_USERS = new Map([
  * imports them: the operator-wait measure, for audit rows written before codes.
  */
 export const LEGACY_DECODER_USERS = new Set(['apps/server/src/services/operator-wait-service.ts']);
+/** The decoders' package entry: matched by name too, as the browser resolves it to `dist`. */
+export const LEGACY_DECODER_ENTRY = '@craftingtable/domain/attention-legacy';
 const LEGACY_DECODER_FILES = new Set([
   PROSE_LEGACY_MAPPING_PATH,
   'packages/domain/dist/attention-legacy.js',
@@ -2065,8 +2067,8 @@ function moduleFindings(root, module, production, vocabulary) {
     const targetPath = resolved === undefined ? undefined : posix(relative(root, resolved));
     if (targetPath === REPLAY_HOST_PIN) findings.push(...replayHostFindings(path, reference));
     if (
-      targetPath !== undefined &&
-      LEGACY_DECODER_FILES.has(targetPath) &&
+      (specifier === LEGACY_DECODER_ENTRY ||
+        (targetPath !== undefined && LEGACY_DECODER_FILES.has(targetPath))) &&
       !LEGACY_DECODER_USERS.has(path)
     )
       findings.push(

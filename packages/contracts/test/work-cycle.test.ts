@@ -273,3 +273,12 @@ it("holds a stop record's kind to its code, and an end to its codes (R-B4b)", ()
   expect(valid({ kind: 'ended', code: 'integrated', since })).toBe(false);
   expect(valid({ kind: 'ended', code: 'integrated' })).toBe(false);
 });
+
+it('requires a phase blocker to carry its code (R-B4b increment 3)', () => {
+  const blocker = workCycleSchema.shape.waits.unwrap().shape.phase.unwrap().shape.blockers.element;
+  const message = 'Waiting for local-development: 1/1 reservations occupied.';
+  expect(blocker.safeParse({ kind: 'resource', code: 'resource-busy', message }).success).toBe(
+    true,
+  );
+  expect(blocker.safeParse({ kind: 'resource', message }).success).toBe(false);
+});

@@ -41,6 +41,7 @@ import {
   type CycleEffect,
   type CycleGuard,
   decide,
+  decisionSummary,
 } from './cycle/core/machine.js';
 import {
   continueDesignFailure,
@@ -733,15 +734,17 @@ export class WorkCycleService {
     owner: () => ReturnType<typeof cycleOwnership>,
     settling: ReadonlySet<string>,
   ): Promise<void> {
+    // The guard the failure met, which the step history records with it (R-B4 decision 9).
+    const met: { guard?: CycleGuard } = {};
     try {
-      await this.reconcile(cycle, owner, settling);
+      await this.reconcile(cycle, owner, settling, met);
     } catch (error) {
       // Only contention and an unexpected exception reach here (R-B4): every expected refusal
       // was decided where it was met.
       const failure = decideFailure(error);
       // Recorded in the step history as the pass's own stop (R-B4 decision 9), as a refusal is.
       if (failure.kind !== 'retry')
-        await this.writer.decided({ kind: 'failure', guard: undefined }, async () =>
+        await this.writer.decided({ kind: 'failure', guard: met.guard }, async () =>
           this.stopAfterFailure(cycle, failure),
         );
     }
@@ -771,6 +774,7 @@ export class WorkCycleService {
     cycle: WorkCycle,
     owner: () => ReturnType<typeof cycleOwnership>,
     settling: ReadonlySet<string>,
+    met: { guard?: CycleGuard } = {},
   ): Promise<void> {
     const now = this.now();
     let guard: CycleGuard | undefined;
@@ -787,16 +791,18 @@ export class WorkCycleService {
       );
       this.observer?.decided?.(cycle, { decision });
       const decided = decision;
-      await this.writer.decided({ kind: decided.kind, guard: decided.guard }, () =>
-        this.apply(cycle, decided),
-      );
+      // In the replays' vocabulary (`decisionSummary`): a step outcome is recorded as what it
+      // decided (a stop, a launch, a wait, an effect), not as an outcome.
+      const { kind } = decisionSummary(decided);
+      await this.writer.decided({ kind, guard: decided.guard }, () => this.apply(cycle, decided));
     } catch (error) {
+      met.guard = decision?.guard ?? guard;
       if (!decision) this.observer?.decided?.(cycle, { failed: error, guard });
       // A typed refusal a fact, the decision's writes or its effect met is decided here (R-B4,
       // decision 3); contention and the unexpected go on to the pass.
       const refused = decideRefusal(error);
       if (!refused) throw error;
-      await this.writer.decided({ kind: 'refusal', guard: guard ?? decision?.guard }, async () =>
+      await this.writer.decided({ kind: 'refusal', guard: decision?.guard ?? guard }, async () =>
         this.stopAfterFailure(cycle, refused),
       );
     }

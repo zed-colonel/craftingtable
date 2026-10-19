@@ -203,7 +203,7 @@ export interface AuditRepository {
     readonly cycleId: WorkCycleId;
     readonly occurredAt: string;
     readonly metadata: Readonly<Record<string, unknown>>;
-    readonly previousStatus: string | undefined;
+    readonly previousStatus: import('@craftingtable/domain').CycleStatus | undefined;
     readonly decision: string | undefined;
     readonly guard: string | undefined;
   }[];

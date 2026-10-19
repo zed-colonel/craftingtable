@@ -1,5 +1,5 @@
 import type { AuditEvent, UserId, WorkspaceId } from '@craftingtable/domain';
-import { asRoadmapId, asWorkCycleId } from '@craftingtable/domain';
+import { asRoadmapId, asWorkCycleId, CYCLE_STATUSES } from '@craftingtable/domain';
 import type Database from 'better-sqlite3';
 import { type RecordGuard, readRecord, readWritten } from '../records.js';
 import type { AppendAuditInput, AuditRepository } from '../types.js';
@@ -125,7 +125,7 @@ export class SqliteAuditRepository implements AuditRepository {
       ({ targetId, ...row }) => ({
         cycleId: asWorkCycleId(targetId),
         ...row,
-        previousStatus: text(row.metadata.previousStatus),
+        previousStatus: CYCLE_STATUSES.find((status) => status === row.metadata.previousStatus),
         decision: text(row.metadata.decision),
         guard: text(row.metadata.guard),
       }),

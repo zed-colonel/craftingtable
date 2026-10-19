@@ -141,7 +141,10 @@ function fixture() {
   const correlated = () => {
     const database = new Database(temporary.databasePath, { readonly: true });
     try {
-      return (database.prepare(CORRELATED).all() as Record<string, unknown>[]).map((row) => ({
+      const rows = database.prepare(CORRELATED).all() as (Record<string, unknown> & {
+        readonly runId: string;
+      })[];
+      return rows.map((row) => ({
         ...row,
         eligible: row.eligible === 1,
         buildEligible: row.buildEligible === 1,

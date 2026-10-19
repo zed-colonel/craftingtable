@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
 import { workCycleResponseSchema } from '@craftingtable/contracts';
 import { DEFAULT_COMPLETION_POLICY, heldStop } from '@craftingtable/domain';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   cleanupExecutionFixtures,
   currentCycle,
@@ -23,7 +23,10 @@ import {
  * Resume, and the guided resume relaunches the step with a fresh window from the cycle's policy.
  */
 
-afterEach(cleanupExecutionFixtures);
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await cleanupExecutionFixtures();
+});
 
 const runDirectory = (request: AgentLaunchRequest) => {
   const root = request.additionalDirectories?.[0];
@@ -162,5 +165,19 @@ it('offers no guidance once a newer run in the lineage is the worktree’s newes
     role: 'implement',
     parentRunId: currentCycle(state, cycle).currentRunId,
   });
+  expect(await actions(state, cycle.id)).toEqual(['resume', 'change-settings', 'stop']);
+});
+
+// Increment 2 review L-1: the offer reads whether a run is live, as the command does (a paused
+// cycle can keep its own session): with one live, no guidance is offered.
+it('offers no guidance while a run in the worktree is live (R-C17 part 4, increment 2)', async () => {
+  const { state, cycle } = await atTimeLimit();
+  const own = state.context.storage.execution.runs.find(
+    state.workspaceId,
+    currentCycle(state, cycle).currentRunId,
+  )!;
+  vi.spyOn(state.context.storage.execution.runs, 'liveForWorktree').mockReturnValue([
+    { ...own, status: 'waiting' },
+  ]);
   expect(await actions(state, cycle.id)).toEqual(['resume', 'change-settings', 'stop']);
 });

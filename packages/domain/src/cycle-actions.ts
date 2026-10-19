@@ -146,9 +146,12 @@ export const INVESTIGATION_STOPS: ReadonlySet<CycleAttentionCode> = new Set<Cycl
  * this one rule (R-C17 part 4, decision 1). The cycle is stopped for the operator or paused; it is
  * no finalization, its scope a slice or none; it owns no integration resolution and has none
  * detected (their own forms take guidance); its step is implement, remediate or review; its
- * current run is the worktree's newest; and no run is live. A plain pause is accepted, as before
- * (a run that raised questions while paused can go on only with them answered: increment 1's
- * review M-1), but the offer is made at a stop only (`cycleActions`).
+ * current run is the worktree's newest; no run is live; and, at a review whose finished run asks
+ * for remediation, that remediation is not refused (`remediationRefused`: its turn failed or was
+ * clipped, or the scope rejects its report; increment 2 review M-1), since the guidance would go
+ * to it. A plain pause is accepted, as before (a run that raised questions while paused can go on
+ * only with them answered: increment 1's review M-1), but the offer is made at a stop only
+ * (`cycleActions`).
  */
 export function guidanceAccepted(
   cycle: Pick<
@@ -163,8 +166,10 @@ export function guidanceAccepted(
   >,
   newestRunId: AgentRunId | undefined,
   live: boolean,
+  remediationRefused = false,
 ): boolean {
   return (
+    !remediationRefused &&
     (cycle.status === 'needs-attention' || cycle.status === 'paused') &&
     !cycle.finalizationId &&
     (!cycle.executionScope || cycle.executionScope.kind === 'slice') &&
@@ -296,7 +301,10 @@ function cycleActionsWithoutSettings(
             : []
           : acceptsGuidance &&
               stopCode(cycle) !== undefined &&
-              !offered.includes('continue-with-guidance')
+              // Where the grant is offered, the review needs rounds guidance alone cannot start
+              // (LIVE-33): the grant takes the answer. (A redirect to guidance replaces Resume,
+              // so guidance is never offered twice.)
+              !offered.includes('authorize-remediation')
             ? [action, 'continue-with-guidance']
             : [action],
   );

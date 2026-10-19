@@ -236,3 +236,39 @@ describe('a pending provider retry, today (R-C17 part 4, increment 1)', () => {
     },
   );
 });
+
+// Increment 2 review M-1 and M-2: guidance toward a remediation the grant's checks would refuse is
+// refused by the offer's rule, and a pause kept at `remediation-no-change` keeps its fresh review.
+describe('a guided resume toward a remediation, and at a kept pause (R-C17 part 4, increment 2 review)', () => {
+  const review = cancelled({ role: 'review', status: 'finished' });
+  const asks = {
+    newestRun: () => review,
+    reviewAsksRemediation: () => true,
+    reviewTurnSucceeded: () => true,
+    reviewScopeIssue: () => false,
+  };
+  it('remediates with the guidance when the review’s remediation would be taken', () =>
+    expect(
+      decideResumeStep(atTimeLimit({ step: 'review' }), facts(asks), 'Fix the queue bound.'),
+    ).toMatchObject({ kind: 'remediate', grant: { instructions: 'Fix the queue bound.' } }));
+  it.each([
+    ['its turn did not succeed untruncated', { reviewTurnSucceeded: () => false }],
+    ['the scope rejects its report', { reviewScopeIssue: () => true }],
+  ])('refuses it when %s', (_label, refusal) =>
+    expect(
+      decideResumeStep(atTimeLimit({ step: 'review' }), facts({ ...asks, ...refusal }), 'x'),
+    ).toMatchObject({ kind: 'refuse', code: 'guidance-invalid' }),
+  );
+  it('starts the fresh review a remediation-no-change stop promises, from a pause kept there', () =>
+    expect(
+      decideResumeStep(
+        atTimeLimit({
+          status: 'paused',
+          step: 'remediate',
+          stop: stopRecord(cycleAttention('remediation-no-change'), EARLIER),
+        }),
+        facts(),
+        'Review it fresh.',
+      ),
+    ).toMatchObject({ kind: 'launch', step: 'review', action: 'resume-with-guidance' }));
+});

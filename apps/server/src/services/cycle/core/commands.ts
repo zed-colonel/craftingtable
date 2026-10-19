@@ -9,6 +9,7 @@ import {
   guidanceAccepted,
   selectAgent,
   settingsChangeable,
+  stopCode,
   isTerminalAgentRunStatus,
   ownsIntegrationResolution,
   remediationAllowance,
@@ -135,6 +136,25 @@ export interface CommandFacts {
   readonly reviewTurnSucceeded: (run: AgentRun) => boolean;
   /** A new step window's deadline. */
   readonly deadline: () => string;
+}
+
+/**
+ * A guided resume of a review whose finished run asks for remediation goes to that remediation,
+ * which the grant's checks refuse when the review's turn did not succeed untruncated or the scope
+ * rejects its report (`remediationBlocker`): the offer withholds guidance there, and the command
+ * refuses it, by this one fact (R-C17 part 4 increment 2 review M-1).
+ */
+export function guidedRemediationRefused(
+  cycle: Pick<WorkCycle, 'step'>,
+  run: AgentRun | undefined,
+  facts: Pick<CommandFacts, 'reviewAsksRemediation' | 'reviewTurnSucceeded' | 'reviewScopeIssue'>,
+): boolean {
+  return (
+    cycle.step === 'review' &&
+    run?.status === 'finished' &&
+    facts.reviewAsksRemediation(run) &&
+    (!facts.reviewTurnSucceeded(run) || facts.reviewScopeIssue(run))
+  );
 }
 
 /** What a stopped cycle's settings change names (R-C17 part 4, decision 4). */
@@ -418,9 +438,19 @@ export function decideResumeStep(
     );
   const scope = cycle.executionScope;
   if (guidance !== undefined && !cycle.finalizationId && (!scope || scope.kind === 'slice')) {
-    // The offer's rule (R-C17 part 4, decision 1): at a stop, at implement, remediate or review,
+    // The offer's rule (R-C17 part 4, decision 1): stopped or paused, at implement, remediate or
+    // review, from the ended current run, and not toward a remediation that would be refused.
     // from the ended current run.
-    if (!guidance.trim() || !run || !guidanceAccepted(cycle, run.id, facts.liveRuns().length > 0))
+    if (
+      !guidance.trim() ||
+      !run ||
+      !guidanceAccepted(
+        cycle,
+        run.id,
+        facts.liveRuns().length > 0,
+        guidedRemediationRefused(cycle, run, facts),
+      )
+    )
       return refuse(
         'guidance-invalid',
         'Guided continuation requires answers or guidance and the ended current implementation or review.',
@@ -444,7 +474,8 @@ export function decideResumeStep(
       return { kind: 'remediate', grant: { additionalRounds: 0, instructions: stepGuidance } };
     // After two remediations that changed nothing, the guidance is for a fresh review of the
     // same commit: another remediation would change nothing again (LIVE-27 review).
-    const noChange = cycleStop(cycle)?.code === 'remediation-no-change';
+    // The stop's own code, or the one a pause kept (increment 2 review M-2).
+    const noChange = stopCode(cycle) === 'remediation-no-change';
     return {
       kind: 'launch',
       step: noChange ? 'review' : cycle.step,

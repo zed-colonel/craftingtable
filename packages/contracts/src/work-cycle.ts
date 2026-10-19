@@ -561,10 +561,6 @@ export const controlWorkCycleRequestSchema = z.discriminatedUnion('action', [
       'Change the time limit, the agents, or both.',
     ),
 ]);
-export type ChangeWorkCycleSettingsRequest = Extract<
-  z.infer<typeof controlWorkCycleRequestSchema>,
-  { action: 'change-settings' }
->;
 export type AuthorizeWorkCycleRemediationRequest = Extract<
   z.infer<typeof controlWorkCycleRequestSchema>,
   { action: 'authorize-remediation' }

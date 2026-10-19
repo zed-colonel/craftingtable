@@ -468,13 +468,13 @@ it('offers Resume, not a grant it refuses, at the round limit when the review’
     )
       .json()
       .cycles.find((v: { cycle: { id: string } }) => v.cycle.id === cycle.id)?.projection.actions;
-  // Continue with guidance beside it: the guided resume is accepted here too (R-C17 part 4,
-  // decision 1).
-  expect(await offered()).toEqual(['resume', 'continue-with-guidance', 'change-settings', 'stop']);
+  // No guidance beside it: the review's turn failed, so the guided resume's remediation would be
+  // refused (R-C17 part 4, increment 2 review M-1).
+  expect(await offered()).toEqual(['resume', 'change-settings', 'stop']);
   // The same at a pause taken at that stop, which keeps it (review of a2fd3e5, R3).
   const paused = { ...incomplete, status: 'paused' as const, version: incomplete.version + 1 };
   expect(state.context.storage.execution.cycles.replace(paused, incomplete.version)).toBeTruthy();
-  expect(await offered()).toEqual(['resume', 'continue-with-guidance', 'change-settings', 'stop']);
+  expect(await offered()).toEqual(['resume', 'change-settings', 'stop']);
   const control = (payload: Record<string, unknown>) =>
     state.context.app.inject({
       method: 'POST',

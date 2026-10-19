@@ -179,6 +179,7 @@ describe('question stop investigations (R-C16)', () => {
     expect((await presented(state, cycle)).actions).toEqual([
       'continue-with-guidance',
       'investigate',
+      'change-settings',
       'stop',
     ]);
     const tree = treeState(f.worktree.path);
@@ -307,6 +308,7 @@ describe('question stop investigations (R-C16)', () => {
     expect((await presented(state, cycle)).actions).toEqual([
       'continue-with-guidance',
       'investigate',
+      'change-settings',
       'stop',
     ]);
     // The workspace list leaves the proposals to the item's own read.
@@ -883,6 +885,7 @@ describe('the investigated worktree (R-C16)', () => {
     expect((await presented(state, cycle)).actions).toEqual([
       'continue-with-guidance',
       'investigate',
+      'change-settings',
       'stop',
     ]);
     const twice = await post(state, `/cycles/${cycle.id}/investigation`, {
@@ -982,6 +985,7 @@ describe('the investigated worktree (R-C16)', () => {
     expect((await presented(state, cycle)).actions).toEqual([
       'continue-with-guidance',
       'investigate',
+      'change-settings',
       'stop',
     ]);
     expect(stopItem(state, cycle)?.message).toContain('It matches its record again.');

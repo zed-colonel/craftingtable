@@ -22,7 +22,7 @@ import {
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AgentRunService } from '../../agent-run-service.js';
-import type { CommandContext } from '../../auth-service.js';
+import type { AuthContext, CommandContext } from '../../auth-service.js';
 import type { BranchService } from '../../branch-service.js';
 import { ExecutionRequestError, NotFoundError } from '../../errors.js';
 import { requireTreeScope } from '../../execution-scope.js';
@@ -57,7 +57,18 @@ import type { CycleGates } from '../gates.js';
 import type { CycleLocks } from '../locks.js';
 import type { CycleRemediation } from '../effects/remediation.js';
 import type { CycleIntegration } from '../effects/integration.js';
+import type { CycleSettings } from '../settings.js';
 import { reviewFacts } from '../shared.js';
+
+/**
+ * The roadmap service's append of an ADR-064 assignment for a roadmap cycle's entry, from the
+ * cycle's settings change (R-C17 part 4, decision 5); the daemon attaches it.
+ */
+export type EntryAgents = (
+  context: AuthContext,
+  owner: CycleOwnership,
+  selections: AgentSelections,
+) => void;
 
 export class CycleControl {
   constructor(
@@ -73,7 +84,14 @@ export class CycleControl {
     private readonly locks: CycleLocks,
     private readonly remediation: CycleRemediation,
     private readonly integration: CycleIntegration,
+    private readonly settings: CycleSettings,
   ) {}
+
+  /** Appends a roadmap entry's agent assignment for a roadmap cycle's settings change. */
+  attachEntryAgents(assign: EntryAgents): void {
+    this.entryAgents = assign;
+  }
+  private entryAgents: EntryAgents | undefined;
 
   async control(
     context: CommandContext,
@@ -154,16 +172,10 @@ export class CycleControl {
    * Synchronous throughout, so nothing interleaves between the checks and the writes.
    */
   changeSettings(
-    context: CommandContext,
+    context: AuthContext,
     workspaceId: WorkspaceId,
     id: WorkCycleId,
     change: SettingsChange,
-    hooks: {
-      /** The agents' own checks: an available backend, a model id (`requireModelIds`). */
-      readonly validate: (named: AgentSelections, saved: AgentSelections) => void;
-      /** Appends the assignment for the entry of the roadmap that owns the cycle. */
-      readonly assignEntryAgents: (owner: CycleOwnership, selections: AgentSelections) => void;
-    },
   ): WorkCycle {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
@@ -184,8 +196,17 @@ export class CycleControl {
     ) as AgentSelections;
     const after = { ...before, ...named } as AgentSelections;
     if (Object.keys(named).length) {
-      hooks.validate(named, before);
-      if (owner) hooks.assignEntryAgents(owner, after);
+      // Checked as a start and an ADR-064 assignment check agents (design review M-5).
+      this.settings.validateAgentSelections(named);
+      this.settings.requireModelIds(Object.entries(named), Object.entries(before));
+      if (owner) {
+        if (!this.entryAgents)
+          throw new ExecutionRequestError(
+            'unavailable',
+            'A roadmap cycle’s agents cannot change: roadmaps are not attached.',
+          );
+        this.entryAgents(context, owner, after);
+      }
     }
     const changedAgents = Object.keys(named).filter(
       (purpose) =>

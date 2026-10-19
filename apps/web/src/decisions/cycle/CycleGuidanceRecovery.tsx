@@ -47,8 +47,8 @@ export function CycleGuidanceRecovery({
         {resumable ? (
           <p>
             Read the current run’s outcome first. Without guidance, this resumes as Resume always
-            has; with it, the step’s next run gets your answers or a changed approach. Either uses
-            the existing allowance and opens a new bounded progress window.
+            has. With it, the step’s next run gets your answers or a changed approach, in a new
+            bounded progress window, within the existing allowance.
           </p>
         ) : (
           <p>

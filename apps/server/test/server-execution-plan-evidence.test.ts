@@ -1128,7 +1128,12 @@ it('a slice review question at the remediation limit keeps the question and the 
       .cycles.find((v) => v.cycle.id === cycle.id)?.projection.actions;
   };
   // Each of these stops still asks its question, so each also offers Investigate (R-C16).
-  expect(await offered()).toEqual(['authorize-remediation', 'investigate', 'stop']);
+  expect(await offered()).toEqual([
+    'authorize-remediation',
+    'investigate',
+    'change-settings',
+    'stop',
+  ]);
   // An `attention` given is stored as the cycle's stop (R-B4b).
   const rewrite = ({ attention, ...changes }: Record<string, unknown>) => {
     const current = currentCycle(state, cycle);
@@ -1165,15 +1170,39 @@ it('a slice review question at the remediation limit keeps the question and the 
   expect(legacyRefused.statusCode).toBe(409);
   expect(legacyRefused.body).toContain('Authorize more remediation');
   expect(currentCycle(state, cycle)).toEqual(legacy);
-  expect(await offered()).toEqual(['authorize-remediation', 'investigate', 'stop']);
+  expect(await offered()).toEqual([
+    'authorize-remediation',
+    'investigate',
+    'change-settings',
+    'stop',
+  ]);
   rewrite({ attention: cycleAttention('shared-decision-required') });
-  expect(await offered()).toEqual(['authorize-remediation', 'investigate', 'stop']);
+  expect(await offered()).toEqual([
+    'authorize-remediation',
+    'investigate',
+    'change-settings',
+    'stop',
+  ]);
   rewrite({ status: 'paused', attention: cycleAttention('review-open-questions-at-limit') });
-  expect(await offered()).toEqual(['authorize-remediation', 'investigate', 'resume', 'stop']);
+  // No guidance beside Resume where the grant is offered (R-C17 part 4, the gate at b8371cb).
+  expect(await offered()).toEqual([
+    'authorize-remediation',
+    'investigate',
+    'resume',
+    'change-settings',
+    'stop',
+  ]);
   rewrite({ status: 'needs-attention' });
   // With a round left, the question stop is answered with guidance as before.
   rewrite({ attention: cycleAttention('work-item-questions'), additionalRemediationRounds: 1 });
-  expect(await offered()).toEqual(['resume', 'investigate', 'stop']);
+  // Continue with guidance beside Resume, the round left taking it (R-C17 part 4, decision 1).
+  expect(await offered()).toEqual([
+    'resume',
+    'continue-with-guidance',
+    'investigate',
+    'change-settings',
+    'stop',
+  ]);
   rewrite({
     attention: cycleAttention('review-open-questions-at-limit'),
     additionalRemediationRounds: 0,

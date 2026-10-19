@@ -400,6 +400,10 @@ describe('Continue with guidance beside Resume (R-C17 part 4, decision 1)', () =
   ])('does not hold for %s', (_label, overrides, newest, live) =>
     expect(guidanceAccepted(atStop(overrides), newest, live)).toBe(false),
   );
+  it('does not hold toward a remediation that would be refused (increment 2 review M-1)', () => {
+    expect(guidanceAccepted(atStop(), run, false, true)).toBe(false);
+    expect(guidanceAccepted(atStop(), run, false, false)).toBe(true);
+  });
   // A plain pause accepts guidance, as before: a run that raised questions while the cycle was
   // paused goes on only with them answered (increment 1 review M-1). It is not offered there.
   it('holds at a plain pause, where it is not offered', () => {
@@ -434,6 +438,24 @@ describe('Continue with guidance beside Resume (R-C17 part 4, decision 1)', () =
     ]);
     expect(offered(atStop(), false)).toEqual(['resume', 'stop']);
   });
+  // The gate at b8371cb: a paused question stop whose review needs rounds offers the grant and a
+  // Resume that returns to the stop; guidance alone cannot start the round (LIVE-33).
+  it('is not offered where the grant is, at a question stop the allowance cannot answer', () =>
+    expect(
+      cycleActions(
+        {
+          ...atStop({ step: 'review' }),
+          status: 'paused',
+          stop: cycle('paused', 'review-open-questions-at-limit').stop,
+        },
+        run,
+        true,
+        undefined,
+        false,
+        false,
+        true,
+      ),
+    ).toEqual(['authorize-remediation', 'resume', 'stop']));
   it('stays the redirect that replaces Resume, once', () =>
     expect(offered(cycle('needs-attention', 'implementation-open-questions'))).toEqual([
       'continue-with-guidance',

@@ -129,3 +129,10 @@ it('counts a stage’s own permission change as a change for that stage (review 
     'changed for this stage',
   );
 });
+
+// R-C17 part 4 (increment 1 review L-4): each new finalization stage starts from 120 minutes.
+it('seeds every default stage with 120 minutes per step', () => {
+  const profile = { backend: 'claude-code' as const, permissionMode: 'auto' as const };
+  for (const stage of defaultFinalizationStages(profile, profile))
+    expect(stage.policy.maxRunMinutes).toBe(120);
+});

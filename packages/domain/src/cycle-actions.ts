@@ -138,10 +138,12 @@ export const INVESTIGATION_STOPS: ReadonlySet<CycleAttentionCode> = new Set<Cycl
 
 /**
  * Whether a guided resume (Continue with guidance) is accepted: the offer and the command read
- * this one rule (R-C17 part 4, decision 1). The cycle stands at a stop, `needs-attention` or paused
- * at a stop it kept (not a plain pause); it is no finalization, its scope a slice or none; it owns
- * no integration resolution and has none detected (their own forms take guidance); its step is
- * implement, remediate or review; its current run is the worktree's newest; and no run is live.
+ * this one rule (R-C17 part 4, decision 1). The cycle is stopped for the operator or paused; it is
+ * no finalization, its scope a slice or none; it owns no integration resolution and has none
+ * detected (their own forms take guidance); its step is implement, remediate or review; its
+ * current run is the worktree's newest; and no run is live. A plain pause is accepted, as before
+ * (a run that raised questions while paused can go on only with them answered: increment 1's
+ * review M-1), but the offer is made at a stop only (`cycleActions`).
  */
 export function guidanceAccepted(
   cycle: Pick<
@@ -159,7 +161,6 @@ export function guidanceAccepted(
 ): boolean {
   return (
     (cycle.status === 'needs-attention' || cycle.status === 'paused') &&
-    heldStop(cycle) !== undefined &&
     !cycle.finalizationId &&
     (!cycle.executionScope || cycle.executionScope.kind === 'slice') &&
     !ownsIntegrationResolution(cycle as WorkCycle) &&
@@ -217,8 +218,9 @@ export function cycleActions(
    */
   resumeAtRoundLimit = false,
   /**
-   * `guidanceAccepted` holds: Continue with guidance is offered beside every Resume offered (R-C17
-   * part 4, decision 1), where it is not already the redirect that replaces Resume.
+   * `guidanceAccepted` holds: Continue with guidance is offered beside every Resume offered at a
+   * stop (R-C17 part 4, decision 1; a plain pause keeps its Resume alone), where it is not already
+   * the redirect that replaces Resume.
    */
   acceptsGuidance = false,
 ): readonly CycleAction[] {
@@ -237,7 +239,9 @@ export function cycleActions(
           ? grant
             ? ['authorize-remediation']
             : []
-          : acceptsGuidance && !offered.includes('continue-with-guidance')
+          : acceptsGuidance &&
+              stopCode(cycle) !== undefined &&
+              !offered.includes('continue-with-guidance')
             ? [action, 'continue-with-guidance']
             : [action],
   );

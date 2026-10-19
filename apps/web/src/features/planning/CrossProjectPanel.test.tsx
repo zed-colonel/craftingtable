@@ -180,6 +180,16 @@ function setup(
     ),
   );
 }
+// R-C17 part 4 (increment 1 review M-4): new map settings start from 120 minutes per step.
+it('seeds new map settings with 120 minutes per step', async () => {
+  setup();
+  fireEvent.change(screen.getByLabelText('Planning target'), { target: { value: 'PROOF' } });
+  await waitFor(() =>
+    expect(screen.queryAllByLabelText('Minutes per step').length).toBeGreaterThan(0),
+  );
+  for (const field of screen.getAllByLabelText('Minutes per step') as HTMLInputElement[])
+    expect(field.value).toBe('120');
+});
 it('requires explicit target choice and adoption rationale, with a trace to the provider action', async () => {
   setup();
   expect((screen.getByLabelText('Planning target') as HTMLSelectElement).value).toBe('');

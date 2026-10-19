@@ -356,6 +356,8 @@ describe('Continue with guidance beside Resume (R-C17 part 4, decision 1)', () =
       currentRunId: run,
       ...overrides,
     }) as WorkCycle;
+  const offered = (c: WorkCycle, accepts = true) =>
+    cycleActions(c, c.currentRunId, false, undefined, false, false, accepts);
   it('holds at a stop at implement, remediate or review, from the ended current run', () => {
     for (const step of ['implement', 'remediate', 'review'] as const)
       expect(guidanceAccepted(atStop({ step }), run, false), step).toBe(true);
@@ -363,7 +365,6 @@ describe('Continue with guidance beside Resume (R-C17 part 4, decision 1)', () =
   });
   it.each<[string, Partial<WorkCycle>, ReturnType<typeof asAgentRunId> | undefined, boolean]>([
     ['a design step', { step: 'design' }, run, false],
-    ['a plain pause', { status: 'paused', stop: undefined }, run, false],
     ['a running cycle', { status: 'running', stop: undefined }, run, false],
     ['a cycle awaiting its merge', { status: 'awaiting-merge' }, run, false],
     ['a finalization', { finalizationId: 'f-1' as WorkCycle['finalizationId'] }, run, false],
@@ -394,6 +395,13 @@ describe('Continue with guidance beside Resume (R-C17 part 4, decision 1)', () =
   ])('does not hold for %s', (_label, overrides, newest, live) =>
     expect(guidanceAccepted(atStop(overrides), newest, live)).toBe(false),
   );
+  // A plain pause accepts guidance, as before: a run that raised questions while the cycle was
+  // paused goes on only with them answered (increment 1 review M-1). It is not offered there.
+  it('holds at a plain pause, where it is not offered', () => {
+    const plain = atStop({ status: 'paused', stop: undefined });
+    expect(guidanceAccepted(plain, run, false)).toBe(true);
+    expect(offered(plain)).toEqual(['resume', 'stop']);
+  });
   it('holds for a slice and an ended resolution', () => {
     expect(
       guidanceAccepted(
@@ -412,8 +420,6 @@ describe('Continue with guidance beside Resume (R-C17 part 4, decision 1)', () =
       ),
     ).toBe(true);
   });
-  const offered = (c: WorkCycle, accepts = true) =>
-    cycleActions(c, c.currentRunId, false, undefined, false, false, accepts);
   it('is offered beside every Resume where the rule holds, and only there', () => {
     expect(offered(atStop())).toEqual(['resume', 'continue-with-guidance', 'stop']);
     expect(offered({ ...atStop(), status: 'paused' })).toEqual([

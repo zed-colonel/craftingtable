@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentLaunchRequest } from '@craftingtable/agents';
 import { workCycleResponseSchema } from '@craftingtable/contracts';
-import { heldStop } from '@craftingtable/domain';
+import { DEFAULT_COMPLETION_POLICY, heldStop } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import {
   cleanupExecutionFixtures,
@@ -11,6 +11,7 @@ import {
   designDone,
   mutationHeaders,
   type Ready,
+  runToFinish,
   startCycle,
   waitFor,
 } from './execution-test-support.js';
@@ -58,7 +59,10 @@ async function atTimeLimit() {
     ],
     () => now,
   );
-  const cycle = await startCycle(state, worktree.id);
+  // Not the default 120, so the fresh window is read from the cycle's own policy (inc 1 review L-1).
+  const cycle = await startCycle(state, worktree.id, {
+    policy: { ...DEFAULT_COMPLETION_POLICY, maxRunMinutes: 45 },
+  });
   await waitFor(() => backend.sessions.length === 2, 'the implementation');
   await waitFor(() => {
     const run = state.context.storage.execution.runEvents.latestOfKind(
@@ -81,7 +85,13 @@ async function atTimeLimit() {
       )?.status === 'cancelled',
     'the run cancelled',
   );
-  return { state, backend, cycle, clock: { set: (at: Date) => (now = at), now: () => now } };
+  return {
+    state,
+    backend,
+    cycle,
+    worktree,
+    clock: { set: (at: Date) => (now = at), now: () => now },
+  };
 }
 
 const control = (state: Ready, cycleId: string, payload: Record<string, unknown>) =>
@@ -108,9 +118,8 @@ it('offers Continue with guidance at the time-limit stop, and continues the step
   expect(after).toMatchObject({ status: 'running', step: 'implement' });
   expect(after.attempt?.stepGuidance).toBe('Run flow_capacity alone under a timeout first.');
   // A fresh window from the cycle's own policy.
-  expect(Date.parse(after.runDeadlineAt)).toBe(
-    clock.now().getTime() + after.policy.maxRunMinutes * 60_000,
-  );
+  expect(after.policy.maxRunMinutes).toBe(45);
+  expect(Date.parse(after.runDeadlineAt)).toBe(clock.now().getTime() + 45 * 60_000);
   await waitFor(() => backend.launches.length === 3, 'the guided implementation');
   const brief = readFileSync(join(runDirectory(backend.launches[2]!), 'brief.md'), 'utf8');
   expect(brief).toContain('Run flow_capacity alone under a timeout first.');
@@ -125,4 +134,11 @@ it('offers the same at the time-limit stop a pause kept (R-C17 part 4, increment
   expect(paused.statusCode, paused.body).toBe(200);
   expect(heldStop(currentCycle(state, cycle))?.code).toBe('step-time-limit');
   expect(await actions(state, cycle.id)).toEqual(['resume', 'continue-with-guidance', 'stop']);
+});
+
+// Increment 1 review M-2: the offer reads the worktree's newest run, as the command does.
+it('offers no guidance once a newer manual run outside the lineage is the worktree’s newest (R-C17 part 4, increment 2)', async () => {
+  const { state, cycle, worktree } = await atTimeLimit();
+  await runToFinish(state, worktree.id, { role: 'implement' });
+  expect(await actions(state, cycle.id)).toEqual(['stop']);
 });

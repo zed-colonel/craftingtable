@@ -158,16 +158,46 @@ describe('a guided resume at the step time limit (R-C17 part 4, increments 1 and
     expect(decideResume(resolving, facts(), undefined)).toEqual({ kind: 'resolution' });
   });
 
-  // Increment 2: the command reads the offer's rule, which needs a stop (decision 1).
-  it('refuses guidance at a plain pause, and takes it at a pause kept at the stop', () => {
-    expect(
-      decideResumeStep(atTimeLimit({ status: 'paused', stop: undefined }), facts(), 'x'),
-    ).toMatchObject({ kind: 'refuse', code: 'guidance-invalid' });
-    expect(decideResumeStep(atTimeLimit({ status: 'paused' }), facts(), 'x')).toMatchObject({
-      kind: 'launch',
-      action: 'resume-with-guidance',
-    });
+  // A pause, kept at the stop or plain, takes guidance as before (increment 1 review M-1: a run
+  // that raised questions while the cycle was paused goes on only with them answered).
+  it('takes guidance at a pause kept at the stop, and at a plain pause', () => {
+    for (const paused of [
+      atTimeLimit({ status: 'paused' }),
+      atTimeLimit({ status: 'paused', stop: undefined }),
+    ])
+      expect(decideResumeStep(paused, facts(), 'x')).toMatchObject({
+        kind: 'launch',
+        action: 'resume-with-guidance',
+      });
   });
+
+  // Increment 1 review M-1 and L-2: the guided branch's other conditions.
+  it('takes guidance for a slice, refuses it blank, and leaves a detected conflict to its own form', () => {
+    expect(
+      decideResumeStep(atTimeLimit({ executionScope: { kind: 'slice' } }), facts(), 'x'),
+    ).toMatchObject({ kind: 'launch', action: 'resume-with-guidance' });
+    expect(decideResumeStep(atTimeLimit(), facts(), '   ')).toMatchObject({
+      kind: 'refuse',
+      code: 'guidance-invalid',
+    });
+    expect(
+      decideResume(
+        atTimeLimit({ integrationResolution: { status: 'detected', runIds: [] } }),
+        facts(),
+        'x',
+      ),
+    ).toMatchObject({ kind: 'refuse', code: 'resolution-detected' });
+  });
+
+  // Increment 1 review N-4: adopting a newer manual run in the lineage opens a fresh window.
+  it('adopts a newer run in the lineage with a fresh window', () =>
+    expect(
+      decideResumeStep(
+        atTimeLimit(),
+        facts({ newestRun: () => cancelled({ id: 'run-2', status: 'finished' }) }),
+        undefined,
+      ),
+    ).toMatchObject({ kind: 'write', changes: { runDeadlineAt: LATER } }));
 });
 
 // Design review M-1: a pending provider retry takes any command but pause and stop as its
@@ -185,6 +215,15 @@ describe('a pending provider retry, today (R-C17 part 4, increment 1)', () => {
     },
     runDeadlineAt: LATER,
   };
+  // Increment 1 review M-3: at a real time-limit stop the deadline has passed, so a resume is
+  // not taken as the retry: it goes on to resume.
+  it('does not take a resume at the time-limit stop as the retry once the deadline passed', () =>
+    expect(
+      decideCommand(atTimeLimit({ ...pending, runDeadlineAt: EARLIER }), facts(), {
+        action: 'resume',
+        expectedVersion: 3,
+      }),
+    ).toEqual({ kind: 'resume' }));
   it.each(['paused', 'needs-attention'] as const)(
     'runs the retry on a resume of a %s cycle, keeping the step’s deadline',
     (status) => {

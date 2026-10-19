@@ -82,6 +82,20 @@ it('offers only staged finalizations for a new start', async () => {
   expect(screen.queryByLabelText('Improvement rounds')).toBeNull();
 });
 
+// R-C17 part 4 (increment 1 review L-4): a new finalization and each of its stages start from
+// 120 minutes per step.
+it('seeds a new finalization with 120 minutes per step, its stages too', async () => {
+  renderPanel([]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up finalization' }));
+  await screen.findByRole('region', { name: 'Finalization stage setup' });
+  const minutes = [
+    ...screen.queryAllByLabelText('Minutes per step'),
+    ...screen.queryAllByLabelText('Stage minutes per run'),
+  ] as HTMLInputElement[];
+  expect(minutes.length).toBeGreaterThan(1);
+  for (const field of minutes) expect(field.value).toBe('120');
+});
+
 it("re-reads its plan's finalizations on its own cycles' and runs' events, and its branches each minute (R-D4)", async () => {
   const { store, wrap, send } = testQueryStore();
   const ws = legacy.finalization.workspaceId as string;

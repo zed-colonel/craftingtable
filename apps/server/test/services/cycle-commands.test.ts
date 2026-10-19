@@ -17,6 +17,7 @@ import {
   decideResume,
   decideResumeStep,
   decideReviewAgain,
+  decideSettingsChange,
   decideWindDownStop,
   restoredStatus,
   resumeAtRoundLimit,
@@ -654,6 +655,102 @@ const actorRows: readonly {
       ),
     expected: { kind: 'refuse', code: 'not-reviewable' },
   },
+  // R-C17 part 4, decisions 3 to 6: a stopped cycle's settings change.
+  ...(() => {
+    const change = (
+      cycleOverrides: Record<string, unknown>,
+      request: Record<string, unknown>,
+      options: { retired?: boolean; live?: boolean; changeOpen?: boolean; owned?: boolean } = {},
+    ) =>
+      decideSettingsChange(
+        cycleOf(cycleOverrides),
+        { amendmentRetired: () => !!options.retired },
+        { expectedVersion: 3, ...request },
+        { live: !!options.live, changeOpen: !!options.changeOpen },
+        !!options.owned,
+      );
+    const profiles = {
+      design: { backend: 'claude-code', permissionMode: 'auto', model: 'd' },
+      implement: { backend: 'claude-code', permissionMode: 'edit-only', model: 'i' },
+      review: { backend: 'claude-code', permissionMode: 'auto', model: 'r' },
+      remediate: { backend: 'claude-code', permissionMode: 'auto', model: 'm' },
+    };
+    const faster = { backend: 'codex', model: 'gpt-fast', reasoningEffort: 'high' };
+    return [
+      {
+        name: 'a settings change on a stale version is refused',
+        run: () => change({ version: 2 }, { maxRunMinutes: 240 }),
+        expected: { kind: 'refuse', code: 'cycle-changed' },
+      },
+      {
+        name: 'an ended cycle’s settings do not change',
+        run: () => change({ status: 'stopped', stop: undefined }, { maxRunMinutes: 240 }),
+        expected: { kind: 'refuse', code: 'cycle-ended' },
+      },
+      {
+        name: 'a retired attempt’s settings do not change',
+        run: () => change({}, { maxRunMinutes: 240 }, { retired: true }),
+        expected: { kind: 'refuse', code: 'amendment-retired' },
+      },
+      {
+        name: 'a running cycle’s settings do not change',
+        run: () => change({ status: 'running', stop: undefined }, { maxRunMinutes: 240 }),
+        expected: { kind: 'refuse', code: 'settings-not-changeable' },
+      },
+      {
+        name: 'a finalization’s settings are its stages’',
+        run: () => change({ finalizationId: 'f-1' }, { maxRunMinutes: 240 }),
+        expected: { kind: 'refuse', code: 'settings-not-changeable' },
+      },
+      {
+        name: 'a live investigation’s stop takes its own commands first',
+        run: () => change({}, { maxRunMinutes: 240 }, { live: true }),
+        expected: { kind: 'refuse', code: 'settings-not-changeable' },
+      },
+      {
+        name: 'the minutes change in the cycle’s own policy, nothing else',
+        run: () => change({}, { maxRunMinutes: 240 }),
+        expected: {
+          kind: 'settings',
+          changes: { policy: { ...DEFAULT_COMPLETION_POLICY, maxRunMinutes: 240 } },
+        },
+      },
+      {
+        name: 'a hand-started cycle’s agents change in its profiles, each step keeping its permissions',
+        run: () =>
+          change({ profiles }, { agents: { implement: faster, security: { backend: 'codex' } } }),
+        expected: {
+          kind: 'settings',
+          changes: {
+            profiles: {
+              ...profiles,
+              implement: { ...faster, permissionMode: 'edit-only' },
+              security: { backend: 'codex' },
+            },
+          },
+        },
+      },
+      {
+        name: 'a roadmap cycle’s agents change through its entry’s assignment, not its profiles',
+        run: () => change({ profiles }, { agents: { implement: faster } }, { owned: true }),
+        expected: { kind: 'settings', changes: {} },
+      },
+      {
+        name: 'changing agents ends a pending provider retry; changing minutes keeps it',
+        run: () => [
+          change(
+            { profiles, attempt: { providerRecovery: recovery } },
+            { agents: { review: faster } },
+          ),
+          change({ attempt: { providerRecovery: recovery } }, { maxRunMinutes: 240 }),
+        ],
+        expected: [
+          { kind: 'settings', changes: { attempt: { providerRecovery: undefined } } },
+          { kind: 'settings', changes: { policy: { maxRunMinutes: 240 } } },
+        ],
+      },
+    ];
+  })(),
   {
     name: 'a crash stops a running cycle for the operator',
     run: () => decideRestart(cycleOf({ status: 'running', stop: undefined }), false),

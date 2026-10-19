@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-09-22
-- **Amended:** 2026-09-28 (R-G5 follow-up): reasoning effort for Claude profiles too
+- **Amended:** 2026-09-28 (R-G5 follow-up): reasoning effort for Claude profiles too; 2026-10-18 (R-C17 part 4): a stopped cycle's own settings change
 
 ## Context
 
@@ -48,3 +48,16 @@ same four levels; Claude's `max` is not offered. Since R-G5, Claude runs load no
 settings, so an unset effort on a Claude profile means Claude Code's own default, not the
 operator's `effortLevel`. An unset Codex effort still uses the local Codex configuration.
 Records written with a Claude effort cannot be read by a release before this amendment.
+
+## Amendment 2026-10-18: a stopped cycle's own settings change (R-C17 part 4)
+
+Operator decisions 5 and 7. A paused or stopped-for-attention work item cycle's agents can be
+changed from the cycle itself, without resuming or stopping it. For a cycle a roadmap owns, the
+change is an assignment as above, for that cycle's entry alone, with every step's current agent
+and the changed ones; it may be appended while the roadmap runs (the entry's cycle is stopped for
+the operator and launches nothing until resumed), not while a roadmap command runs or an
+amendment is pending. Review evidence validates against it as against any assignment, and a later
+assignment displaces it. For a cycle no roadmap owns, the change rewrites the cycle's profile
+selections, each step keeping its permissions: the launch history the Alternatives above protect
+is kept by each run's recorded selection and by the audit row of the change, which records every
+changed agent before and after.

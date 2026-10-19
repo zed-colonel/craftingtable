@@ -21,6 +21,7 @@ import {
   agentProfileSchema,
   agentSelectionSchema,
   agentSelectionsSchema,
+  changedAgentSelectionsSchema,
   effectiveAgentsSchema,
   specialistSelectionsShape,
 } from './agent-profiles.js';
@@ -546,7 +547,24 @@ export const controlWorkCycleRequestSchema = z.discriminatedUnion('action', [
     additionalRounds: z.number().int().min(1).max(20),
     instructions: z.string().trim().max(16000).default(''),
   }),
+  // A stopped cycle's step time limit and agents, for its remaining steps (R-C17 part 4,
+  // decisions 3 and 4): the cycle is neither resumed nor stopped.
+  z
+    .strictObject({
+      action: z.literal('change-settings'),
+      expectedVersion: z.number().int().positive(),
+      maxRunMinutes: completionPolicySchema.shape.maxRunMinutes.optional(),
+      agents: changedAgentSelectionsSchema.optional(),
+    })
+    .refine(
+      (change) => change.maxRunMinutes !== undefined || change.agents !== undefined,
+      'Change the time limit, the agents, or both.',
+    ),
 ]);
+export type ChangeWorkCycleSettingsRequest = Extract<
+  z.infer<typeof controlWorkCycleRequestSchema>,
+  { action: 'change-settings' }
+>;
 export type AuthorizeWorkCycleRemediationRequest = Extract<
   z.infer<typeof controlWorkCycleRequestSchema>,
   { action: 'authorize-remediation' }

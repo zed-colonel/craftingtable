@@ -375,7 +375,13 @@ export function installRouteAccess(
 }
 
 /** The control actions that start no agent work: they never need step-up. */
-const IDLE_ACTIONS: ReadonlySet<unknown> = new Set(['pause', 'stop', 'abandon']);
+const IDLE_ACTIONS: ReadonlySet<unknown> = new Set([
+  'pause',
+  'stop',
+  'abandon',
+  // A stopped cycle's settings change starts nothing and grants no permission (R-C17 part 4).
+  'change-settings',
+]);
 
 /**
  * A control route's step-up (R-G9 review): an action that starts or resumes agent work needs the

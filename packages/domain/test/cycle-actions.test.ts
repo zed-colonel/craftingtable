@@ -4,7 +4,12 @@ import {
   type CycleAttentionCode,
   cycleAttention,
 } from '../src/attention.js';
-import { cycleActions, guidanceAccepted, resumeRedirect } from '../src/cycle-actions.js';
+import {
+  cycleActions,
+  guidanceAccepted,
+  resumeRedirect,
+  settingsChangeable,
+} from '../src/cycle-actions.js';
 import { stopRecord } from '../src/cycle-stop.js';
 import type { WorkCycle } from '../src/work-cycle.js';
 import { asAgentRunId } from '../src/ids.js';
@@ -439,5 +444,60 @@ describe('Continue with guidance beside Resume (R-C17 part 4, decision 1)', () =
     expect(
       cycleActions(atStop({ step: 'review' }), run, false, undefined, false, true, true),
     ).toEqual(['authorize-remediation', 'stop']);
+  });
+});
+
+/** R-C17 part 4, decision 3: the one rule the offer and the command read for a settings change. */
+describe('changing a stopped cycle’s settings (R-C17 part 4, decision 3)', () => {
+  const none = { investigationLive: false, worktreeChangeOpen: false, amendmentRetired: false };
+  it('holds for a paused or needs-attention work item cycle, a plain pause included', () => {
+    expect(settingsChangeable(cycle('needs-attention', 'step-time-limit'), none)).toBe(true);
+    expect(settingsChangeable(cycle('paused', 'step-time-limit'), none)).toBe(true);
+    expect(settingsChangeable(cycle('paused'), none)).toBe(true);
+  });
+  it.each<[string, WorkCycle, Partial<typeof none>]>([
+    ['a running cycle', cycle('running'), {}],
+    ['one awaiting its merge', cycle('awaiting-merge', 'merge-approval'), {}],
+    ['an ended one', cycle('stopped'), {}],
+    ['a completed one', cycle('completed'), {}],
+    [
+      'a finalization’s',
+      { ...cycle('needs-attention', 'step-time-limit'), finalizationId: 'f' } as WorkCycle,
+      {},
+    ],
+    [
+      'one with a live investigation',
+      cycle('needs-attention', 'work-item-questions'),
+      { investigationLive: true },
+    ],
+    [
+      'one whose investigation found the worktree changed',
+      cycle('paused', 'step-time-limit'),
+      { worktreeChangeOpen: true },
+    ],
+    [
+      'an attempt an amendment retired',
+      cycle('needs-attention', 'step-time-limit'),
+      { amendmentRetired: true },
+    ],
+  ])('does not hold for %s', (_label, c, facts) =>
+    expect(settingsChangeable(c, { ...none, ...facts })).toBe(false),
+  );
+  it('is offered before Stop, beside what the stop offers', () => {
+    const offered = (c: WorkCycle) =>
+      cycleActions(c, undefined, false, undefined, false, false, false, true);
+    expect(offered(cycle('needs-attention', 'step-time-limit'))).toEqual([
+      'resume',
+      'change-settings',
+      'stop',
+    ]);
+    expect(offered(cycle('paused'))).toEqual(['resume', 'change-settings', 'stop']);
+    expect(offered(cycle('needs-attention', 'item-completed-unmerged'))).toEqual([
+      'change-settings',
+      'stop',
+    ]);
+    expect(
+      cycleActions(cycle('paused'), undefined, false, undefined, false, false, false, false),
+    ).toEqual(['resume', 'stop']);
   });
 });

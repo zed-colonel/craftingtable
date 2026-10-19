@@ -408,6 +408,16 @@ export async function createServices(
     gitOperations,
   );
   roadmapService.attachAttention(attention, controllerPasses);
+  // A roadmap cycle's settings change takes its agents through an assignment (R-C17 part 4).
+  workCycleService.attachEntryAgents((context, owner, selections) =>
+    roadmapService.assignCycleEntryAgents(
+      context,
+      owner.roadmap.workspaceId,
+      owner.roadmap.id,
+      owner.attempt.entryId,
+      selections,
+    ),
+  );
   if (recovering) roadmapService.recoverInterrupted({ cleanStop });
   const repositoryCleanupService = new RepositoryCleanupService(
     storage,

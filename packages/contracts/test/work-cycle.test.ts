@@ -282,3 +282,30 @@ it('requires a phase blocker to carry its code (R-B4b increment 3)', () => {
   );
   expect(blocker.safeParse({ kind: 'resource', message }).success).toBe(false);
 });
+
+// R-C17 part 4, decisions 3 and 4: a stopped cycle's settings change names the minutes, agents
+// or both, within the start's bounds, and never a permission mode.
+it('takes a settings change of the minutes, the agents or both, and nothing else', () => {
+  const parse = (body: Record<string, unknown>) =>
+    controlWorkCycleRequestSchema.safeParse({
+      action: 'change-settings',
+      expectedVersion: 3,
+      ...body,
+    }).success;
+  expect(parse({ maxRunMinutes: 240 })).toBe(true);
+  expect(parse({ agents: { implement: { backend: 'codex', model: 'gpt-fast' } } })).toBe(true);
+  expect(parse({ maxRunMinutes: 1440, agents: { security: { backend: 'claude-code' } } })).toBe(
+    true,
+  );
+  for (const body of [
+    {},
+    { agents: {} },
+    { maxRunMinutes: 0 },
+    { maxRunMinutes: 1441 },
+    { maxRunMinutes: 1.5 },
+    { agents: { implement: { backend: 'claude-code', permissionMode: 'unrestricted' } } },
+    { agents: { builder: { backend: 'claude-code' } } },
+    { maxRunMinutes: 60, maxRemediationRounds: 5 },
+  ])
+    expect(parse(body), JSON.stringify(body)).toBe(false);
+});

@@ -15,6 +15,7 @@ import {
   type AgentRun,
   cycleActions,
   guidanceAccepted,
+  settingsChangeable,
   type CycleOwner,
   type CycleProjection,
   type CycleView,
@@ -31,7 +32,7 @@ import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
 import { prioritizeRoadmapCycles } from './cycle-priority.js';
 import { investigationLive, stopQuestions, worktreeChangeOpen } from './investigation.js';
-import { NotFoundError } from './errors.js';
+import { ExecutionRequestError, NotFoundError } from './errors.js';
 import type { ExecutionService } from './execution-service.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { cycleOwnership } from './cycle-ownership.js';
@@ -331,6 +332,52 @@ export class WorkCycleService {
       onReviewReserved,
     );
   }
+  /**
+   * A stopped cycle's step time limit and agents (R-C17 part 4, decision 3): checked as a start
+   * and an ADR-064 assignment check agents; a roadmap's cycle takes them through an assignment
+   * for its entry, which the roadmap service appends (attached by the daemon).
+   */
+  changeSettings(
+    context: import('./auth-service.js').AuthContext,
+    workspaceId: WorkspaceId,
+    id: WorkCycleId,
+    change: import('./cycle/core/commands.js').SettingsChange,
+  ): WorkCycle {
+    return this.controls.changeSettings(context, workspaceId, id, change, {
+      validate: (named, saved) => {
+        this.settings.validateAgentSelections(named);
+        this.settings.requireModelIds(Object.entries(named), Object.entries(saved));
+      },
+      assignEntryAgents: (owner, selections) => {
+        if (!this.entryAgents)
+          throw new ExecutionRequestError(
+            'unavailable',
+            'A roadmap cycle’s agents cannot change: roadmaps are not attached.',
+          );
+        this.entryAgents(context, owner, selections);
+      },
+    });
+  }
+  /**
+   * Appends a roadmap entry's agent assignment for a stopped cycle's settings change (R-C17 part
+   * 4, decision 5); the daemon attaches the roadmap service's.
+   */
+  attachEntryAgents(
+    assign: (
+      context: import('./auth-service.js').AuthContext,
+      owner: import('./cycle-ownership.js').CycleOwnership,
+      selections: import('@craftingtable/domain').AgentSelections,
+    ) => void,
+  ): void {
+    this.entryAgents = assign;
+  }
+  private entryAgents:
+    | ((
+        context: import('./auth-service.js').AuthContext,
+        owner: import('./cycle-ownership.js').CycleOwnership,
+        selections: import('@craftingtable/domain').AgentSelections,
+      ) => void)
+    | undefined;
   repeatScopeReview(
     context: CommandContext,
     workspaceId: WorkspaceId,
@@ -600,6 +647,12 @@ export class WorkCycleService {
         latestRunId,
         tx.execution.runs.liveForWorktree(c.workspaceId, c.worktreeId).length > 0,
       ),
+      // And the settings change's (decision 3).
+      settingsChangeable(c, {
+        investigationLive: investigationLive(c),
+        worktreeChangeOpen: worktreeChangeOpen(c),
+        amendmentRetired: tx.amendments.retired(c.workspaceId, c.worktreeId),
+      }),
     );
     const routes =
       c.status === 'needs-attention' &&

@@ -34,6 +34,11 @@ export const CYCLE_ACTIONS = [
    * accepts.
    */
   'acknowledge-worktree-change',
+  /**
+   * Change a stopped cycle's step time limit and agents for its remaining steps, leaving it where
+   * it stands (R-C17 part 4, decision 3).
+   */
+  'change-settings',
 ] as const;
 export type CycleAction = (typeof CYCLE_ACTIONS)[number];
 
@@ -172,6 +177,29 @@ export function guidanceAccepted(
   );
 }
 
+/**
+ * Whether a cycle's step time limit and agents can be changed (R-C17 part 4, decision 3): the
+ * offer and the command read this one rule. A paused or `needs-attention` cycle that is no
+ * finalization's (whose stages carry their own settings) and whose attempt no approved amendment
+ * retired, with no investigation live or awaiting acknowledgement (its own commands come first).
+ */
+export function settingsChangeable(
+  cycle: Pick<WorkCycle, 'status' | 'finalizationId'>,
+  facts: {
+    readonly investigationLive: boolean;
+    readonly worktreeChangeOpen: boolean;
+    readonly amendmentRetired: boolean;
+  },
+): boolean {
+  return (
+    (cycle.status === 'needs-attention' || cycle.status === 'paused') &&
+    !cycle.finalizationId &&
+    !facts.investigationLive &&
+    !facts.worktreeChangeOpen &&
+    !facts.amendmentRetired
+  );
+}
+
 /** The stop's code as its actions read it: a pause taken at a stop keeps that stop's. */
 export function stopCode(
   cycle: Pick<WorkCycle, 'status' | 'stop'>,
@@ -223,6 +251,33 @@ export function cycleActions(
    * the redirect that replaces Resume.
    */
   acceptsGuidance = false,
+  /** `settingsChangeable` holds: the settings change is offered, before Stop (decision 3). */
+  changesSettings = false,
+): readonly CycleAction[] {
+  const actions = cycleActionsWithoutSettings(
+    cycle,
+    latestRunId,
+    reviewNeedsRounds,
+    investigation,
+    latestOutsideLineage,
+    resumeAtRoundLimit,
+    acceptsGuidance,
+  );
+  if (!changesSettings) return actions;
+  const stop = actions.indexOf('stop');
+  return stop === -1
+    ? [...actions, 'change-settings']
+    : [...actions.slice(0, stop), 'change-settings', ...actions.slice(stop)];
+}
+
+function cycleActionsWithoutSettings(
+  cycle: Parameters<typeof cycleActions>[0],
+  latestRunId: AgentRunId | undefined,
+  reviewNeedsRounds: boolean,
+  investigation: Parameters<typeof cycleActions>[3] & object,
+  latestOutsideLineage: boolean,
+  resumeAtRoundLimit: boolean,
+  acceptsGuidance: boolean,
 ): readonly CycleAction[] {
   const offered = cycleActionsAt(cycle, latestRunId, reviewNeedsRounds, investigation);
   const noResume = latestOutsideLineage || stopCode(cycle) === 'item-completed-unmerged';

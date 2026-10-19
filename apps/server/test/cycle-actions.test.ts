@@ -103,14 +103,20 @@ describe('offer only actions that can make progress (R-A7)', () => {
         })
       ).json().cycles as { cycle: Record<string, unknown>; projection: { actions: string[] } }[];
     const listedFor = async () => (await listed()).find((v) => v.cycle.id === started.id);
-    expect((await listedFor())?.projection.actions).toEqual(['resolve-design', 'stop']);
+    // A stopped cycle's settings change is offered beside the rest (R-C17 part 4, decision 3).
+    expect((await listedFor())?.projection.actions).toEqual([
+      'resolve-design',
+      'change-settings',
+      'stop',
+    ]);
     const paused = await control(f, started.id, 'pause');
     expect(paused.statusCode, paused.body).toBe(200);
     expect(workCycleResponseSchema.parse(paused.json()).projection.actions).toEqual([
       'resume',
+      'change-settings',
       'stop',
     ]);
-    expect((await listedFor())?.projection.actions).toEqual(['resume', 'stop']);
+    expect((await listedFor())?.projection.actions).toEqual(['resume', 'change-settings', 'stop']);
     // The projection travels beside the stored cycle, never inside it (CTRL-22, R-D5).
     const view = (await listedFor())!;
     for (const field of [

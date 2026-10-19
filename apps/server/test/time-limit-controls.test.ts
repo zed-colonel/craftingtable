@@ -104,7 +104,12 @@ const control = (state: Ready, cycleId: string, payload: Record<string, unknown>
 
 it('offers Continue with guidance at the time-limit stop, and continues the step with it (R-C17 part 4, increments 1 and 2)', async () => {
   const { state, backend, cycle, clock } = await atTimeLimit();
-  expect(await actions(state, cycle.id)).toEqual(['resume', 'continue-with-guidance', 'stop']);
+  expect(await actions(state, cycle.id)).toEqual([
+    'resume',
+    'continue-with-guidance',
+    'change-settings',
+    'stop',
+  ]);
   const stopped = currentCycle(state, cycle);
   expect(stopped).toMatchObject({ status: 'needs-attention', step: 'implement' });
 
@@ -133,12 +138,17 @@ it('offers the same at the time-limit stop a pause kept (R-C17 part 4, increment
   });
   expect(paused.statusCode, paused.body).toBe(200);
   expect(heldStop(currentCycle(state, cycle))?.code).toBe('step-time-limit');
-  expect(await actions(state, cycle.id)).toEqual(['resume', 'continue-with-guidance', 'stop']);
+  expect(await actions(state, cycle.id)).toEqual([
+    'resume',
+    'continue-with-guidance',
+    'change-settings',
+    'stop',
+  ]);
 });
 
 // Increment 1 review M-2: the offer reads the worktree's newest run, as the command does.
 it('offers no guidance once a newer manual run outside the lineage is the worktree’s newest (R-C17 part 4, increment 2)', async () => {
   const { state, cycle, worktree } = await atTimeLimit();
   await runToFinish(state, worktree.id, { role: 'implement' });
-  expect(await actions(state, cycle.id)).toEqual(['stop']);
+  expect(await actions(state, cycle.id)).toEqual(['change-settings', 'stop']);
 });

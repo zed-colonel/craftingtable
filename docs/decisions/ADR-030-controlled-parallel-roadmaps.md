@@ -28,7 +28,10 @@ Independent entries continue while an item needs attention. Whole-roadmap pause/
 all owned cycles; item pause/resume controls only its entry. Restart still requires explicit
 resume and preserves individually paused entries. Definitions remain immutable. Started
 entry settings and refresh budgets bind to their execution revision; queued settings and
-parallel priority can change while paused. Mode changes require no in-flight attempts.
+parallel priority can change while paused. A stopped cycle's own step time limit and agents
+can change from the cycle (amended 2026-10-18, R-C17 part 4): the limit binds that cycle only,
+and its agents are an ADR-064 assignment for its entry; the revision's settings stay as started.
+Mode changes require no in-flight attempts.
 
 The cycle controller refreshes an actively delegated parallel attempt at an idle review
 boundary or stale merge checkpoint. It finishes live work first, checks authority and branch

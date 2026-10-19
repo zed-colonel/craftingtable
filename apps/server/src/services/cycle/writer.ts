@@ -9,6 +9,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import {
   type AgentRun,
+  type JsonValue,
   asAgentRunId,
   asAuditEventId,
   asEventId,
@@ -132,6 +133,8 @@ export class CycleWriter {
     input: CycleChanges | CycleRestore,
     action = 'advance',
     context?: CommandContext,
+    /** A command's own record of what it changed, in its audit row (R-C17 part 4's settings). */
+    extra?: Readonly<Record<string, JsonValue>>,
   ): WorkCycle {
     // Entering a stop declares its attention (enforced by CycleChanges); a pause keeps the
     // stop it was taken at (R-A7); an end records how the cycle ended (R-B4b); any other status
@@ -278,7 +281,7 @@ export class CycleWriter {
     this.storage.transaction((tx) => {
       if (!tx.execution.cycles.replace(updated, cycle.version))
         throw new ConcurrentModificationError('Cycle changed while this operation was in progress');
-      this.record(tx, updated, action, context, cycle.status);
+      this.record(tx, updated, action, context, cycle.status, extra);
     });
     // The run is read-only, so ending it loses nothing; left live, it would hold the worktree.
     if (investigationEnded && ended && !ended.result)
@@ -315,6 +318,7 @@ export class CycleWriter {
     action: string,
     context?: CommandContext,
     previous?: WorkCycle['status'],
+    extra?: Readonly<Record<string, JsonValue>>,
   ): void {
     const stopped = heldStop(cycle);
     const decision = this.deciding.getStore();
@@ -419,6 +423,7 @@ export class CycleWriter {
         ...(cycle.checkpoint
           ? { checkpoint: { ...cycle.checkpoint, paths: [...cycle.checkpoint.paths] } }
           : {}),
+        ...extra,
       },
     });
     this.appendCycleEvent(tx, cycle, cycle.updatedAt, context);

@@ -344,9 +344,10 @@ it('does not lose earlier cycle findings when an unrelated manual run is resumed
     )
       .json()
       .cycles.find((v: { cycle: { id: string } }) => v.cycle.id === cycle.id)?.projection.actions;
-  expect(await listedActions()).toEqual(['authorize-remediation', 'stop']);
+  // A stopped cycle's settings change is offered beside the rest (R-C17 part 4, decision 3).
+  expect(await listedActions()).toEqual(['authorize-remediation', 'change-settings', 'stop']);
   await runToFinish(state, worktree.id, { role: 'implement' });
-  expect(await listedActions()).toEqual(['stop']);
+  expect(await listedActions()).toEqual(['change-settings', 'stop']);
   const response = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
@@ -401,11 +402,11 @@ it('refuses a plain resume at the round limit toward Authorize more remediation'
     )
       .json()
       .cycles.find((v: { cycle: { id: string } }) => v.cycle.id === cycle.id)?.projection.actions;
-  expect(await offered()).toEqual(['authorize-remediation', 'stop']);
+  expect(await offered()).toEqual(['authorize-remediation', 'change-settings', 'stop']);
   const { stop: _stop, ...unstopped } = restarted;
   const paused = { ...unstopped, status: 'paused' as const, version: restarted.version + 1 };
   expect(state.context.storage.execution.cycles.replace(paused, restarted.version)).toBeTruthy();
-  expect(await offered()).toEqual(['authorize-remediation', 'stop']);
+  expect(await offered()).toEqual(['authorize-remediation', 'change-settings', 'stop']);
   const grant = await state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${state.workspaceId}/cycles/${cycle.id}/control`,
@@ -469,11 +470,11 @@ it('offers Resume, not a grant it refuses, at the round limit when the review’
       .cycles.find((v: { cycle: { id: string } }) => v.cycle.id === cycle.id)?.projection.actions;
   // Continue with guidance beside it: the guided resume is accepted here too (R-C17 part 4,
   // decision 1).
-  expect(await offered()).toEqual(['resume', 'continue-with-guidance', 'stop']);
+  expect(await offered()).toEqual(['resume', 'continue-with-guidance', 'change-settings', 'stop']);
   // The same at a pause taken at that stop, which keeps it (review of a2fd3e5, R3).
   const paused = { ...incomplete, status: 'paused' as const, version: incomplete.version + 1 };
   expect(state.context.storage.execution.cycles.replace(paused, incomplete.version)).toBeTruthy();
-  expect(await offered()).toEqual(['resume', 'continue-with-guidance', 'stop']);
+  expect(await offered()).toEqual(['resume', 'continue-with-guidance', 'change-settings', 'stop']);
   const control = (payload: Record<string, unknown>) =>
     state.context.app.inject({
       method: 'POST',

@@ -40,6 +40,19 @@ export const specialistSelectionsShape = {
   conflict: agentSelectionSchema.optional(),
   investigation: agentSelectionSchema.optional(),
 };
+/**
+ * The agents a stopped cycle's settings change names (R-C17 part 4, decision 4): any of the
+ * purposes, at least one; the rest keep theirs.
+ */
+export const changedAgentSelectionsSchema = z
+  .strictObject({
+    design: agentSelectionSchema.optional(),
+    implement: agentSelectionSchema.optional(),
+    review: agentSelectionSchema.optional(),
+    remediate: agentSelectionSchema.optional(),
+    ...specialistSelectionsShape,
+  })
+  .refine((agents) => Object.values(agents).some(Boolean), 'Name at least one agent to change.');
 export const agentSelectionsSchema = z.strictObject({
   design: agentSelectionSchema,
   implement: agentSelectionSchema,

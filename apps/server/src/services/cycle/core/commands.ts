@@ -1,10 +1,14 @@
 import { withinInstructionLimit } from '../../command-bounds.js';
 import {
   type AgentRun,
+  type AgentSelection,
+  type AgentSelections,
   type CycleAction,
   type CycleStep,
   cycleAttention,
   guidanceAccepted,
+  selectAgent,
+  settingsChangeable,
   isTerminalAgentRunStatus,
   ownsIntegrationResolution,
   remediationAllowance,
@@ -15,7 +19,7 @@ import {
   cycleStop,
   heldStop,
 } from '@craftingtable/domain';
-import type { CycleChanges, CycleRestore } from './transitions.js';
+import type { CycleChanges, CycleFieldChanges, CycleRestore } from './transitions.js';
 
 /**
  * The operator's cycle commands through the core (R-B4 increment 6). `decideCommand` decides
@@ -66,6 +70,7 @@ export const COMMAND_REFUSALS = [
   'round-limit',
   'resolution-owned',
   'not-reviewable',
+  'settings-not-changeable',
 ] as const;
 export type CommandRefusalCode = (typeof COMMAND_REFUSALS)[number];
 
@@ -130,6 +135,77 @@ export interface CommandFacts {
   readonly reviewTurnSucceeded: (run: AgentRun) => boolean;
   /** A new step window's deadline. */
   readonly deadline: () => string;
+}
+
+/** What a stopped cycle's settings change names (R-C17 part 4, decision 4). */
+export interface SettingsChange {
+  readonly expectedVersion: number;
+  readonly maxRunMinutes?: number;
+  readonly agents?: Partial<AgentSelections>;
+}
+
+/**
+ * A stopped cycle's settings change (R-C17 part 4, decisions 3 to 6), decided on its own, before
+ * anything a resume decides: `decideCommand` takes any other command on a cycle with a pending
+ * provider retry as the retry (design review M-1). The minutes are the cycle's own policy's; a
+ * hand-started cycle's agents are its profiles' selections, each step keeping its permissions;
+ * changing agents ends a pending provider retry, whose "same agent" no longer holds. A roadmap's
+ * cycle takes its agents through an ADR-064 assignment for its entry, which the shell applies.
+ */
+export function decideSettingsChange(
+  cycle: WorkCycle,
+  facts: Pick<CommandFacts, 'amendmentRetired'>,
+  change: SettingsChange,
+  investigation: { readonly live: boolean; readonly changeOpen: boolean },
+  roadmapOwned: boolean,
+): CommandRefusal | { readonly kind: 'settings'; readonly changes: CycleFieldChanges } {
+  if (cycle.version !== change.expectedVersion)
+    return refuse('cycle-changed', 'Cycle changed; refresh before issuing this command');
+  if (['stopped', 'completed'].includes(cycle.status))
+    return refuse('cycle-ended', 'This cycle has ended');
+  const retired = facts.amendmentRetired();
+  if (retired)
+    return refuse(
+      'amendment-retired',
+      'An approved planning amendment retired this attempt; its settings no longer change.',
+    );
+  if (
+    !settingsChangeable(cycle, {
+      investigationLive: investigation.live,
+      worktreeChangeOpen: investigation.changeOpen,
+      amendmentRetired: retired,
+    })
+  )
+    return refuse(
+      'settings-not-changeable',
+      'Only a paused or stopped work item cycle’s time limit and agents change, with no investigation open; a finalization’s are its stages’.',
+    );
+  const agents = Object.entries(change.agents ?? {}).filter(
+    (entry): entry is [string, AgentSelection] => entry[1] !== undefined,
+  );
+  let profiles: Record<string, unknown> | undefined;
+  if (agents.length && !roadmapOwned) {
+    profiles = { ...cycle.profiles };
+    for (const [purpose, selection] of agents) {
+      const step = cycle.profiles[purpose as CycleStep];
+      // A step keeps the permissions it started with (ADR-064: the step owns them).
+      profiles[purpose] = step
+        ? { ...selectAgent(selection), permissionMode: step.permissionMode }
+        : selectAgent(selection);
+    }
+  }
+  return {
+    kind: 'settings',
+    changes: {
+      ...(change.maxRunMinutes === undefined
+        ? {}
+        : { policy: { ...cycle.policy, maxRunMinutes: change.maxRunMinutes } }),
+      ...(profiles ? { profiles: profiles as unknown as WorkCycle['profiles'] } : {}),
+      ...(agents.length && cycle.attempt?.providerRecovery
+        ? { attempt: { providerRecovery: undefined } }
+        : {}),
+    },
+  };
 }
 
 /** The first stage: the command itself, before any gate. */

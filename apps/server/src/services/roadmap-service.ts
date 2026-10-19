@@ -726,6 +726,42 @@ export class RoadmapService {
     );
     return this.agentSettings(context, workspaceId, id);
   }
+  /**
+   * A stopped cycle's agents, as an ADR-064 assignment for its own entry (R-C17 part 4, decision
+   * 5; ADR-064 amended): appended from the cycle's settings change at any roadmap status, since the
+   * entry's cycle is paused or stopped for the operator and launches nothing until resumed. The
+   * cycle's command has checked the selections; the roadmap's own conditions hold here (no roadmap
+   * command running, no pending amendment, the entry still in the roadmap). Later assignments
+   * displace it, as ADR-064 has them.
+   */
+  assignCycleEntryAgents(
+    context: AuthContext,
+    workspaceId: WorkspaceId,
+    id: RoadmapId,
+    entryId: RoadmapEntryId,
+    selections: import('@craftingtable/domain').AgentSelections,
+  ): void {
+    const old = this.find(workspaceId, id);
+    if (this.controlling.has(id))
+      conflict('A roadmap command is running. Change this cycle’s agents once it ends.');
+    if (this.storage.amendments.pending(workspaceId, id))
+      conflict('Decide the pending planning amendment first.');
+    if (!old.definition.entries.some((entry) => entry.id === entryId))
+      conflict('This cycle’s roadmap entry is no longer in its roadmap.');
+    const assignment = {
+      id: asAgentAssignmentId(randomUUID()),
+      entryIds: [entryId],
+      selections,
+      appliedAt: this.now().toISOString(),
+      appliedByUserId: context.user.id,
+    };
+    this.change(
+      old,
+      { agentAssignments: [...(old.agentAssignments ?? []), assignment] },
+      'apply-agent-profiles',
+      context,
+    );
+  }
   decisionSettings(context: AuthContext, ws: WorkspaceId, id: RoadmapId) {
     this.workspaces.requireAuthorized(context, ws);
     const roadmap = this.find(ws, id),

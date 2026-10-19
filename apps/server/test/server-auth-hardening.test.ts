@@ -484,6 +484,13 @@ describe('step-up (R-G9)', () => {
       for (const action of ['pause', 'stop', 'abandon'])
         expect(refusedForStepUp(await command(url, { action })), `${url} ${action}`).toBe(false);
     }
+    // Nor does changing a stopped cycle's settings: it starts nothing and grants no permission
+    // (R-C17 part 4, decision 3).
+    expect(
+      refusedForStepUp(
+        await command(`/cycles/${id}/control`, { action: 'change-settings', maxRunMinutes: 60 }),
+      ),
+    ).toBe(false);
     expect(refusedForStepUp(await command(`/worktrees/${id}/merge`, {}))).toBe(true);
     // The routes ask about the record they name.
     expect(roadmap).toHaveBeenCalledWith(expect.any(String), id);

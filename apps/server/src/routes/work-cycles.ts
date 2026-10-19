@@ -260,24 +260,26 @@ export function registerWorkCycleRoutes(
       const context = contextOf(request);
       const { workspaceId, cycleId } = paramsOf(request, CYCLE);
       const cycle =
-        request.body.action === 'authorize-remediation'
-          ? await cycles.authorizeWorkItemRemediation(context, workspaceId, cycleId, request.body)
-          : request.body.action === 'review-again'
-            ? await cycles.repeatScopeReview(
-                context,
-                workspaceId,
-                cycleId,
-                request.body.expectedVersion,
-                request.body.instructions ?? '',
-              )
-            : await cycles.control(
-                context,
-                workspaceId,
-                cycleId,
-                request.body.action,
-                request.body.expectedVersion,
-                request.body.action === 'resume' ? request.body.instructions : undefined,
-              );
+        request.body.action === 'change-settings'
+          ? cycles.changeSettings(context, workspaceId, cycleId, request.body)
+          : request.body.action === 'authorize-remediation'
+            ? await cycles.authorizeWorkItemRemediation(context, workspaceId, cycleId, request.body)
+            : request.body.action === 'review-again'
+              ? await cycles.repeatScopeReview(
+                  context,
+                  workspaceId,
+                  cycleId,
+                  request.body.expectedVersion,
+                  request.body.instructions ?? '',
+                )
+              : await cycles.control(
+                  context,
+                  workspaceId,
+                  cycleId,
+                  request.body.action,
+                  request.body.expectedVersion,
+                  request.body.action === 'resume' ? request.body.instructions : undefined,
+                );
       return noStore(reply).send(workCycleResponseSchema.parse(cycles.present(cycle)));
     },
   );

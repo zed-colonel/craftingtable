@@ -11,6 +11,7 @@ import { required, heldStop } from '@craftingtable/domain';
 import type { AuthorizeWorkCycleRemediationRequest } from '@craftingtable/contracts';
 import {
   type AgentRun,
+  type AgentSelections,
   mergeAdoptsChecks,
   ownsIntegrationResolution,
   remediationAllowance,
@@ -26,12 +27,13 @@ import type { BranchService } from '../../branch-service.js';
 import { ExecutionRequestError, NotFoundError } from '../../errors.js';
 import { requireTreeScope } from '../../execution-scope.js';
 import { finalizationForCycle } from '../../finalization-policy.js';
-import { cycleOwnership } from '../../cycle-ownership.js';
+import { type CycleOwnership, cycleOwnership } from '../../cycle-ownership.js';
 import {
   type CommandFacts,
   type CommandRefusal,
   type CommandWrite,
   decideCommand,
+  decideSettingsChange,
   decideDeclaredChecksReview,
   decideLeaveMerge,
   decideResume,
@@ -41,7 +43,11 @@ import {
   type ResumeStep,
   restoredStatus,
   resumeAdopts,
+  type SettingsChange,
 } from '../core/commands.js';
+import { cycleAgents } from '../../agent-profile-policy.js';
+import { selectionSet } from '../../agent-resolution.js';
+import { investigationLive, worktreeChangeOpen } from '../../investigation.js';
 import { continuesLineage } from '../../run-lineage.js';
 import type { WorkspaceService } from '../../workspace-service.js';
 import type { WorktreeMutationGuard } from '../../worktree-mutation-guard.js';
@@ -137,6 +143,81 @@ export class CycleControl {
           ...(onReviewReserved ? { attach: onReviewReserved } : {}),
         });
     }
+  }
+
+  /**
+   * A stopped cycle's step time limit and agents, for its remaining steps (R-C17 part 4,
+   * decisions 3 to 7): the cycle stays where it stands, its stop, reason and attempt kept (a
+   * pending provider retry ends when the agents change). A hand-started cycle's agents are its
+   * profiles'; a roadmap's cycle's are an ADR-064 assignment for its entry, which review evidence
+   * accepts (`assignedReviewMatches`): every step's current agent with the named ones changed.
+   * Synchronous throughout, so nothing interleaves between the checks and the writes.
+   */
+  changeSettings(
+    context: CommandContext,
+    workspaceId: WorkspaceId,
+    id: WorkCycleId,
+    change: SettingsChange,
+    hooks: {
+      /** The agents' own checks: an available backend, a model id (`requireModelIds`). */
+      readonly validate: (named: AgentSelections, saved: AgentSelections) => void;
+      /** Appends the assignment for the entry of the roadmap that owns the cycle. */
+      readonly assignEntryAgents: (owner: CycleOwnership, selections: AgentSelections) => void;
+    },
+  ): WorkCycle {
+    this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
+    const cycle = this.storage.execution.cycles.find(workspaceId, id);
+    if (!cycle) throw new NotFoundError();
+    this.gates.requireNoInvestigation(cycle, false);
+    const owner = cycleOwnership(this.storage, cycle);
+    const decided = decideSettingsChange(
+      cycle,
+      { amendmentRetired: () => this.storage.amendments.retired(workspaceId, cycle.worktreeId) },
+      change,
+      { live: investigationLive(cycle), changeOpen: worktreeChangeOpen(cycle) },
+      owner !== undefined,
+    );
+    if (decided.kind === 'refuse') throw new ExecutionRequestError(decided.status, decided.message);
+    const before = selectionSet(cycleAgents(this.storage, cycle));
+    const named = Object.fromEntries(
+      Object.entries(change.agents ?? {}).filter(([, selection]) => selection !== undefined),
+    ) as AgentSelections;
+    const after = { ...before, ...named } as AgentSelections;
+    if (Object.keys(named).length) {
+      hooks.validate(named, before);
+      if (owner) hooks.assignEntryAgents(owner, after);
+    }
+    const changedAgents = Object.keys(named).filter(
+      (purpose) =>
+        JSON.stringify(before[purpose as keyof AgentSelections]) !==
+        JSON.stringify(after[purpose as keyof AgentSelections]),
+    );
+    return this.writer.change(cycle, decided.changes, 'change-settings', context, {
+      settings: {
+        ...(change.maxRunMinutes === undefined
+          ? {}
+          : {
+              maxRunMinutes: { from: cycle.policy.maxRunMinutes, to: change.maxRunMinutes },
+            }),
+        ...(changedAgents.length
+          ? {
+              agents: Object.fromEntries(
+                changedAgents.map((purpose) => [
+                  purpose,
+                  {
+                    from: { ...before[purpose as keyof AgentSelections] },
+                    to: { ...after[purpose as keyof AgentSelections] },
+                  },
+                ]),
+              ),
+              through: owner ? 'roadmap-assignment' : 'cycle-profiles',
+            }
+          : {}),
+        ...(cycle.attempt?.providerRecovery && Object.keys(named).length
+          ? { endedProviderRetry: true }
+          : {}),
+      },
+    });
   }
 
   /** The facts an operator command reads (`decideCommand`), each read when a stage asks. */

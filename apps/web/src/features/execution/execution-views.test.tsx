@@ -1620,13 +1620,9 @@ describe('automated cycle controls', () => {
       maxRunMinutes: 45,
     });
   });
-  // Increment 5 review M-1 and L-1: the workspace comes from the page, so an item with no worktree
-  // yet still reads its default; and minutes the operator typed are never replaced.
-  it('reads the default with no worktree yet, and keeps minutes the operator typed first', async () => {
-    let answer: (minutes: number) => void = () => {};
-    vi.mocked(cycleDefaultMinutes).mockReturnValueOnce(
-      new Promise<number>((resolve) => (answer = resolve)),
-    );
+  // Increment 5 review M-1 and L-1 (and its re-check): the workspace comes from the page, so an
+  // item with no worktree yet still reads its default; only the operator's own minutes are kept.
+  describe('the workspace default on a start form opened early', () => {
     const props = {
       cycles: daemon([]),
       runs: [],
@@ -1636,28 +1632,56 @@ describe('automated cycle controls', () => {
       canMutate: true,
       busy: false,
       admitted: true,
-      onStart: vi.fn(),
       csrfToken: 'csrf',
       onChanged: vi.fn(),
       onOpenRun: vi.fn(),
     };
-    const view = render(
-      <CyclePanel {...props} worktrees={[]} workspaceId={worktree.workspaceId as WorkspaceId} />,
-    );
-    fireEvent.click(screen.getByText('Set up a cycle'));
-    await waitFor(() => expect(cycleDefaultMinutes).toHaveBeenCalledWith(worktree.workspaceId));
-    view.rerender(
-      <CyclePanel
-        {...props}
-        worktrees={[worktree]}
-        workspaceId={worktree.workspaceId as WorkspaceId}
-      />,
-    );
-    fireEvent.change(screen.getByLabelText('Minutes per step'), { target: { value: '90' } });
-    fireEvent.change(screen.getByLabelText('Allowed nits'), { target: { value: '1' } });
-    answer(45);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect((screen.getByLabelText('Minutes per step') as HTMLInputElement).value).toBe('90');
+    const workspaceId = 'ws-page' as WorkspaceId;
+    /** Opens the form before any worktree; the default answers when `answer` is called. */
+    const opened = async () => {
+      vi.mocked(cycleDefaultMinutes).mockClear();
+      let answer: (minutes: number) => void = () => {};
+      vi.mocked(cycleDefaultMinutes).mockReturnValueOnce(
+        new Promise<number>((resolve) => (answer = resolve)),
+      );
+      const onStart = vi.fn();
+      const view = render(
+        <CyclePanel {...props} onStart={onStart} worktrees={[]} workspaceId={workspaceId} />,
+      );
+      fireEvent.click(screen.getByText('Set up a cycle'));
+      await waitFor(() => expect(cycleDefaultMinutes).toHaveBeenCalledWith(workspaceId));
+      view.rerender(
+        <CyclePanel
+          {...props}
+          onStart={onStart}
+          worktrees={[worktree]}
+          workspaceId={workspaceId}
+        />,
+      );
+      return { answer: (minutes: number) => answer(minutes), onStart };
+    };
+    const minutes = () => (screen.getByLabelText('Minutes per step') as HTMLInputElement).value;
+    it('reads the page’s workspace with no worktree yet, and starts with its default', async () => {
+      const { answer, onStart } = await opened();
+      answer(45);
+      await waitFor(() => expect(minutes()).toBe('45'));
+      fireEvent.click(screen.getByRole('button', { name: 'Start automated cycle' }));
+      expect(onStart.mock.calls[0]?.[0].policy.maxRunMinutes).toBe(45);
+    });
+    it('lets the default in after the nits were changed, keeping them', async () => {
+      const { answer } = await opened();
+      fireEvent.change(screen.getByLabelText('Allowed nits'), { target: { value: '1' } });
+      answer(45);
+      await waitFor(() => expect(minutes()).toBe('45'));
+      expect((screen.getByLabelText('Allowed nits') as HTMLInputElement).value).toBe('1');
+    });
+    it('keeps minutes the operator typed before the default arrived', async () => {
+      const { answer } = await opened();
+      fireEvent.change(screen.getByLabelText('Minutes per step'), { target: { value: '90' } });
+      answer(45);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(minutes()).toBe('90');
+    });
   });
   it('starts a cycle with the daemon’s defaults, named with their source, unless changed for this cycle (R-E5b)', () => {
     const onStart = vi.fn();

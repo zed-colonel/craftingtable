@@ -420,8 +420,8 @@ export function CyclePanel({
       ) : (
         <details
           onToggle={(event) => {
-            // The workspace's default step time limit seeds the form once it opens, unless the
-            // operator changed the policy already (R-C17 part 4, decision 9).
+            // The workspace's default step time limit seeds the form's minutes once it opens,
+            // unless the operator typed minutes already (R-C17 part 4, decision 9).
             const workspace = workspaceId ?? worktrees[0]?.workspaceId;
             if (!(event.currentTarget as HTMLDetailsElement).open || !workspace) return;
             void cycleDefaultMinutes(workspace as WorkspaceId).then((maxRunMinutes) => {

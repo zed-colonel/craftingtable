@@ -734,6 +734,10 @@ export async function stepDaemons(steps = 1): Promise<void> {
 }
 /** Daemons created with `workers: true`, whose own loops run; stepping skips them. */
 const freeRunning = new WeakSet<TestContext>();
+/** Registers a daemon whose own loops run (`workers: true`) made by another fixture. */
+export function markFreeRunning(context: TestContext): void {
+  freeRunning.add(context);
+}
 
 /**
  * Steps a wait may take (R-I2, TS-H1). The number of steps a controller needs is the same at

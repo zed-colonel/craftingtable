@@ -19,11 +19,12 @@ import {
   type WorkCycle,
   type WorktreeId,
 } from '@craftingtable/domain';
-import { createGitOperations } from '@craftingtable/git';
+import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import type { ServiceSet } from '../src/composition.js';
 import {
   contexts,
   fixtureRepository,
+  markFreeRunning,
   mutationHeaders,
   type ScriptedReply,
   type SignedIn,
@@ -208,16 +209,28 @@ export interface CycleFixture extends SignedIn {
 }
 
 export async function createCycleFixture(
-  options: { readonly env?: Readonly<Record<string, string>> } = {},
+  options: {
+    readonly env?: Readonly<Record<string, string>>;
+    /** Keeps the daemon's own controller loops running instead of stepping them (R-B5). */
+    readonly workers?: boolean;
+    /** Git operations over the real ones, such as one that holds a launch's preflight. */
+    readonly git?: (real: GitOperations) => GitOperations;
+    /** Leaves the two items independent: no required edge from item-1 to item-2. */
+    readonly independent?: boolean;
+    readonly now?: () => Date;
+  } = {},
 ): Promise<CycleFixture> {
   const backend = new HeldBackend();
+  const real = createGitOperations({ gitExecutable: 'git' });
   const context = await createTestContext({
-    gitOperations: createGitOperations({ gitExecutable: 'git' }),
+    gitOperations: options.git ? options.git(real) : real,
     agentBackends: new Map([[backend.kind, backend]]),
-    workers: false,
+    workers: options.workers ?? false,
     ...(options.env === undefined ? {} : { env: options.env }),
+    ...(options.now === undefined ? {} : { now: options.now }),
   });
   contexts.push(context);
+  if (options.workers) markFreeRunning(context);
   const signedIn = await signIn(context, asWorkItemId('item-1'));
   const { workspaceId, userId } = signedIn;
   const at = '2026-09-23T00:00:00.000Z';
@@ -250,7 +263,7 @@ export async function createCycleFixture(
       document: 'plan.md',
       normalizedSource: { document: 'plan.md' },
       itemCount: 2,
-      requiredDependencyCount: 1,
+      requiredDependencyCount: options.independent ? 0 : 1,
       createdAt: at,
       createdByUserId: userId,
     });
@@ -269,17 +282,18 @@ export async function createCycleFixture(
         sourceFields: { id: `AQ-0${ordinal + 1}` },
       })),
     );
-    tx.planning.dependencies.insertMany([
-      {
-        id: asWorkItemDependencyId('edge'),
-        workspaceId,
-        planVersionId: asPlanVersionId('version-1'),
-        predecessorWorkItemId: asWorkItemId('item-1'),
-        successorWorkItemId: asWorkItemId('item-2'),
-        kind: 'required',
-        ordinal: 0,
-      },
-    ]);
+    if (!options.independent)
+      tx.planning.dependencies.insertMany([
+        {
+          id: asWorkItemDependencyId('edge'),
+          workspaceId,
+          planVersionId: asPlanVersionId('version-1'),
+          predecessorWorkItemId: asWorkItemId('item-1'),
+          successorWorkItemId: asWorkItemId('item-2'),
+          kind: 'required',
+          ordinal: 0,
+        },
+      ]);
   });
   const headers = mutationHeaders(signedIn);
   const root = fixtureRepository();

@@ -24,20 +24,24 @@ export class ExitedRuns {
   private readonly runs = new Set<string>();
 
   read(database: Database.Database): ReadonlySet<string> {
-    const newer = database
-      .prepare(
-        `SELECT run_id AS runId FROM agent_run_events WHERE sequence > ? AND kind = 'run-finished'
-         AND (json_type(payload_json, '$.exitCode') = 'integer' OR json_type(payload_json, '$.signal') = 'text')`,
-      )
-      .all(this.through) as { runId: string }[];
-    if (database.inTransaction) return new Set([...this.runs, ...newer.map((row) => row.runId)]);
-    for (const row of newer) this.runs.add(row.runId);
-    this.through =
+    // The last sequence first, and the scan bounded by it: an event another connection commits
+    // between the two statements is read next time, never skipped (R-B5 increment 2 review LOW-2).
+    const last =
       (
         database.prepare('SELECT MAX(sequence) AS last FROM agent_run_events').get() as {
           last: number | null;
         }
       ).last ?? 0;
+    const newer = database
+      .prepare(
+        `SELECT run_id AS runId FROM agent_run_events WHERE sequence > ? AND sequence <= ?
+         AND kind = 'run-finished'
+         AND (json_type(payload_json, '$.exitCode') = 'integer' OR json_type(payload_json, '$.signal') = 'text')`,
+      )
+      .all(this.through, last) as { runId: string }[];
+    if (database.inTransaction) return new Set([...this.runs, ...newer.map((row) => row.runId)]);
+    for (const row of newer) this.runs.add(row.runId);
+    this.through = last;
     return this.runs;
   }
 }
@@ -133,7 +137,8 @@ export class SqliteStorageMaintenanceRepository implements StorageMaintenanceRep
        AND w.id NOT IN live) AS eligible,
       (r.status IN ('finished','failed','cancelled') AND w.id NOT IN live) AS ended
       FROM run_directories d JOIN agent_runs r ON r.id = d.run_id JOIN worktrees w ON w.id = r.worktree_id
-      WHERE (@worktreeId IS NULL OR w.id = @worktreeId) AND (@runId IS NULL OR d.run_id = @runId)`)
+      WHERE (@worktreeId IS NULL OR w.id = @worktreeId) AND (@runId IS NULL OR d.run_id = @runId)
+      ORDER BY d.rowid`)
       .all({ worktreeId: scope.worktreeId ?? null, runId: scope.runId ?? null }) as (Omit<
       RunDirectory,
       'eligible' | 'buildEligible'

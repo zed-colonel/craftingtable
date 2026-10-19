@@ -267,7 +267,9 @@ export interface AgentRunEventRepository {
   /**
    * The only rewrite the journal takes: journal compaction (R-H2). It must run inside the
    * caller's transaction. The append-only trigger is lifted for these statements and
-   * restored byte-identical before returning; every rewritten event is guarded again.
+   * restored byte-identical before returning; every rewritten event is guarded again. It
+   * rewrites payloads only, never a row's sequence or kind, and deletes nothing: the storage's
+   * set of runs whose journal says how they ended (`ExitedRuns`, R-B5) relies on that.
    */
   compact(runId: AgentRunId, changes: readonly RunEventCompaction[]): void;
 }

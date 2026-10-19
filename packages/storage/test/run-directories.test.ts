@@ -176,19 +176,30 @@ const ENDINGS: readonly Ending[] = [
 
 it('gives the rows the correlated query gave, for every status, worktree and ending', () => {
   const f = fixture();
-  // Merged and removed; active; merged and removed with a live run beside; removed unmerged.
+  // Merged and removed; active; merged and removed with a live run beside (one per live status:
+  // starting, running, waiting; review M-1); removed unmerged; merged and still active (LOW-1).
   const trees = [
     f.worktree('merged', true, true),
     f.worktree('active', false, false),
     f.worktree('live-beside', true, true),
     f.worktree('unmerged', false, true),
+    f.worktree('merged-active', true, false),
+    f.worktree('waiting-beside', true, true),
+    f.worktree('starting-beside', true, true),
   ];
   for (const tree of trees)
     for (const status of STATUSES)
       for (const ending of ENDINGS)
         if (status !== 'running' || tree === trees[2]) f.run(tree, status, ending);
+  f.run(trees[5] as WorktreeId, 'waiting', undefined);
+  f.run(trees[6] as WorktreeId, 'starting', undefined);
+  // In the old query's order (its scan of the directories), not only the same set (LOW-5).
+  expect(f.storage.maintenance.directories()).toEqual(f.correlated());
   const rows = byRun(f.storage.maintenance.directories());
   expect(rows).toEqual(byRun(f.correlated()));
+  // A live run of any live status keeps its worktree's directories from cleanup.
+  for (const tree of [trees[2], trees[5], trees[6]])
+    expect(rows.filter((row) => row.worktreeId === tree).some((row) => row.eligible)).toBe(false);
   // Every combination the predicates tell apart is present.
   expect(rows.some((row) => row.eligible)).toBe(true);
   expect(rows.some((row) => row.buildEligible && !row.eligible)).toBe(true);
@@ -226,4 +237,20 @@ it('keeps nothing a transaction that rolls back recorded', () => {
   ).toThrow('rolled back');
   expect(f.storage.maintenance.directories()[0]?.buildEligible).toBe(false);
   expect(byRun(f.storage.maintenance.directories())).toEqual(byRun(f.correlated()));
+});
+
+it('learns from a read in a transaction that commits only on a read outside one', () => {
+  const f = fixture();
+  const tree = f.worktree('merged', true, true);
+  const runId = f.run(tree, 'finished', undefined);
+  f.storage.transaction((tx) => {
+    f.ended(runId, { exitCode: 0 }, tx.execution);
+    expect(tx.maintenance.directories()[0]?.buildEligible).toBe(true);
+  });
+  // Committed: the next read finds it (it was not skipped by a sequence learnt inside).
+  expect(f.storage.maintenance.directories()[0]?.buildEligible).toBe(true);
+  // A read transaction learns nothing either, and sees the same.
+  expect(f.storage.readTransaction((tx) => tx.maintenance.directories()[0]?.buildEligible)).toBe(
+    true,
+  );
 });

@@ -296,8 +296,9 @@ export function writeRunHandoff(
     // that was cut off in a turn after its latest completed one, left only that turn's result:
     // its record gives where it stopped (R-C17 part 2, its L-4 and part 4). The warnings stay as
     // they were: only a run with no completed turn has one.
-    const record = index === 0 && cutOffAt !== undefined ? `${prefix}-cut-off.md` : undefined;
-    if (record !== undefined && cutOffAt !== undefined) {
+    let record: string | undefined;
+    if (index === 0 && cutOffAt !== undefined) {
+      record = `${prefix}-cut-off.md`;
       const made = cutOffRecord(
         run,
         lastMessages,

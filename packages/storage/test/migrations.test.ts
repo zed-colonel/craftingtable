@@ -118,6 +118,7 @@ const PENDING_MIGRATIONS: readonly PinnedMigration[] = [
   { version: 45, name: 'stored-vocabulary-check-timeout', checksum: 'f0246b00e5535633b139a7f7845aa879b6ec84b944969546582fbb6a03906813' },
   { version: 46, name: 'run-launches', checksum: '0010fc7531d2019ab56b6f761996bffa99d52a1c04cc94277ec7521f682e033d' },
   { version: 47, name: 'cycle-state-shape', checksum: 'da3168f260697a9efe8a2445b3cf7985a8ffde7b301f14a577d3924491314dbd' },
+  { version: 48, name: 'stored-vocabulary-held-result', checksum: '651b192312ded7a75d525762d20803a0c770f03ef8c685f9241ee757f8e39b45' },
 ];
 
 const PINNED_MIGRATIONS = [...DEPLOYED_MIGRATIONS, ...PENDING_MIGRATIONS];
@@ -217,7 +218,7 @@ describe('ordered SQL migrations', () => {
     expect(
       (second.prepare(`SELECT COUNT(*) AS count FROM schema_migrations`).get() as { count: number })
         .count,
-    ).toBe(47);
+    ).toBe(48);
     second.close();
   });
 
@@ -239,7 +240,7 @@ describe('ordered SQL migrations', () => {
           count: number;
         }
       ).count,
-    ).toBe(47);
+    ).toBe(48);
     database.close();
   });
 
@@ -299,10 +300,10 @@ describe('ordered SQL migrations', () => {
 
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 47,
+      supportedVersion: 48,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
       ],
     });
 
@@ -318,10 +319,10 @@ describe('ordered SQL migrations', () => {
     expect(existsSync(path)).toBe(false);
     expect(inspectMigrationStatus(path)).toEqual({
       currentVersion: 0,
-      supportedVersion: 47,
+      supportedVersion: 48,
       pendingVersions: [
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
       ],
     });
     expect(existsSync(path)).toBe(false);

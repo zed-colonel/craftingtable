@@ -413,6 +413,7 @@ describe('migration 0002 journal preservation', () => {
       'stored-vocabulary-check-timeout',
       'run-launches',
       'cycle-state-shape',
+      'stored-vocabulary-held-result',
     ]);
     // The recorded checksum of 0001 is what every already-migrated installation
     // validates against; changing that file would lock operators out.

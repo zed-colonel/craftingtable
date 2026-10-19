@@ -657,6 +657,7 @@ export const runEventEnvelopeSchema = z.discriminatedUnion('kind', [
       outcome: z.enum(['success', 'error']),
       resultText: z.string(),
       truncated: z.boolean().optional(),
+      afterLaterWork: z.literal(true).optional(),
       reviewReport: reviewReportAssessmentSchema.optional(),
       costUsd: z.number().nonnegative().optional(),
       turns: nonNegativeSafeInteger,

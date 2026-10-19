@@ -127,12 +127,15 @@ export type RunCutOff = 'no-turn' | 'error-turn' | 'later-turn';
 
 /**
  * Whether a run's final message falls short of where it stopped, read from the journal's event
- * kinds and sequences, never its text (rule 4). A follow-up the run never answered, a notice or
+ * kinds, sequences and the adapter's typed marks, never its text (rule 4). A follow-up the run never answered, a notice or
  * stderr does not begin a turn. The launch reads it once and hands it to the handoff.
  */
 export function runCutOff(execution: Execution, run: AgentRun): RunCutOff | undefined {
   const turn = execution.runEvents.latestOfKind(run.workspaceId, run.id, 'turn-completed');
   if (turn?.kind !== 'turn-completed') return 'no-turn';
+  // A Claude result held for background work is journaled at the session's end, after the later
+  // turn's events: the adapter marks it (decision 0).
+  if (turn.payload.afterLaterWork) return 'later-turn';
   for (let after = turn.sequence; ; ) {
     const page = execution.runEvents.listAfter({
       workspaceId: run.workspaceId,

@@ -428,6 +428,13 @@ export interface AgentRunEventPayloads {
     readonly outcome: 'success' | 'error';
     readonly resultText: string;
     readonly truncated?: boolean;
+    /**
+     * A result the agent gave while tracked background work ran, journaled only when the session
+     * ended before the work was collected, after messages or tool calls the session made past it
+     * (Claude, R-G11): the run began another turn it never completed, so its handoff carries the
+     * cut-off record (R-C17 part 4, decision 0). Absent on every other turn.
+     */
+    readonly afterLaterWork?: true;
     /** Added by the daemon for review turns; adapters do not interpret findings. */
     readonly reviewReport?: ReviewReportAssessment;
     readonly costUsd?: number;

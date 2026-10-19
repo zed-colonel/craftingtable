@@ -204,6 +204,11 @@ export class ClaudeStreamNormalizer {
    * the turn's outcome, which comes once the work is collected, unless the session ends first.
    */
   private intermediate: NormalizedAgentEvent | undefined;
+  /**
+   * The session made an assistant message or tool call after the held result: it began another
+   * turn, so the held result, if it ends up the step's, is marked (R-C17 part 4, decision 0).
+   */
+  private workedPastIntermediate = false;
   private readonly reportedUnknown = new Set<string>();
 
   /**
@@ -254,7 +259,8 @@ export class ClaudeStreamNormalizer {
   takeIntermediateResult(): NormalizedAgentEvent | undefined {
     const held = this.intermediate;
     this.intermediate = undefined;
-    return held;
+    if (held?.kind !== 'turn-completed' || !this.workedPastIntermediate) return held;
+    return { ...held, payload: { ...held.payload, afterLaterWork: true } };
   }
 
   private sessionId: string | undefined;
@@ -459,6 +465,7 @@ export class ClaudeStreamNormalizer {
         });
       }
     }
+    if (this.intermediate && events.length > 0) this.workedPastIntermediate = true;
     return events;
   }
 
@@ -559,6 +566,7 @@ export class ClaudeStreamNormalizer {
     // work is collected. An error, or untracked work, ends the turn as before.
     if (!isError && this.backgroundTasks.size > 0 && !this.untrackedBackgroundTasks) {
       this.intermediate = turn;
+      this.workedPastIntermediate = false;
       return [
         {
           kind: 'notice',

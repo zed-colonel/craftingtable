@@ -322,6 +322,89 @@ it("hands a resumed step the record of a run cut off in a turn after its last co
   expect(brief).toContain('`wip.txt` (untracked)');
 });
 
+it('hands on the record of a Claude run cut off while working past a result held for its background work (R-C17 part 4, decision 0)', async () => {
+  let now = new Date('2026-10-18T12:00:00Z');
+  const said = (text: string) => ({
+    type: 'assistant',
+    message: { content: [{ type: 'text', text }] },
+  });
+  const { state, backend, worktree } = await cycleFixture(
+    [
+      designDone,
+      // Through the real Claude normalizer: the result while tracked work runs is held, and the
+      // session works on past it; the deadline ends it, and the held result is journaled last.
+      {
+        resultText: '',
+        claudeStream: [
+          said('Fixed the quadratic loop in flow_capacity.'),
+          { type: 'system', subtype: 'task_started', task_id: 'rt' },
+          {
+            type: 'result',
+            subtype: 'success',
+            result: 'Started runtime-test in the background; waiting for it.',
+          },
+          { type: 'system', subtype: 'task_notification', task_id: 'rt', status: 'completed' },
+          said('runtime-test still reports flow_capacity running after 60 seconds.'),
+          said('Bisecting the slow test now.'),
+        ],
+      },
+      { resultText: 'Implemented and checks passed.' },
+    ],
+    () => now,
+  );
+  let implementations = 0;
+  backend.onLaunch = (request) => {
+    if (request.model === 'implement-model' && ++implementations === 1)
+      writeFileSync(join(request.cwd, 'wip.txt'), 'half done\n');
+  };
+  const cycle = await startCycle(state, worktree.id);
+  const storage = state.context.storage;
+  await waitFor(() => backend.sessions.length === 2, 'the implementation');
+  const cutOff = currentCycle(state, cycle).currentRunId;
+  await waitFor(() => {
+    const last = storage.execution.runEvents.latestOfKind(
+      state.workspaceId,
+      cutOff,
+      'assistant-message',
+    );
+    return last?.kind === 'assistant-message' && last.payload.text.startsWith('Bisecting');
+  }, 'the later work');
+  now = new Date(Date.parse(currentCycle(state, cycle).runDeadlineAt) + 1);
+  await waitFor(
+    () => heldStop(currentCycle(state, cycle))?.code === 'step-time-limit',
+    'the step time limit',
+  );
+  await waitFor(
+    () => storage.execution.runs.find(state.workspaceId, cutOff)?.status === 'cancelled',
+    'the run cancelled',
+  );
+  // The held result is the run's one completed turn, journaled after the later work, marked.
+  const turn = storage.execution.runEvents.latestOfKind(
+    state.workspaceId,
+    cutOff,
+    'turn-completed',
+  );
+  expect(turn?.kind === 'turn-completed' && turn.payload).toMatchObject({
+    resultText: 'Started runtime-test in the background; waiting for it.',
+    afterLaterWork: true,
+  });
+
+  await controlCycle(state, currentCycle(state, cycle), 'resume');
+  await waitFor(() => backend.launches.length === 3, 'the resumed implementation');
+  const root = runDirectory(backend.launches[2]!);
+  const handoff = join(root, 'handoff');
+  const manifest = JSON.parse(readFileSync(join(handoff, 'manifest.json'), 'utf8'));
+  expect(manifest.sources[0]).toMatchObject({ runId: cutOff, cutOff: '0000-cut-off.md' });
+  expect(manifest.warnings).toEqual([]);
+  const record = readFileSync(join(handoff, '0000-cut-off.md'), 'utf8');
+  expect(record).toContain('was cut off in a turn after its last completed one');
+  expect(record).toContain('Bisecting the slow test now.');
+  expect(record).toContain('wip.txt (untracked)');
+  expect(readFileSync(join(root, 'brief.md'), 'utf8')).toContain(
+    'The previous run was cut off in a turn after its last completed one',
+  );
+});
+
 describe('the cut-off record (R-C17 part 2)', () => {
   const run = {
     id: asAgentRunId('run-1'),
@@ -611,6 +694,25 @@ describe("which runs' handoffs carry the record (R-C17 part 2 L-4 review L-2, an
       'a later turn that completed too',
       undefined,
       [asked('go'), turn('success', 'Done.'), said('b'), turn('success', 'Done again.')],
+    ],
+    [
+      'a held result journaled at exit after later work',
+      'later-turn',
+      [
+        asked('go'),
+        said('a'),
+        said('b'),
+        {
+          kind: 'turn-completed',
+          payload: {
+            outcome: 'success',
+            resultText: 'Waiting.',
+            turns: 1,
+            durationMs: 1,
+            afterLaterWork: true,
+          },
+        },
+      ],
     ],
   ] as const)('reads %s as %s', (_label, expected, events) => {
     const parent = run('p');

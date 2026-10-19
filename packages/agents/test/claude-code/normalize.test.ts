@@ -675,6 +675,59 @@ describe('recorded provider failures', () => {
       expect(subject.hasUncollectedBackgroundWork).toBe(true);
     });
 
+    it('marks the held result when the session worked on past it, for the cut-off record (R-C17 part 4, decision 0)', () => {
+      const said = (text: string) => ({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text }] },
+      });
+      const called = {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'cargo test' } }],
+        },
+      };
+      const held = (subject: ClaudeStreamNormalizer) => subject.takeIntermediateResult()?.payload;
+      // Messages after the held result: the session began another turn and never completed it.
+      const messaged = normalizer();
+      feed(messaged, [
+        said('Fixed the loop.'),
+        started('a'),
+        result('Waiting for a.'),
+        notified('a'),
+        said('a still reports the slow test.'),
+      ]);
+      expect(held(messaged)).toMatchObject({ resultText: 'Waiting for a.', afterLaterWork: true });
+      // A tool call alone is work too.
+      const tooled = normalizer();
+      feed(tooled, [started('a'), result('Waiting for a.'), called]);
+      expect(held(tooled)).toMatchObject({ afterLaterWork: true });
+      // Work before the held result, and notices after it, do not mark it.
+      const quiet = normalizer();
+      feed(quiet, [said('Fixed the loop.'), started('a'), result('Waiting for a.'), notified('a')]);
+      expect(held(quiet)).toMatchObject({ resultText: 'Waiting for a.' });
+      expect(held(quiet) ?? {}).not.toHaveProperty('afterLaterWork');
+      // A later held result starts afresh: the work before it is behind it.
+      const again = normalizer();
+      feed(again, [started('a'), result('First.'), said('Working.'), result('Still waiting.')]);
+      expect(held(again)).toMatchObject({ resultText: 'Still waiting.' });
+      expect(held(again) ?? {}).not.toHaveProperty('afterLaterWork');
+      // A result that completes the turn is never marked, whatever came before.
+      const collected = normalizer();
+      const events = feed(collected, [
+        started('a'),
+        result('Waiting.'),
+        notified('a'),
+        said('a passed.'),
+        result('All done.'),
+      ]);
+      const turns = events.flatMap((event) =>
+        event.kind === 'turn-completed' ? [event.payload] : [],
+      );
+      expect(turns).toHaveLength(1);
+      expect(turns[0]).not.toHaveProperty('afterLaterWork');
+      expect(collected.takeIntermediateResult()).toBeUndefined();
+    });
+
     it('ends the turn as before on an error result, or when a task cannot be tracked', () => {
       const failed = normalizer();
       expect(

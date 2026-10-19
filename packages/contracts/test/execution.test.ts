@@ -39,6 +39,26 @@ it('validates optional turn telemetry while keeping historical events readable',
   }
 });
 
+it('marks a result held for background work and journaled after later work, and nothing else (R-C17 part 4, decision 0)', async () => {
+  const { runEventEnvelopeSchema } = await import('../src/execution.js');
+  const turn = {
+    sequence: 1,
+    id: 'event-1',
+    workspaceId: 'ws-1',
+    runId: 'run-1',
+    occurredAt: '2026-10-18T00:00:00.000Z',
+    kind: 'turn-completed',
+    payload: { outcome: 'success', resultText: 'Waiting.', turns: 1, durationMs: 1 },
+  };
+  const marked = { ...turn, payload: { ...turn.payload, afterLaterWork: true } };
+  expect(runEventEnvelopeSchema.safeParse(marked).success).toBe(true);
+  for (const afterLaterWork of [false, 'yes', 1])
+    expect(
+      runEventEnvelopeSchema.safeParse({ ...turn, payload: { ...turn.payload, afterLaterWork } })
+        .success,
+    ).toBe(false);
+});
+
 it('requires one unambiguous work-item or plan-version execution subject', async () => {
   const { worktreeSummarySchema, agentRunSummarySchema } = await import('../src/execution.js');
   const common = {

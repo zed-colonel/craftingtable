@@ -93,33 +93,46 @@ it('finds a passed step deadline by itself, with nothing written (its due time, 
   );
 });
 
-it("holds another cycle's deadline while one launch waits in its Git preflight (flips with the slow lane)", async () => {
-  let held: Promise<void> | undefined;
-  let entered = false;
-  let release: () => void = () => undefined;
+/** A free-running daemon whose Git preflight (`resolveBranch`) can be held, and a second item. */
+async function heldPreflight() {
+  const gate: { held?: Promise<void>; entered: boolean; release: () => void } = {
+    entered: false,
+    release: () => undefined,
+  };
   const f = await createCycleFixture({
     workers: true,
     independent: true,
     git: (real) => ({
       ...real,
       resolveBranch: async (path, branch) => {
-        if (held) {
-          entered = true;
-          await held;
+        if (gate.held) {
+          gate.entered = true;
+          await gate.held;
         }
         return real.resolveBranch(path, branch);
       },
     }),
   });
-  const other = await secondWorktree(f);
+  const hold = () => {
+    gate.held = new Promise((resolve) => {
+      gate.release = () => {
+        gate.held = undefined;
+        resolve();
+      };
+    });
+  };
+  return { f, gate, hold, other: await secondWorktree(f) };
+}
+
+it("enforces another cycle's deadline while one launch waits in its Git preflight (the done-when; flipped by the slow lane)", async () => {
+  // Before increment 5 the pass awaited A's launch, and B's passed deadline waited for it.
+  const { f, gate, hold, other } = await heldPreflight();
   const b = await startCycle({ ...f, workItemId: item2 }, other);
   await waitUntil(() => runLive(f, b), "B's design run is live");
-  held = new Promise((resolve) => {
-    release = resolve;
-  });
+  hold();
   try {
     const a = await startCycle(f, f.worktreeId);
-    await waitUntil(() => entered, "A's launch is held in its Git preflight");
+    await waitUntil(() => gate.entered, "A's launch is held in its Git preflight");
     // The held call is A's preflight: its cancel is registered for exactly that window.
     const launches = (
       f.services.agentRunService as unknown as {
@@ -127,26 +140,62 @@ it("holds another cycle's deadline while one launch waits in its Git preflight (
       }
     ).state.pendingCycleLaunches;
     expect(launches.has(storedCycle(f, a.id).currentRunId)).toBe(true);
-    const opened = f.services.controllerPasses.current;
     deadlinePassed(f, b);
-    // Three loop intervals: the pass awaits A's launch, so B's passed deadline is not enforced,
-    // and the cycle controller completes no pass begun since.
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    expect(storedCycle(f, b.id).status).toBe('running');
-    expect(f.services.controllerPasses.quietSince(opened)).toBe(false);
+    // B's stop is written while A's preflight is still held: an ordering, not a time bound.
+    await waitUntil(
+      () => storedCycle(f, b.id).stop?.code === 'step-time-limit',
+      "B's deadline stop while A is held",
+    );
+    expect(gate.held).toBeDefined();
     expect(storedRun(f, storedCycle(f, a.id).currentRunId)).toBeUndefined();
   } finally {
-    release();
+    gate.release();
   }
-  await waitUntil(
-    () => storedCycle(f, b.id).stop?.code === 'step-time-limit',
-    "B's deadline stop once A's launch returns",
-  );
+});
+
+it('enforces the deadline of a cycle waiting for the slow lane behind a held launch (H-2)', async () => {
+  const { f, gate, hold, other } = await heldPreflight();
+  hold();
+  try {
+    const a = await startCycle(f, f.worktreeId);
+    await waitUntil(() => gate.entered, "A's launch is held in its Git preflight");
+    // B's reserved step needs the lane too: it waits, decided afresh, not queued with its launch.
+    const b = await startCycle({ ...f, workItemId: item2 }, other);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(storedRun(f, storedCycle(f, b.id).currentRunId)).toBeUndefined();
+    deadlinePassed(f, b);
+    await waitUntil(
+      () => storedCycle(f, b.id).stop?.code === 'step-time-limit',
+      "B's deadline stop while it waits for the lane",
+    );
+    expect(gate.held).toBeDefined();
+    expect(storedRun(f, storedCycle(f, a.id).currentRunId)).toBeUndefined();
+  } finally {
+    gate.release();
+  }
+  // Once A's launch returns, A's agent starts; B, stopped, launches nothing.
+  await waitUntil(() => f.backend.sessions.length === 1, "A's agent started");
+});
+
+it("completes a cycles pass only when the round's slow job has ended (pushes wait for it, M-1)", async () => {
+  const { f, gate, hold } = await heldPreflight();
+  hold();
+  try {
+    const opened = f.services.controllerPasses.current;
+    await startCycle(f, f.worktreeId);
+    await waitUntil(() => gate.entered, "A's launch is held in its Git preflight");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(f.services.controllerPasses.quietSince(opened)).toBe(false);
+  } finally {
+    gate.release();
+  }
+  await waitUntil(() => f.backend.sessions.length === 1, 'the agent started');
 });
 
 it.each(['stop', 'pause'] as const)(
-  'does not cancel a launch past its preflight on %s (flips with the launch job)',
+  'withdraws a launch past its record on %s: no agent starts (decision 7; flipped by the launch job)',
   async (action) => {
+    // Before increment 5 the launch went on and started its agent; a paused cycle's kept running.
     let held: Promise<void> | undefined;
     let entered = false;
     let release: () => void = () => undefined;
@@ -177,21 +226,10 @@ it.each(['stop', 'pause'] as const)(
       held = undefined;
       release();
     }
-    // The launch goes on and starts its agent. (Held here after the run's record; the window
-    // before it, the evidence and the documents, has the same gap: no cancel is registered from
-    // the preflight's end to the session's start, `run/launch.ts:531` to `run/spawn.ts:460`.)
-    await waitUntil(() => f.backend.sessions.length === 1, 'the agent started');
     const runId = storedCycle(f, cycle.id).currentRunId;
-    if (action === 'stop') {
-      // The spawn ends the session of a cycle that stopped meanwhile.
-      await waitUntil(() => storedRun(f, runId)?.status === 'cancelled', 'the run ended');
-      expect(storedCycle(f, cycle.id).status).toBe('stopped');
-    } else {
-      // A paused cycle's agent keeps running.
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      expect(storedCycle(f, cycle.id).status).toBe('paused');
-      expect(storedRun(f, runId)?.status).toBe('running');
-    }
+    await waitUntil(() => storedRun(f, runId)?.status === 'cancelled', 'the run withdrawn');
+    expect(f.backend.sessions).toHaveLength(0);
+    expect(storedCycle(f, cycle.id).status).toBe(action === 'stop' ? 'stopped' : 'paused');
   },
 );
 
@@ -223,7 +261,10 @@ it('takes the active cycles in their order, one after another, and passes again 
 });
 
 it('passes again at once after a pass that wrote (the free-running loop)', async () => {
-  const f = await createCycleFixture({ workers: true });
+  // On the kernel's manual clock no sweep or due time can stand in for the write's mark (inc. 1's
+  // mutation round: with the one-second loop it could).
+  const clock = new ManualClock();
+  const f = await createCycleFixture({ workers: true, now: clock.date, kernelClock: clock });
   const seen: string[] = [];
   f.services.workCycleService.observePass({ cycle: (c) => seen.push(c.id) });
   const cycle = await startCycle(f, f.worktreeId);

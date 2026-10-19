@@ -246,6 +246,18 @@ export class ConcurrentModificationError extends ExecutionRequestError {
  * The daemon is draining for a restart (R-B9) and admits no new agent runs. Controller
  * loops treat it as a wait; a command receives 503 and can be retried after the restart.
  */
+/**
+ * A cycle's launch given up before its agent started (R-B5, decision 7): its cycle was stopped,
+ * paused or stopped for attention, or its step's time limit came. Contention to the controller:
+ * nothing is written for it, and the next look decides from the cycle as it now is.
+ */
+export class CycleLaunchWithdrawnError extends ConcurrentModificationError {
+  constructor() {
+    super('The cycle changed or its step reached its time limit while its run was launching.');
+    this.name = 'CycleLaunchWithdrawnError';
+  }
+}
+
 export class DaemonDrainingError extends ExecutionRequestError {
   constructor() {
     super(

@@ -16,6 +16,12 @@ export class RunState {
   readonly orphaned = new Set<LiveRun>();
   readonly pendingCycleLaunches = new Map<AgentRunId, () => void>();
   /**
+   * Each cycle launch's withdrawal, from its start to its session (R-B5, decision 7): a stop, a
+   * pause or an attention stop (`finishCycleTurn`), or the step's deadline, aborts it at its next
+   * phase, so no agent starts for a cycle that no longer wants it.
+   */
+  readonly cycleLaunches = new Map<string, AbortController>();
+  /**
    * Reviews whose adopted checks run before their agent starts (R-G13 increment 3): how to cancel
    * each, and the launch that continues after them. A drain counts and cancels them like a
    * launch; `quiesce` waits for the launches, as it waits for cleanups.

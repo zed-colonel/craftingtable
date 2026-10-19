@@ -38,6 +38,7 @@ import { mapReadSnapshot } from './map-read-snapshot.js';
 import { cycleOwnership } from './cycle-ownership.js';
 import { cycleFacts, type KernelFacts } from './cycle/core/facts.js';
 import { nextLook } from './cycle/core/next-look.js';
+import { decisionLane } from './cycle/core/lanes.js';
 import {
   ControllerKernel,
   type KernelClock,
@@ -712,8 +713,11 @@ export class WorkCycleService {
 
   startWorker(): void {
     if (this.task !== undefined) return;
-    // Idle when nothing is marked and no round runs: it has had its chance (R-B5).
-    this.passes?.register('cycles', () => !this.kernel.pending() && this.passing === undefined);
+    // Idle when nothing is marked and no round or job runs: it has had its chance (R-B5).
+    this.passes?.register(
+      'cycles',
+      () => !this.kernel.pending() && this.passing === undefined && this.job === undefined,
+    );
     this.kernel.start();
     this.task = this.loop();
   }
@@ -726,6 +730,8 @@ export class WorkCycleService {
     this.kernel.stop();
     this.passes?.unregister('cycles');
     await this.task;
+    // Its slow job too: nothing of the controller's may write after the drain's clean stop.
+    await this.job?.done;
   }
   /**
    * The controller (R-B5): a round over the cycles marked since the last, then a wait for the next
@@ -740,7 +746,7 @@ export class WorkCycleService {
         await this.kernel.marked(this.locks.signal);
         continue;
       }
-      await this.round(marked);
+      await this.round(marked, true);
     }
   }
 
@@ -752,17 +758,29 @@ export class WorkCycleService {
   tick(): Promise<void> {
     return this.round('all');
   }
-  private async round(marked: Marked): Promise<void> {
+  private async round(marked: Marked, lanes = false): Promise<void> {
     while (this.passing) await this.passing;
     const started = this.passes?.started();
-    this.passing = this.pass(marked).finally(() => {
+    const round: { dispatched?: Promise<void> } = {};
+    this.passing = this.pass(marked, lanes ? round : undefined).finally(() => {
       this.passing = undefined;
-      // A pass that failed still gave automation its chance; pushes do not wait on it.
-      if (started !== undefined) this.passes?.completed('cycles', started);
+      // A pass that failed still gave automation its chance; pushes do not wait on it. A round
+      // that handed a decision to the slow lane completes when that job has (design review M-1).
+      if (started === undefined) return;
+      if (round.dispatched)
+        void round.dispatched.finally(() => this.passes?.completed('cycles', started));
+      else this.passes?.completed('cycles', started);
     });
     await this.passing;
   }
   private passing: Promise<void> | undefined;
+  /**
+   * The slow lane's one job (R-B5, decision 4): a decision whose application awaits I/O, from the
+   * free-running loop. While it runs its cycle is left out of every round.
+   */
+  private job: { readonly cycleId: string; readonly done: Promise<void> } | undefined;
+  /** Cycles whose slow decision found the lane taken: decided afresh when it frees (H-2). */
+  private readonly laneWaiting = new Set<string>();
   /** The workflow generation the declared attention was last brought up to date at. */
   private attentionGeneration = -1;
 
@@ -776,7 +794,7 @@ export class WorkCycleService {
       if (ATTENTION_STATUSES.has(cycle.status)) this.writer.refreshAttention(cycle);
   }
 
-  private async pass(marked: Marked = 'all'): Promise<void> {
+  private async pass(marked: Marked = 'all', lane?: { dispatched?: Promise<void> }): Promise<void> {
     // Attention depends only on stored state, so refresh it when that state has changed.
     if (this.notifier.workflowGeneration !== this.attentionGeneration) this.declareAttention();
     const snapshot = mapReadSnapshot(this.storage);
@@ -788,15 +806,16 @@ export class WorkCycleService {
     // An ended cycle needs no look of its own any more (R-B5).
     if (marked === 'all') this.kernel.keepDue(new Set(active.map((cycle) => cycle.id)));
     for (const cycle of prioritizeRoadmapCycles(
-      // A cycle a command holds is left to it (decision 15); its release marks it.
+      // A cycle a command holds is left to it (decision 15); its release marks it. So is the
+      // slow lane's cycle, whose job's end marks it (design review M-2).
       (marked === 'all' ? active : active.filter((cycle) => marked.has(cycle.id))).filter(
-        (cycle) => !this.locks.heldByCommand(cycle.id),
+        (cycle) => !this.locks.heldByCommand(cycle.id) && cycle.id !== this.job?.cycleId,
       ),
       (cycle) => cycleOwnership(snapshot, cycle),
     )) {
       if (this.locks.stopping()) break;
       try {
-        await this.passCycle(cycle, () => cycleOwnership(snapshot, cycle), settling);
+        await this.passCycle(cycle, () => cycleOwnership(snapshot, cycle), settling, lane);
       } finally {
         this.observer?.cycle(cycle);
       }
@@ -813,24 +832,32 @@ export class WorkCycleService {
     cycle: WorkCycle,
     owner: () => ReturnType<typeof cycleOwnership>,
     settling: ReadonlySet<string>,
+    lane?: { dispatched?: Promise<void> },
   ): Promise<void> {
     // The guard the failure met, which the step history records with it (R-B4 decision 9).
     const met: { guard?: CycleGuard } = {};
     try {
-      await this.reconcile(cycle, owner, settling, met);
+      await this.reconcile(cycle, owner, settling, met, lane);
     } catch (error) {
-      // Only contention and an unexpected exception reach here (R-B4): every expected refusal
-      // was decided where it was met.
-      const failure = decideFailure(error);
-      // Contention is retried a second later, as the next pass of the one-second loop did (R-B5).
-      if (failure.kind === 'retry') this.kernel.dueAt(cycle.id, this.now().getTime() + 1000);
-      // Recorded in the step history as the pass's own stop (R-B4 decision 9), as a refusal is.
-      if (failure.kind !== 'retry')
-        await this.writer.decided(
-          { kind: 'failure', guard: met.guard, code: failure.code },
-          async () => this.stopAfterFailure(cycle, failure),
-        );
+      await this.failed(cycle, error, met.guard);
     }
+  }
+
+  /**
+   * An error that escaped a cycle's reconciliation: only contention and an unexpected exception
+   * reach here (R-B4); every expected refusal was decided where it was met.
+   */
+  private async failed(cycle: WorkCycle, error: unknown, guard: CycleGuard | undefined) {
+    const failure = decideFailure(error);
+    // Contention is retried a second later, as the next pass of the one-second loop did (R-B5).
+    if (failure.kind === 'retry') {
+      this.kernel.dueAt(cycle.id, this.now().getTime() + 1000);
+      return;
+    }
+    // Recorded in the step history as the pass's own stop (R-B4 decision 9), as a refusal is.
+    await this.writer.decided({ kind: 'failure', guard, code: failure.code }, async () =>
+      this.stopAfterFailure(cycle, failure),
+    );
   }
 
   /**
@@ -852,16 +879,22 @@ export class WorkCycleService {
   /**
    * The controller's shell (R-B4): the cycle's facts, `decide`, then the decision applied.
    * Everything that chooses what happens is in `decide`; everything here writes or does I/O.
+   *
+   * In the free-running loop (`lane`), a decision whose application awaits I/O runs as the slow
+   * lane's one job instead, so the round goes on to the other cycles (R-B5, decision 4): if the
+   * lane is taken the cycle is left dirty and unheld, decided afresh once the lane frees, and its
+   * own deadline still acts on it meanwhile (design review H-2).
    */
   private async reconcile(
     cycle: WorkCycle,
     owner: () => ReturnType<typeof cycleOwnership>,
     settling: ReadonlySet<string>,
     met: { guard?: CycleGuard } = {},
+    lane?: { dispatched?: Promise<void> },
   ): Promise<void> {
     const now = this.now();
     let guard: CycleGuard | undefined;
-    let decision: CycleDecision | undefined;
+    let decision: CycleDecision;
     try {
       decision = decide(
         cycle,
@@ -872,41 +905,82 @@ export class WorkCycleService {
           guard = asked;
         },
       );
-      this.observer?.decided?.(cycle, { decision });
-      const decided = decision;
-      // In the replays' vocabulary (`decisionSummary`): a step outcome is recorded as what it
-      // decided (a stop, a launch, a wait, an effect), not as an outcome, with the code it carries.
-      const { kind, code } = decisionSummary(decided);
-      await this.writer.decided({ kind, guard: decided.guard, code }, () =>
-        this.apply(cycle, decided),
-      );
-      // When the cycle next needs a look by itself, from what was decided (R-B5).
-      this.kernel.dueAt(
-        cycle.id,
-        nextLook(
-          cycle,
-          decided,
-          { restoredCheckedAt: (id) => this.locks.restoredChecks.get(id) },
-          this.now(),
-        ),
-      );
     } catch (error) {
-      met.guard = decision?.guard ?? guard;
-      if (!decision) this.observer?.decided?.(cycle, { failed: error, guard });
-      // A typed refusal a fact, the decision's writes or its effect met is decided here (R-B4,
-      // decision 3); contention and the unexpected go on to the pass.
-      const refused = decideRefusal(error);
-      if (!refused) throw error;
-      // Its code is the stop's, or the phase wait's as `decide` names one (`record-phase`).
-      await this.writer.decided(
-        {
-          kind: 'refusal',
-          guard: decision?.guard ?? guard,
-          code: refused.kind === 'phase-wait' ? 'record-phase' : refused.code,
-        },
-        async () => this.stopAfterFailure(cycle, refused),
-      );
+      met.guard = guard;
+      this.observer?.decided?.(cycle, { failed: error, guard });
+      return this.refused(cycle, error, guard);
     }
+    const decided = decision;
+    try {
+      this.observer?.decided?.(cycle, { decision: decided });
+      if (lane && decisionLane(decided) === 'slow') {
+        if (this.job) {
+          this.laneWaiting.add(cycle.id);
+          this.lookAgain(cycle, decided);
+          return;
+        }
+        const done = this.carryOut(cycle, decided)
+          .catch((error) => this.refused(cycle, error, decided.guard))
+          .catch((error) => this.failed(cycle, error, decided.guard))
+          // A failure that cannot even be recorded leaves the cycle to the next look.
+          .catch(() => undefined)
+          .finally(() => {
+            this.job = undefined;
+            // The job's cycle, and every cycle that waited for the lane, are decided afresh.
+            this.kernel.mark('lane', [cycle.id, ...this.laneWaiting]);
+            this.laneWaiting.clear();
+          });
+        this.job = { cycleId: cycle.id, done };
+        lane.dispatched = done;
+        return;
+      }
+      await this.carryOut(cycle, decided);
+    } catch (error) {
+      met.guard = decided.guard;
+      return this.refused(cycle, error, decided.guard);
+    }
+  }
+
+  /** A decision applied, under the step history's record of it, and the cycle's next look. */
+  private async carryOut(cycle: WorkCycle, decided: CycleDecision): Promise<void> {
+    // In the replays' vocabulary (`decisionSummary`): a step outcome is recorded as what it
+    // decided (a stop, a launch, a wait, an effect), not as an outcome, with the code it carries.
+    const { kind, code } = decisionSummary(decided);
+    await this.writer.decided({ kind, guard: decided.guard, code }, () =>
+      this.apply(cycle, decided),
+    );
+    this.lookAgain(cycle, decided);
+  }
+
+  /** When the cycle next needs a look by itself, from what was decided (R-B5). */
+  private lookAgain(cycle: WorkCycle, decided: CycleDecision): void {
+    this.kernel.dueAt(
+      cycle.id,
+      nextLook(
+        cycle,
+        decided,
+        { restoredCheckedAt: (id) => this.locks.restoredChecks.get(id) },
+        this.now(),
+      ),
+    );
+  }
+
+  /**
+   * A typed refusal a fact, the decision's writes or its effect met is decided here (R-B4,
+   * decision 3); contention and the unexpected go on to the pass (`failed`).
+   */
+  private async refused(cycle: WorkCycle, error: unknown, guard: CycleGuard | undefined) {
+    const refused = decideRefusal(error);
+    if (!refused) throw error;
+    // Its code is the stop's, or the phase wait's as `decide` names one (`record-phase`).
+    await this.writer.decided(
+      {
+        kind: 'refusal',
+        guard,
+        code: refused.kind === 'phase-wait' ? 'record-phase' : refused.code,
+      },
+      async () => this.stopAfterFailure(cycle, refused),
+    );
   }
 
   /** What this process is doing with the cycle right now (R-B4); R-B5's kernel replaces it. */

@@ -32,6 +32,7 @@ import { activeEditor } from '../authority-policy.js';
 import type { BaselinePreparationService } from '../baseline-preparation.js';
 import type { BranchService } from '../branch-service.js';
 import {
+  CycleLaunchWithdrawnError,
   DaemonDrainingError,
   ExecutionRequestError,
   NotFoundError,
@@ -162,7 +163,68 @@ export class RunLauncher {
   ): Promise<AgentRun> {
     if (this.state.draining) throw new DaemonDrainingError();
     const controlled = controlledRun(preparation, investigation);
+    const withdrawal = cycle ? this.withdrawal(cycle) : undefined;
+    try {
+      return await this.launchWithin(
+        workspaceId,
+        workItemId,
+        input,
+        actor,
+        requestId,
+        cycle,
+        profileSelection,
+        preparation,
+        investigation,
+        controlled,
+        () => {
+          if (withdrawal?.signal.aborted) throw new CycleLaunchWithdrawnError();
+        },
+      );
+    } finally {
+      withdrawal?.dispose();
+    }
+  }
+
+  /**
+   * A cycle launch's withdrawal (R-B5, decision 7), registered for `finishCycleTurn` and aborted
+   * by itself at the step's deadline: the launch checks it between its phases.
+   */
+  private withdrawal(cycle: WorkCycle): { signal: AbortSignal; dispose(): void } {
+    const controller = new AbortController();
+    const runId = cycle.currentRunId;
+    this.state.cycleLaunches.set(runId, controller);
+    const timer = setTimeout(
+      () => controller.abort(),
+      Math.max(1, Date.parse(cycle.runDeadlineAt) - this.now().getTime()),
+    );
+    timer.unref();
+    return {
+      signal: controller.signal,
+      dispose: () => {
+        clearTimeout(timer);
+        if (this.state.cycleLaunches.get(runId) === controller)
+          this.state.cycleLaunches.delete(runId);
+      },
+    };
+  }
+
+  private async launchWithin(
+    workspaceId: WorkspaceId,
+    workItemId: WorkItemId | undefined,
+    input: StartRunInput,
+    actor: { readonly userId: UserId; readonly sessionId?: SessionId },
+    requestId: string | undefined,
+    cycle: WorkCycle | undefined,
+    profileSelection: AgentRun['profileSelection'] | undefined,
+    preparation:
+      | { value: import('@craftingtable/domain').DecisionPreparation; check: () => void }
+      | undefined,
+    investigation: InvestigationLaunch | undefined,
+    controlled: ReturnType<typeof controlledRun>,
+    withdrawn: () => void,
+  ): Promise<AgentRun> {
     await this.storageService.waitForRunCleanup(input.worktreeId);
+    withdrawn();
     const { backend, prepared, resume } = this.authorize(
       workspaceId,
       workItemId,
@@ -185,6 +247,7 @@ export class RunLauncher {
         resume,
       });
       controlled?.check();
+      withdrawn();
       // A drain can begin during Git preflight; no run record may start after it.
       if (this.state.draining) throw new DaemonDrainingError();
       const runId = cycle?.currentRunId ?? controlled?.runId ?? asAgentRunId(randomUUID());
@@ -208,6 +271,7 @@ export class RunLauncher {
         brief,
         run,
       } = await this.reserved(reservation, async () => {
+        withdrawn();
         const { runDirectory, temporaryDirectory, processTemporaryDirectory, buildCacheDirectory } =
           this.directories(runId, reservation.runDirectory, prepared);
         const { pinned, pythonChecks, checksOnly, verifying } = await this.evidence({
@@ -217,6 +281,7 @@ export class RunLauncher {
           cycle,
           investigation,
         });
+        withdrawn();
         const { historical, handoff, brief } = await this.documents({
           workspaceId,
           input,
@@ -233,6 +298,7 @@ export class RunLauncher {
           checksOnly,
           pythonChecks,
         });
+        withdrawn();
         const run = this.record({
           workspaceId,
           workItemId,

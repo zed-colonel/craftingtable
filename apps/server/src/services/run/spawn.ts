@@ -449,6 +449,9 @@ export class RunSpawner {
     request: AgentLaunchRequest,
     cycle: Pick<WorkCycle, 'currentRunId' | 'runDeadlineAt'>,
   ): Promise<AgentSession> {
+    // Withdrawn since its record (a stop, a pause, the deadline; R-B5 decision 7): no session.
+    if (this.state.cycleLaunches.get(cycle.currentRunId)?.signal.aborted)
+      throw new CycleLaunchCancelledError('Cycle launch withdrawn before its session started');
     let cancelled = false;
     let cancel: () => void = () => undefined;
     const cancellation = new Promise<never>((_resolve, reject) => {

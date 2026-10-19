@@ -302,10 +302,12 @@ export class AgentRunService {
   }
 
   /**
-   * Stops a review's adopted checks while its agent has not started (R-G13 increment 3): its
-   * cycle was paused. The launch then starts no agent; a live session is left alone.
+   * Stops a review's adopted checks while its agent has not started (R-G13 increment 3), and
+   * withdraws a cycle launch still on its way to its session (R-B5, decision 7): its cycle was
+   * paused. The launch then starts no agent; a live session is left alone.
    */
   cancelStartingChecks(runId: AgentRunId): void {
+    this.state.cycleLaunches.get(runId)?.abort();
     this.state.checkingLaunches.get(runId)?.cancel();
   }
 
@@ -314,6 +316,7 @@ export class AgentRunService {
     const stored = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);
     if (stored?.currentRunId !== cycle.currentRunId) return false;
     if (cancel) {
+      this.state.cycleLaunches.get(cycle.currentRunId)?.abort();
       this.state.pendingCycleLaunches.get(cycle.currentRunId)?.();
       // A review still running its adopted checks: stop them; its agent never starts (R-G13).
       this.state.checkingLaunches.get(cycle.currentRunId)?.cancel();

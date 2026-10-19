@@ -17,12 +17,18 @@ export function AgentSelectionsEditor({
   backends,
   disabled = false,
   base = true,
+  kept = [],
 }: {
   value: AgentSelections;
   onChange: (v: AgentSelections) => void;
   backends: ExecutionStatusResponse['backends'];
   disabled?: boolean;
   base?: boolean;
+  /**
+   * Overrides that are changed here but not removed: a stopped cycle's settings change can change
+   * a specialist's agent but not drop its override (R-C17 part 4 increment 4 review M-1).
+   */
+  kept?: readonly string[];
 }) {
   return (
     <>
@@ -56,6 +62,7 @@ export function AgentSelectionsEditor({
               <input
                 type="checkbox"
                 checked={!!value[p]}
+                disabled={kept.includes(p)}
                 onChange={(e) => {
                   const next = { ...value };
                   if (e.target.checked) next[p] = { ...value[PROFILE_INHERITANCE[p]] };
@@ -65,6 +72,9 @@ export function AgentSelectionsEditor({
               />
               <span>Use a separate model for {PROFILE_LABELS[p].toLowerCase()}</span>
             </label>
+            {kept.includes(p) && (
+              <p className="hint">This override can be changed here, not removed.</p>
+            )}
             {value[p] && (
               <AgentSelectionFields
                 value={value[p]}

@@ -471,7 +471,12 @@ describe('Continue with guidance beside Resume (R-C17 part 4, decision 1)', () =
 
 /** R-C17 part 4, decision 3: the one rule the offer and the command read for a settings change. */
 describe('changing a stopped cycle’s settings (R-C17 part 4, decision 3)', () => {
-  const none = { investigationLive: false, worktreeChangeOpen: false, amendmentRetired: false };
+  const none = {
+    investigationLive: false,
+    worktreeChangeOpen: false,
+    amendmentRetired: false,
+    transitioning: false,
+  };
   it('holds for a paused or needs-attention work item cycle, a plain pause included', () => {
     expect(settingsChangeable(cycle('needs-attention', 'step-time-limit'), none)).toBe(true);
     expect(settingsChangeable(cycle('paused', 'step-time-limit'), none)).toBe(true);
@@ -504,6 +509,7 @@ describe('changing a stopped cycle’s settings (R-C17 part 4, decision 3)', () 
     ],
     // No step runs again there: Stop is the way on (increment 3 review NIT).
     ['an item completed but unmerged', cycle('needs-attention', 'item-completed-unmerged'), {}],
+    ['one another command’s transition holds', cycle('paused'), { transitioning: true }],
   ])('does not hold for %s', (_label, c, facts) =>
     expect(settingsChangeable(c, { ...none, ...facts })).toBe(false),
   );

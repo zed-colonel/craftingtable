@@ -10,7 +10,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, expect, it, vi } from 'vitest';
 import { request } from '../../lib/api-client.js';
 import { CycleDecision } from './CycleDecision.js';
-import { CycleSettings } from './CycleSettings.js';
+import { CycleSettings, cycleSettingsKey } from './CycleSettings.js';
 
 vi.mock('../../lib/api-client.js', () => ({ request: vi.fn() }));
 afterEach(() => {
@@ -145,4 +145,155 @@ it('sits in the stop’s Needs-you item, collapsed, and not twice on the work it
   // On the work item page the cycle panel's settings hold it.
   decision(false);
   expect(screen.queryByText('Time limit and agents', { selector: 'summary' })).toBeNull();
+});
+
+// Increment 4 review L-6 (and M-1, L-1, L-2, L-4, L-5, N-2, N-5): the behaviours its mutants found
+// unpinned.
+it('refuses minutes out of bounds or not whole, saying why', () => {
+  view(['resume', 'change-settings', 'stop']);
+  const minutes = screen.getByLabelText('Minutes per step') as HTMLInputElement;
+  for (const value of ['1441', '2000', '1.5']) {
+    fireEvent.change(minutes, { target: { value } });
+    expect(save().disabled, value).toBe(true);
+    expect(screen.getByText('Between 1 and 1440 minutes.')).toBeTruthy();
+  }
+  fireEvent.change(minutes, { target: { value: '1440' } });
+  expect(save().disabled).toBe(false);
+  expect(screen.queryByText('Between 1 and 1440 minutes.')).toBeNull();
+});
+
+it('is locked while disabled, and posts once, then waits for the changed cycle', async () => {
+  let resolve: (value: unknown) => void = () => {};
+  vi.mocked(request).mockReturnValue(new Promise((done) => (resolve = done)) as never);
+  const onChanged = vi.fn();
+  const locked = render(
+    <CycleSettings
+      cycle={cycle}
+      projection={{ actions: ['resume', 'change-settings', 'stop'], nextAgentSelections: now }}
+      backends={backends}
+      csrfToken="csrf"
+      disabled
+      onChanged={onChanged}
+    />,
+  );
+  expect((screen.getByLabelText('Minutes per step') as HTMLInputElement).disabled).toBe(true);
+  locked.unmount();
+  render(
+    <CycleSettings
+      cycle={cycle}
+      projection={{ actions: ['resume', 'change-settings', 'stop'], nextAgentSelections: now }}
+      backends={backends}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={onChanged}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Minutes per step'), { target: { value: '60' } });
+  fireEvent.click(save());
+  fireEvent.click(save());
+  expect(posted()).toHaveLength(1);
+  resolve({});
+  await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  // Sent: it stays locked until the cycle's new version starts it afresh.
+  expect(save().disabled).toBe(true);
+});
+
+it('counts an agent changed and changed back as no change, whatever its keys’ order', () => {
+  const seeded = {
+    ...now,
+    implement: { reasoningEffort: 'high', backend: 'claude-code', model: 'opus' },
+  } as unknown as AgentSelections;
+  render(
+    <CycleSettings
+      cycle={cycle}
+      projection={{ actions: ['resume', 'change-settings', 'stop'], nextAgentSelections: seeded }}
+      backends={backends}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={vi.fn()}
+    />,
+  );
+  const implementation = screen.getByRole('group', { name: 'Implementation' });
+  fireEvent.change(within(implementation).getByLabelText('Model'), { target: { value: 'sonnet' } });
+  expect(screen.getByText('Changing: Implementation.')).toBeTruthy();
+  fireEvent.change(within(implementation).getByLabelText('Model'), { target: { value: 'opus' } });
+  expect(screen.queryByText(/Changing:/)).toBeNull();
+  expect(save().disabled).toBe(true);
+});
+
+it('keeps a specialist override in effect: changed here, not removed', () => {
+  render(
+    <CycleSettings
+      cycle={cycle}
+      projection={{
+        actions: ['resume', 'change-settings', 'stop'],
+        nextAgentSelections: { ...now, security: { backend: 'claude-code', model: 'sonnet' } },
+      }}
+      backends={backends}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={vi.fn()}
+    />,
+  );
+  const security = screen.getByRole('group', { name: 'Security review' });
+  expect((within(security).getByRole('checkbox') as HTMLInputElement).disabled).toBe(true);
+  expect(
+    within(security).getByText('This override can be changed here, not removed.'),
+  ).toBeTruthy();
+});
+
+it('offers a review-only cycle its review agent alone', () => {
+  render(
+    <CycleSettings
+      cycle={cycle}
+      projection={{ actions: ['resume', 'change-settings', 'stop'], nextAgentSelections: now }}
+      backends={backends}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={vi.fn()}
+      readOnly
+    />,
+  );
+  expect(screen.getByRole('group', { name: 'Review' })).toBeTruthy();
+  expect(screen.queryByRole('group', { name: 'Implementation' })).toBeNull();
+});
+
+it('says a roadmap cycle’s agents go to its entry, by its owner or its agents’ source', () => {
+  const sentence = /applied to its roadmap entry as an assignment/;
+  const hand = view(['resume', 'change-settings', 'stop']);
+  expect(screen.queryByText(sentence)).toBeNull();
+  hand.unmount();
+  const owned = view(['resume', 'change-settings', 'stop'], {
+    ...cycle,
+    owner: { roadmapId: 'r' },
+  } as unknown as WorkCycle);
+  expect(screen.getByText(sentence)).toBeTruthy();
+  owned.unmount();
+  render(
+    <CycleSettings
+      cycle={cycle}
+      projection={{
+        actions: ['resume', 'change-settings', 'stop'],
+        nextAgentSelections: now,
+        agents: {
+          review: { selection: now.review, source: { layer: 'saved-definition', slot: 'review' } },
+        } as never,
+      }}
+      backends={backends}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={vi.fn()}
+    />,
+  );
+  expect(screen.getByText(sentence)).toBeTruthy();
+});
+
+it('starts afresh when the cycle’s version or its agents change elsewhere', () => {
+  const key = cycleSettingsKey(cycle, { nextAgentSelections: now });
+  expect(cycleSettingsKey({ ...cycle, version: 8 }, { nextAgentSelections: now })).not.toBe(key);
+  expect(
+    cycleSettingsKey(cycle, {
+      nextAgentSelections: { ...now, review: { backend: 'claude-code', model: 'sonnet' } },
+    }),
+  ).not.toBe(key);
 });

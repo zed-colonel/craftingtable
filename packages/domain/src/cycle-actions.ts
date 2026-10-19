@@ -194,6 +194,11 @@ export function settingsChangeable(
     readonly investigationLive: boolean;
     readonly worktreeChangeOpen: boolean;
     readonly amendmentRetired: boolean;
+    /**
+     * Another command's transition holds the cycle (its Git work, then its write): the offer and
+     * the command wait for it (increment 3 review L-5 and its re-check).
+     */
+    readonly transitioning?: boolean;
   },
 ): boolean {
   return (
@@ -203,6 +208,7 @@ export function settingsChangeable(
     stopCode(cycle) !== 'item-completed-unmerged' &&
     !facts.investigationLive &&
     !facts.worktreeChangeOpen &&
+    !facts.transitioning &&
     !facts.amendmentRetired
   );
 }

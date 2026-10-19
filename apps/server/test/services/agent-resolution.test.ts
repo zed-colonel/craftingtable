@@ -253,6 +253,20 @@ describe('a delegated integration resolution’s profile (conflict only)', () =>
     expect(
       resolveAgent({ purpose: 'remediate', profiles: definition, delegation: delegated }).source,
     ).toEqual({ layer: 'saved-definition', slot: 'remediate' });
+    // With an assignment beside it, the assignment ranks as before for any other purpose (inc 3
+    // re-check R-2): only conflict's order changed.
+    expect(
+      resolveAgent({
+        purpose: 'remediate',
+        profiles: definition,
+        delegation: delegated,
+        assignment,
+      }).source,
+    ).toEqual({ layer: 'roadmap-assignment', slot: 'remediate', assignmentId: 'assignment' });
+    expect(
+      resolveAgent({ purpose: 'security', profiles: definition, delegation: delegated, assignment })
+        .source,
+    ).toEqual({ layer: 'roadmap-assignment', slot: 'security', assignmentId: 'assignment' });
     expect(
       resolveAgent({ purpose: 'security', profiles: definition, delegation: delegated }).source,
     ).toEqual({ layer: 'saved-definition', slot: 'review' });

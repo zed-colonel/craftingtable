@@ -854,22 +854,40 @@ describe('a stopped cycle’s settings change, what it writes (R-C17 part 4, dec
         },
       },
     }));
+  // Held strictly: an undefined `permissionMode` key is the bug (inc 3 re-check, RM1).
+  const written = (result: ReturnType<typeof settingsChange>) =>
+    result.kind === 'settings'
+      ? (result.changes.profiles as unknown as Record<string, unknown>)
+      : undefined;
   it('replaces a specialist the profiles already carry with a selection, never a permission (inc 3 review M-1)', () =>
     expect(
-      settingsChange(
-        { profiles: { ...settingsProfiles, security: { backend: 'claude-code', model: 's' } } },
-        { agents: { security: faster } },
-      ),
-    ).toMatchObject({ changes: { profiles: { security: faster } } }));
+      written(
+        settingsChange(
+          { profiles: { ...settingsProfiles, security: { backend: 'claude-code', model: 's' } } },
+          { agents: { security: faster } },
+        ),
+      )?.security,
+    ).toStrictEqual(faster));
   it('drops a model or effort the new selection omits', () =>
     expect(
-      settingsChange(
-        { profiles: settingsProfiles },
-        { agents: { implement: { backend: 'codex' } } },
+      written(
+        settingsChange(
+          { profiles: settingsProfiles },
+          { agents: { implement: { backend: 'codex' } } },
+        ),
+      )?.implement,
+    ).toStrictEqual({ backend: 'codex', permissionMode: 'edit-only' }));
+  it('waits for another command’s transition (inc 3 review L-5)', () =>
+    expect(
+      decideSettingsChange(
+        cycleOf({}),
+        { amendmentRetired: () => false },
+        { expectedVersion: 3, maxRunMinutes: 240 },
+        { live: false, changeOpen: false, transitioning: true },
+        false,
+        agentSelections(settingsProfiles as never),
       ),
-    ).toMatchObject({
-      changes: { profiles: { implement: { backend: 'codex', permissionMode: 'edit-only' } } },
-    }));
+    ).toMatchObject({ kind: 'refuse', code: 'settings-not-changeable' }));
   it('leaves a roadmap cycle’s profiles to its entry’s assignment', () =>
     expect(
       settingsChange(

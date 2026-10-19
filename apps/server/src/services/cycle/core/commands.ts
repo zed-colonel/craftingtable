@@ -177,7 +177,12 @@ export function decideSettingsChange(
   cycle: WorkCycle,
   facts: Pick<CommandFacts, 'amendmentRetired'>,
   change: SettingsChange,
-  investigation: { readonly live: boolean; readonly changeOpen: boolean },
+  investigation: {
+    readonly live: boolean;
+    readonly changeOpen: boolean;
+    /** Another command's transition holds the cycle. */
+    readonly transitioning?: boolean;
+  },
   roadmapOwned: boolean,
   /** The cycle's agents now (`selectionSet` of its effective agents). */
   current: AgentSelections,
@@ -205,11 +210,12 @@ export function decideSettingsChange(
       investigationLive: investigation.live,
       worktreeChangeOpen: investigation.changeOpen,
       amendmentRetired: retired,
+      transitioning: !!investigation.transitioning,
     })
   )
     return refuse(
       'settings-not-changeable',
-      'Only a paused or stopped work item cycle’s time limit and agents change, with no investigation open; a finalization’s are its stages’.',
+      'Only a paused or stopped work item cycle’s time limit and agents change, with no investigation open and no other command under way; a finalization’s are its stages’.',
     );
   // Only what changes counts (increment 3 review M-2): an agent already in effect, or the
   // minutes the cycle has, change nothing, and a change of nothing is refused.

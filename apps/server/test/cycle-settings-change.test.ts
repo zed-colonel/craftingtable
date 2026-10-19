@@ -119,6 +119,21 @@ it('changes a hand-started cycle’s time limit and agents at its stop, leaving 
   const itemBefore = item();
   expect(itemBefore?.code).toBe('step-time-limit');
 
+  // While another command's transition holds the cycle, the change is neither offered nor taken
+  // (inc 3 review L-5 and its re-check).
+  const locks = (
+    state.context.services.workCycleService as unknown as { locks: { transitioning: Set<string> } }
+  ).locks;
+  locks.transitioning.add(started.id);
+  expect((await actions(state, started.id)).actions).not.toContain('change-settings');
+  const held = await control(state, started.id, {
+    action: 'change-settings',
+    expectedVersion: stopped.version,
+    maxRunMinutes: 300,
+  });
+  locks.transitioning.delete(started.id);
+  expect(held.statusCode).toBe(409);
+  expect(cycle().version).toBe(stopped.version);
   const faster = { backend: 'claude-code' as const, model: 'faster-model' };
   const changed = await control(state, started.id, {
     action: 'change-settings',
@@ -269,6 +284,21 @@ it('changes a roadmap cycle’s agents through an assignment for its entry, whic
   expect(whilePending.json().error.message).toContain('pending planning amendment');
   expect(cycle().version).toBe(stopped.version);
   expect(storedRoadmap(state).agentAssignments ?? []).toEqual(before);
+  // The assignment and the cycle's write commit together (inc 3 review L-1): a cycle write that
+  // fails leaves no assignment behind.
+  const writer = (
+    state.context.services.workCycleService as unknown as {
+      writer: { change: (...args: unknown[]) => unknown };
+    }
+  ).writer;
+  const write = vi.spyOn(writer, 'change').mockImplementationOnce(() => {
+    throw new Error('The cycle write failed.');
+  });
+  const failed = await control(state, stopped.id, attempt0);
+  write.mockRestore();
+  expect(failed.statusCode).not.toBe(200);
+  expect(storedRoadmap(state).agentAssignments ?? []).toEqual(before);
+  expect(cycle().version).toBe(stopped.version);
   const changed = await control(state, stopped.id, {
     action: 'change-settings',
     expectedVersion: stopped.version,

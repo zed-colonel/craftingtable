@@ -632,6 +632,7 @@ export class WorkCycleService {
         investigationLive: investigationLive(c),
         worktreeChangeOpen: worktreeChangeOpen(c),
         amendmentRetired: tx.amendments.retired(c.workspaceId, c.worktreeId),
+        transitioning: this.locks.isTransitioning(c.id),
       }),
     );
     const routes =

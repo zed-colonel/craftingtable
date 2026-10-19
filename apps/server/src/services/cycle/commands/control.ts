@@ -181,19 +181,18 @@ export class CycleControl {
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
     this.gates.requireNoInvestigation(cycle, false);
-    // Another command's transition writes the cycle once its Git work is done (inc 3 review L-5).
-    if (this.locks.isTransitioning(cycle.id))
-      throw new ExecutionRequestError(
-        'conflict',
-        'Another command is changing this cycle; change its settings once it ends.',
-      );
     const owner = cycleOwnership(this.storage, cycle);
     const before = selectionSet(cycleAgents(this.storage, cycle));
     const decided = decideSettingsChange(
       cycle,
       { amendmentRetired: () => this.storage.amendments.retired(workspaceId, cycle.worktreeId) },
       change,
-      { live: investigationLive(cycle), changeOpen: worktreeChangeOpen(cycle) },
+      {
+        live: investigationLive(cycle),
+        changeOpen: worktreeChangeOpen(cycle),
+        // Another command's transition writes the cycle once its Git work is done (inc 3 L-5).
+        transitioning: this.locks.isTransitioning(cycle.id),
+      },
       owner !== undefined,
       before,
     );

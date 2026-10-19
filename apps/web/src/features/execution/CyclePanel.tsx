@@ -24,7 +24,7 @@ import { StatusStrip } from '../../components/StatusStrip.js';
 import { CYCLE_STATUS_LABELS, PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
 import { CycleControlButtons } from '../../decisions/cycle/CycleDecisions.js';
 import { CycleDecision, cycleDecisions } from '../../decisions/cycle/CycleDecision.js';
-import { CycleSettings } from '../../decisions/cycle/CycleSettings.js';
+import { CycleSettings, cycleSettingsKey } from '../../decisions/cycle/CycleSettings.js';
 import { InstructionsField, PolicyFields, StepAgentFields } from './CycleSettingsFields.js';
 import { EffectiveAgentText } from './EffectiveAgentText.js';
 import { roadmapSetupIds, stepAnchors } from '../planning/setup-steps.js';
@@ -322,7 +322,7 @@ export function CyclePanel({
                   .{' '}
                 </>
               ) : (
-                'Chosen when the cycle started; change them below while it is paused or stopped. '
+                'Chosen when the cycle started, unless changed since; change them below while it is paused or stopped. '
               )}
               Running sessions retain the model shown on their run page.
             </p>
@@ -363,13 +363,14 @@ export function CyclePanel({
             {active.instructions && <pre>{active.instructions}</pre>}
             {/* A paused or stopped cycle's time limit and agents (R-C17 part 4, decision 10). */}
             <CycleSettings
-              key={`${active.id}:${active.version}`}
+              key={cycleSettingsKey(active, projection)}
               cycle={active}
               projection={projection}
               backends={backends}
               csrfToken={csrfToken}
               disabled={disabled}
               onChanged={onChanged}
+              readOnly={readOnly}
             />
           </details>
           <About label="About cycle controls">

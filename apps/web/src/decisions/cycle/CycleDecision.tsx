@@ -16,7 +16,7 @@ import { revealElement } from '../../lib/reveal-element.js';
 import { answerFieldId, useStopDraft } from './answer-draft.js';
 import { CycleContinuation, continuationOf, ProviderRetry } from './CycleDecisions.js';
 import { CycleInvestigation } from './CycleInvestigation.js';
-import { CycleSettings } from './CycleSettings.js';
+import { CycleSettings, cycleSettingsKey } from './CycleSettings.js';
 
 /**
  * Which of a cycle's decisions apply, from its state and the daemon's returned actions: the
@@ -181,22 +181,6 @@ export function CycleDecision({
           answer={answer}
         />
       )}
-      {/* Its settings, beside the decision; on the work item page they are in the cycle panel's
-          settings (R-C17 part 4, decision 10). */}
-      {inInbox && projection.actions.includes('change-settings') && (
-        <details>
-          <summary>Time limit and agents</summary>
-          <CycleSettings
-            key={`${cycle.id}:${cycle.version}`}
-            cycle={cycle}
-            projection={projection}
-            backends={backends}
-            csrfToken={csrfToken}
-            disabled={disabled}
-            onChanged={onChanged}
-          />
-        </details>
-      )}
       {applies.design && canMutate && (
         <div id={`cycle-design-${cycle.id}`}>
           <DesignQuestions
@@ -222,6 +206,23 @@ export function CycleDecision({
           onOpenRun={onOpenRun}
           runIds={runs.map((run) => run.id)}
         />
+      )}
+      {/* Its settings, after the decision; on the work item page they are in the cycle panel's
+          settings (R-C17 part 4, decision 10; increment 4 review L-3). */}
+      {inInbox && projection.actions.includes('change-settings') && (
+        <details>
+          <summary>Time limit and agents</summary>
+          <CycleSettings
+            key={cycleSettingsKey(cycle, projection)}
+            cycle={cycle}
+            projection={projection}
+            backends={backends}
+            csrfToken={csrfToken}
+            disabled={disabled}
+            onChanged={onChanged}
+            readOnly={readOnly}
+          />
+        </details>
       )}
     </>
   );

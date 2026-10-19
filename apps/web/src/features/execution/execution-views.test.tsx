@@ -1617,6 +1617,64 @@ describe('automated cycle controls', () => {
       design: { backend: 'claude-code', reasoningEffort: 'high', permissionMode: 'auto' },
     });
   });
+  // R-C17 part 4, decision 10: a paused or stopped cycle's time limit and agents change in the
+  // panel's own settings, where the daemon offers it.
+  it('offers a paused cycle’s time limit and agents in its settings, and not at its merge', () => {
+    const base = {
+      id: asWorkCycleId('aab388ca-d51a-41c9-9da6-e12a21c5fb26'),
+      workspaceId: worktree.workspaceId,
+      projectId: worktree.projectId,
+      workItemId: worktree.workItemId,
+      workItemSourceId: 'AQ-01',
+      workItemTitle: 'Queue',
+      worktreeId: worktree.id,
+      createdByUserId: worktree.createdByUserId,
+      createdAt: worktree.createdAt,
+      updatedAt: worktree.createdAt,
+      version: 7,
+      step: 'implement',
+      policy: DEFAULT_COMPLETION_POLICY,
+      profiles: Object.fromEntries(
+        CYCLE_STEPS.map((step) => [step, { backend: 'claude-code', permissionMode: 'auto' }]),
+      ) as unknown as CycleProfiles,
+      instructions: '',
+      currentRunId: run().id,
+      runDeadlineAt: worktree.createdAt,
+      remediationRounds: 0,
+      stalledReviews: 0,
+      reason: 'Automation paused by operator.',
+    } as const;
+    const props = {
+      worktrees: [worktree],
+      runs: [run({ status: 'finished' })],
+      backends,
+      startProfiles,
+      startAgents,
+      canMutate: true,
+      busy: false,
+      admitted: true,
+      onStart: vi.fn(),
+      csrfToken: 'csrf',
+      onChanged: vi.fn(),
+      onOpenRun: vi.fn(),
+    };
+    const paused: WorkCycle = { ...base, status: 'paused' };
+    const view = render(
+      <CyclePanel
+        {...props}
+        cycles={daemon([paused], { actions: ['resume', 'change-settings', 'stop'] })}
+      />,
+    );
+    fireEvent.click(screen.getByText('Cycle settings and future agents'));
+    expect(screen.getByRole('form', { name: 'Time limit and agents' })).toBeTruthy();
+    const merging: WorkCycle = {
+      ...base,
+      status: 'awaiting-merge',
+      stop: stopRecord({ code: 'merge-approval', owner: 'operator' }, worktree.createdAt),
+    };
+    view.rerender(<CyclePanel {...props} cycles={daemon([merging])} />);
+    expect(screen.queryByRole('form', { name: 'Time limit and agents' })).toBeNull();
+  });
   it('keeps merge approval with the operator and exposes explicit pause/stop controls', async () => {
     const cycle: WorkCycle = {
       id: asWorkCycleId('aab388ca-d51a-41c9-9da6-e12a21c5fb25'),

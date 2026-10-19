@@ -166,8 +166,10 @@ const SHARED: readonly {
       'decisions/cycle/CycleDecisions.tsx#CycleContinuation',
       'decisions/cycle/CycleDecisions.tsx#CycleControlButtons',
       'decisions/cycle/CycleDecisions.tsx#ProviderRetry',
+      'decisions/cycle/CycleSettings.tsx#CycleSettings',
     ],
     decisions: {
+      'change-settings': 'decisions/cycle/CycleSettings.tsx#CycleSettings',
       'authorize-remediation': 'decisions/cycle/CycleDecisions.tsx#CycleContinuation',
       'review-again': 'decisions/cycle/CycleDecisions.tsx#CycleContinuation',
       'retry-provider': 'decisions/cycle/CycleDecisions.tsx#ProviderRetry',

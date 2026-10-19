@@ -24,6 +24,7 @@ import { StatusStrip } from '../../components/StatusStrip.js';
 import { CYCLE_STATUS_LABELS, PERMISSION_MODE_LABELS } from '../../lib/execution-labels.js';
 import { CycleControlButtons } from '../../decisions/cycle/CycleDecisions.js';
 import { CycleDecision, cycleDecisions } from '../../decisions/cycle/CycleDecision.js';
+import { CycleSettings } from '../../decisions/cycle/CycleSettings.js';
 import { InstructionsField, PolicyFields, StepAgentFields } from './CycleSettingsFields.js';
 import { EffectiveAgentText } from './EffectiveAgentText.js';
 import { roadmapSetupIds, stepAnchors } from '../planning/setup-steps.js';
@@ -320,7 +321,7 @@ export function CyclePanel({
                   .{' '}
                 </>
               ) : (
-                'Chosen when the cycle started. '
+                'Chosen when the cycle started; change them below while it is paused or stopped. '
               )}
               Running sessions retain the model shown on their run page.
             </p>
@@ -359,6 +360,16 @@ export function CyclePanel({
               </>
             )}
             {active.instructions && <pre>{active.instructions}</pre>}
+            {/* A paused or stopped cycle's time limit and agents (R-C17 part 4, decision 10). */}
+            <CycleSettings
+              key={`${active.id}:${active.version}`}
+              cycle={active}
+              projection={projection}
+              backends={backends}
+              csrfToken={csrfToken}
+              disabled={disabled}
+              onChanged={onChanged}
+            />
           </details>
           <About label="About cycle controls">
             {readOnly ? (
@@ -379,8 +390,9 @@ export function CyclePanel({
                 The cycle completes when zero blocking, major, or minor findings remain and at most
                 the allowed nits. Pause leaves the agent session available for manual work. Stop
                 cancels its current process and ends the cycle. Resume adopts a manual run handed
-                off from this cycle. Agent settings stay fixed; an exhausted review allowance can be
-                extended explicitly.
+                off from this cycle. While the cycle is paused or stopped, its time limit and agents
+                can be changed under its settings; an exhausted review allowance can be extended
+                explicitly.
               </p>
             )}
           </About>

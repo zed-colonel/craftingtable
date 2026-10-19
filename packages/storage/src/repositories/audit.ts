@@ -116,8 +116,9 @@ export class SqliteAuditRepository implements AuditRepository {
    * Cycle transitions recorded up to `until`: every one from `from` on, plus each cycle's
    * last transition before `from`, which gives the state the cycle was in when the window
    * opened. Older rows are not read or parsed. Each is a step of the cycle's history (R-B4
-   * decision 9): the status it left, and the controller decision's kind and guard that wrote it,
-   * where the row records them (rows before R-B4b, and operator commands, carry no decision).
+   * decision 9): the status it left, and the controller decision's kind, guard and code that
+   * wrote it, where the row records them (rows before R-B4b, and operator commands, carry no
+   * decision).
    */
   listCycleTransitions(workspaceId: WorkspaceId, from: string, until: string) {
     const text = (value: unknown) => (typeof value === 'string' ? value : undefined);
@@ -128,6 +129,7 @@ export class SqliteAuditRepository implements AuditRepository {
         previousStatus: CYCLE_STATUSES.find((status) => status === row.metadata.previousStatus),
         decision: text(row.metadata.decision),
         guard: text(row.metadata.guard),
+        decisionCode: text(row.metadata.decisionCode),
       }),
     );
   }

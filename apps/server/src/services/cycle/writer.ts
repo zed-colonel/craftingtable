@@ -70,22 +70,27 @@ export class CycleWriter {
 
   /**
    * The controller decision a pass is carrying out (R-B4 decision 9): each audit row written while
-   * it runs records the decision's kind and guard, the step history the operator-wait measure and
-   * the cycle's timeline read. It is open only until the decision's own work returns, so a write a
+   * it runs records the decision's kind, guard and code, the step history the operator-wait
+   * measure and the cycle's timeline read. It is open only until the decision's own work returns, so a write a
    * run's later callback makes is not taken for that decision's.
    */
   private readonly deciding = new AsyncLocalStorage<{
     readonly kind: string;
     readonly guard: string | undefined;
+    readonly code: string | undefined;
     open: boolean;
   }>();
 
-  /** Carries out `apply` as the pass's decision of `kind` at `guard`. */
+  /** Carries out `apply` as the pass's decision of `kind` at `guard`, carrying `code`. */
   async decided<T>(
-    decision: { readonly kind: string; readonly guard: string | undefined },
+    decision: {
+      readonly kind: string;
+      readonly guard: string | undefined;
+      readonly code?: string | undefined;
+    },
     apply: () => Promise<T>,
   ): Promise<T> {
-    const scope = { kind: decision.kind, guard: decision.guard, open: true };
+    const scope = { kind: decision.kind, guard: decision.guard, code: decision.code, open: true };
     try {
       return await this.deciding.run(scope, apply);
     } finally {
@@ -340,7 +345,11 @@ export class CycleWriter {
         // that wrote it; an operator's command, or a write outside a pass, records none.
         ...(previous ? { previousStatus: previous } : {}),
         ...(decision?.open
-          ? { decision: decision.kind, ...(decision.guard ? { guard: decision.guard } : {}) }
+          ? {
+              decision: decision.kind,
+              ...(decision.guard ? { guard: decision.guard } : {}),
+              ...(decision.code ? { decisionCode: decision.code } : {}),
+            }
           : {}),
         step: cycle.step,
         reason: cycle.reason,

@@ -744,8 +744,9 @@ export class WorkCycleService {
       const failure = decideFailure(error);
       // Recorded in the step history as the pass's own stop (R-B4 decision 9), as a refusal is.
       if (failure.kind !== 'retry')
-        await this.writer.decided({ kind: 'failure', guard: met.guard }, async () =>
-          this.stopAfterFailure(cycle, failure),
+        await this.writer.decided(
+          { kind: 'failure', guard: met.guard, code: failure.code },
+          async () => this.stopAfterFailure(cycle, failure),
         );
     }
   }
@@ -792,9 +793,11 @@ export class WorkCycleService {
       this.observer?.decided?.(cycle, { decision });
       const decided = decision;
       // In the replays' vocabulary (`decisionSummary`): a step outcome is recorded as what it
-      // decided (a stop, a launch, a wait, an effect), not as an outcome.
-      const { kind } = decisionSummary(decided);
-      await this.writer.decided({ kind, guard: decided.guard }, () => this.apply(cycle, decided));
+      // decided (a stop, a launch, a wait, an effect), not as an outcome, with the code it carries.
+      const { kind, code } = decisionSummary(decided);
+      await this.writer.decided({ kind, guard: decided.guard, code }, () =>
+        this.apply(cycle, decided),
+      );
     } catch (error) {
       met.guard = decision?.guard ?? guard;
       if (!decision) this.observer?.decided?.(cycle, { failed: error, guard });
@@ -802,8 +805,14 @@ export class WorkCycleService {
       // decision 3); contention and the unexpected go on to the pass.
       const refused = decideRefusal(error);
       if (!refused) throw error;
-      await this.writer.decided({ kind: 'refusal', guard: decision?.guard ?? guard }, async () =>
-        this.stopAfterFailure(cycle, refused),
+      // Its code is the stop's, or the phase wait's as `decide` names one (`record-phase`).
+      await this.writer.decided(
+        {
+          kind: 'refusal',
+          guard: decision?.guard ?? guard,
+          code: refused.kind === 'phase-wait' ? 'record-phase' : refused.code,
+        },
+        async () => this.stopAfterFailure(cycle, refused),
       );
     }
   }

@@ -13,8 +13,8 @@ import {
 
 /**
  * The step history (R-B4 decision 9, R-B4b increment 4): each `work-cycle.updated` audit row
- * records the status it left, and the controller decision's kind and guard that wrote it, and
- * `audit.listCycleTransitions` reads them. An operator's command records no decision.
+ * records the status it left, and the controller decision's kind, guard and code that wrote it,
+ * and `audit.listCycleTransitions` reads them. An operator's command records no decision.
  */
 
 afterEach(async () => {
@@ -26,18 +26,19 @@ const history = (state: Ready, cycle: WorkCycle) =>
   state.context.storage.audit
     .listCycleTransitions(state.workspaceId, '2000-01-01T00:00:00.000Z', '2999-01-01T00:00:00.000Z')
     .filter((row) => row.cycleId === cycle.id)
-    .map(({ metadata, previousStatus, decision, guard }) => ({
+    .map(({ metadata, previousStatus, decision, guard, decisionCode }) => ({
       action: metadata.action,
       status: metadata.status,
       previousStatus,
       decision,
       guard,
+      decisionCode,
     }));
 
 type Writer = {
   change: (cycle: WorkCycle, changes: Record<string, unknown>, action?: string) => WorkCycle;
   decided: <T>(
-    decision: { kind: string; guard: string | undefined },
+    decision: { kind: string; guard: string | undefined; code?: string },
     apply: () => Promise<T>,
   ) => Promise<T>;
 };
@@ -62,6 +63,7 @@ it("records the pass's decision and the status each write left, and none for a c
     previousStatus: undefined,
     decision: undefined,
     guard: undefined,
+    decisionCode: undefined,
   });
   // The design's questions stop it, as the pass decided at its step outcome: recorded in the
   // replays' vocabulary (`decisionSummary`), as the stop it decided (increment 4 review, MEDIUM-1).
@@ -71,6 +73,8 @@ it("records the pass's decision and the status each write left, and none for a c
     previousStatus: 'running',
     decision: 'attention',
     guard: 'step-outcome',
+    // The code the decision carries: which stop, wait, step or effect (increment 4's MEDIUM-1).
+    decisionCode: 'design-open-questions',
   });
   // Every row the pass wrote names its decision and guard.
   for (const step of steps.slice(1)) expect(step.decision).toBeDefined();
@@ -81,6 +85,7 @@ it("records the pass's decision and the status each write left, and none for a c
     previousStatus: 'needs-attention',
     decision: undefined,
     guard: undefined,
+    decisionCode: undefined,
   });
 });
 
@@ -88,26 +93,37 @@ it("records a decision only for the writes its own work makes, not a later callb
   const { state, cycle } = await designStop();
   const writer = (state.context.services.workCycleService as unknown as { writer: Writer }).writer;
   let late: Promise<void> | undefined;
-  await writer.decided({ kind: 'effect', guard: 'investigation-live' }, async () => {
-    writer.change(currentCycle(state, cycle), {
-      attention: cycleAttention('implementation-open-questions'),
-      reason: 'Answer the questions.',
-    });
-    // A write a callback makes after the decision's work has returned.
-    late = new Promise((resolve) =>
-      setTimeout(() => {
-        writer.change(currentCycle(state, cycle), {
-          attention: cycleAttention('step-incomplete'),
-          reason: 'Inspect the step.',
-        });
-        resolve();
-      }, 10),
-    );
-  });
+  await writer.decided(
+    { kind: 'effect', guard: 'investigation-live', code: 'settle' },
+    async () => {
+      writer.change(currentCycle(state, cycle), {
+        attention: cycleAttention('implementation-open-questions'),
+        reason: 'Answer the questions.',
+      });
+      // A write a callback makes after the decision's work has returned.
+      late = new Promise((resolve) =>
+        setTimeout(() => {
+          writer.change(currentCycle(state, cycle), {
+            attention: cycleAttention('step-incomplete'),
+            reason: 'Inspect the step.',
+          });
+          resolve();
+        }, 10),
+      );
+    },
+  );
   await late;
   const [during, after] = history(state, cycle).slice(-2);
-  expect(during).toMatchObject({ decision: 'effect', guard: 'investigation-live' });
-  expect(after).toMatchObject({ previousStatus: 'needs-attention', decision: undefined });
+  expect(during).toMatchObject({
+    decision: 'effect',
+    guard: 'investigation-live',
+    decisionCode: 'settle',
+  });
+  expect(after).toMatchObject({
+    previousStatus: 'needs-attention',
+    decision: undefined,
+    decisionCode: undefined,
+  });
 });
 
 it('reads a row written before the step history as having none of it', async () => {
@@ -127,6 +143,7 @@ it('reads a row written before the step history as having none of it', async () 
         action: 'advance',
         status: 'needs-attention',
         decision: 7,
+        decisionCode: 7,
         previousStatus: 'gone',
       },
     }),
@@ -137,6 +154,7 @@ it('reads a row written before the step history as having none of it', async () 
     previousStatus: undefined,
     decision: undefined,
     guard: undefined,
+    decisionCode: undefined,
   });
 });
 
@@ -185,6 +203,7 @@ it("tags the pass's own stops: a typed refusal and an unexpected failure, each w
     previousStatus: 'running',
     decision: 'failure',
     guard: 'kernel-busy',
+    decisionCode: 'controller-error',
   });
   f.services.agentRunService.isCleaningRun = cleaning;
 });
@@ -214,6 +233,7 @@ it('records the status a refreshed stop kept as the one it left', async () => {
     previousStatus: 'needs-attention',
     decision: undefined,
     guard: undefined,
+    decisionCode: undefined,
   });
 });
 
@@ -241,6 +261,11 @@ it("tags a typed refusal the decision's work met with the decision's guard", asy
     .listCycleTransitions(f.workspaceId, '2000-01-01T00:00:00.000Z', '2999-01-01T00:00:00.000Z')
     .filter((row) => row.cycleId === cycle.id)
     .at(-1);
-  expect(last).toMatchObject({ previousStatus: 'running', decision: 'refusal' });
+  // A phase gate's refusal records the phase wait it entered, as `decide` names one.
+  expect(last).toMatchObject({
+    previousStatus: 'running',
+    decision: 'refusal',
+    decisionCode: 'record-phase',
+  });
   expect(last?.guard).toBeDefined();
 });

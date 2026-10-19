@@ -4,7 +4,6 @@ import {
   type ExecutionScope,
   PHASE_BLOCKERS,
   type PhaseBlocker,
-  phaseBlockerCode,
   type PlanVersionId,
   type Roadmap,
   type RoadmapAttention,
@@ -282,7 +281,7 @@ export function cycleCarriesOn(status: CycleStatus | undefined, entryComplete: b
 
 /** A phase gate clears a hold once it names nothing that stops: every blocker left waits. */
 export function phaseGateClears(blockers: readonly PhaseBlocker[]): boolean {
-  return blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].waits);
+  return blockers.every((b) => PHASE_BLOCKERS[b.code].waits);
 }
 
 /**

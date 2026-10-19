@@ -4,15 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   type CycleOwner,
-  effectiveHoldAttention,
-  effectiveRoadmapAttention,
-  phaseBlockerCode,
   type RoadmapStatusEntry,
   startedAttempts,
   type Roadmap,
   type RoadmapEntry,
   type RoadmapStatusList,
   cycleStop,
+  roadmapStop,
+  holdStop,
 } from '@craftingtable/domain';
 import type { ServiceSet } from './composition.js';
 import { openDaemonStorage } from './persisted-records.js';
@@ -557,7 +556,7 @@ export async function replaySchedulerDecisions(
     const roadmaps: SchedulerRoadmapPass[] = [];
     for (const prior of before) {
       const after = storage.roadmaps.find(prior.workspaceId, prior.id) ?? prior;
-      const attention = effectiveRoadmapAttention(after);
+      const attention = roadmapStop(after);
       const issuedByPass = passActions.get(prior.id);
       const adopted = after.attempts.filter(
         (a) =>
@@ -684,7 +683,7 @@ function decide(
       });
     case 'held': {
       const hold = roadmap.entryHolds?.[entry.id];
-      const attention = hold && effectiveHoldAttention(hold);
+      const attention = hold && holdStop(hold);
       return describe(roadmap, entry, {
         decision: 'hold',
         action: 'existing-hold',
@@ -697,7 +696,7 @@ function decide(
         decision: 'wait',
         code:
           outcome.error instanceof PhaseGateError
-            ? outcome.error.blockers.map((b) => phaseBlockerCode(b)).join(',')
+            ? outcome.error.blockers.map((b) => b.code).join(',')
             : outcome.error instanceof Error
               ? outcome.error.name
               : 'unknown',
@@ -705,7 +704,7 @@ function decide(
       });
     case 'hold-recorded': {
       const hold = latest()?.entryHolds?.[entry.id];
-      const attention = hold && effectiveHoldAttention(hold);
+      const attention = hold && holdStop(hold);
       return describe(roadmap, entry, {
         decision: 'hold',
         action: 'new-hold',

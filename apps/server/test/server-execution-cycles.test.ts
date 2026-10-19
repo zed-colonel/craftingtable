@@ -553,7 +553,7 @@ it('refreshes a phase wait when its blockers change and records nothing for a co
     writer: { change: (cycle: WorkCycle, changes: Partial<WorkCycle>) => WorkCycle };
   };
   let blockers: import('@craftingtable/domain').PhaseBlocker[] = [
-    { kind: 'resource', message: 'Resource build capacity is in use.' },
+    { kind: 'resource', code: 'resource-busy', message: 'Resource build capacity is in use.' },
   ];
   // Whatever the cycle decided, applying it meets a waiting phase gate, which `reconcile`
   // records as the phase wait (R-B4).
@@ -567,7 +567,13 @@ it('refreshes a phase wait when its blockers change and records nothing for a co
   const first = currentCycle(state, cycle);
   await stepDaemons(3);
   expect(currentCycle(state, cycle).version).toBe(first.version);
-  blockers = [{ kind: 'dependency', message: 'Predecessor AQ-00 is not merged yet.' }];
+  blockers = [
+    {
+      kind: 'dependency',
+      code: 'slice-requirement',
+      message: 'Predecessor AQ-00 is not merged yet.',
+    },
+  ];
   await waitFor(
     () => currentCycle(state, cycle).waits?.phase?.blockers[0]?.kind === 'dependency',
     'refreshed wait',

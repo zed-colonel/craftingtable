@@ -6,8 +6,6 @@ import {
   cycleStop,
   heldStop,
   type PhaseBlocker,
-  phaseBlockerCode,
-  phaseBlockerResourceKey,
   stopCode,
   type WorkCycle,
   type WorkCycleId,
@@ -65,8 +63,9 @@ function answers(cycle: WorkCycle): Json {
               return {
                 ...blocker,
                 refs: Object.keys(refs).length ? refs : undefined,
-                code: phaseBlockerCode(blocker),
-                resourceKey: phaseBlockerResourceKey(blocker) ?? null,
+                // Stored since 0047, where the decoder recovered them (R-B4b increment 3).
+                code: blocker.code,
+                resourceKey: blocker.refs?.resourceKey ?? null,
               };
             }),
           }
@@ -138,3 +137,12 @@ it.each(rows.map((row) => [row.name, row] as const))(
     expect(answers(migrated.get(name) as WorkCycle)).toEqual(expected);
   },
 );
+
+it('lets a work-item cycle keep a retired polish round, never deferred nits, as before R-B4b', () => {
+  // The contract's work-item rule refused only `deferredNits` before 0047 (increment 2 review, NIT-7).
+  const cycle = [...migrated.values()].find((c) => c.workItemId !== undefined) as WorkCycle;
+  const valid = (retiredFinalization: unknown) =>
+    workCycleSchema.safeParse({ ...cycle, retiredFinalization }).success;
+  expect(valid({ polishRound: 1 })).toBe(true);
+  expect(valid({ deferredNits: [] })).toBe(false);
+});

@@ -7,7 +7,6 @@ import {
   ownsIntegrationResolution,
   PHASE_BLOCKERS,
   type PhaseBlocker,
-  phaseBlockerCode,
   type WorkCycle,
   type Worktree,
   cycleStop,
@@ -352,10 +351,10 @@ const GUARDS: Record<CycleGuard, Guard> = {
     if (!blockers.length) return undefined;
     // Every blocker's message, as the scope's phase gate says them (`PhaseGateError`).
     const message = blockers.map((b) => b.message).join('\n');
-    return blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].waits)
+    return blockers.every((b) => PHASE_BLOCKERS[b.code].waits)
       ? { kind: 'wait', wait: { change: 'record-phase', blockers, reason: message } }
       : attention('phase-gate', message, false, {
-          blockers: [...new Set(blockers.map(phaseBlockerCode))],
+          blockers: [...new Set(blockers.map((b) => b.code))],
         });
   },
   'design-dependencies': ({ cycle, facts }) => {

@@ -3,7 +3,6 @@ import {
   type AgentRunId,
   asConcurrencyDefinitionId,
   type ExecutionScope,
-  phaseBlockerCode,
   type Roadmap,
   type WorkItemId,
   type WorkspaceId,
@@ -123,7 +122,7 @@ it('keeps the reservation owner exact while sharing the rest within a read snaps
       ...(owner ? { ownerId: owner } : {}),
     });
   const busy = (blockers: ReturnType<typeof ask>) =>
-    blockers.filter((b) => phaseBlockerCode(b) === 'resource-busy');
+    blockers.filter((b) => b.code === 'resource-busy');
 
   // Unshared, as every caller outside a read snapshot asks: each call computes.
   calls.computed.length = 0;
@@ -203,7 +202,7 @@ it('keeps a resource blocker where it was, before the checks that follow it (R-D
     f.parentScope,
     'accept',
     { ownerId: 'run-mine' },
-  ).map((b) => phaseBlockerCode(b));
+  ).map((b) => b.code);
   const busy = codes.indexOf('resource-busy');
   const unmerged = codes.indexOf('required-slice-unmerged');
   expect(busy).toBeGreaterThanOrEqual(0);
@@ -309,7 +308,7 @@ it("asks a slice's merge whether that slice started, not another slice of its wo
       {
         resources: false,
       },
-    ).map((blocker) => phaseBlockerCode(blocker));
+    ).map((blocker) => blocker.code);
   expect(codes(a)).toContain('slice-not-started');
   expect(codes(b)).not.toContain('slice-not-started');
 });

@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "source": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./attention-legacy": {
+      "types": "./dist/attention-legacy.d.ts",
+      "source": "./src/attention-legacy.ts",
+      "default": "./dist/attention-legacy.js"
     }
   }
 }

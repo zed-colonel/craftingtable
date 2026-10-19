@@ -7,6 +7,11 @@ import {
   roadmapAttention,
 } from './attention.js';
 import type { PhaseBlocker } from './phase-scheduling.js';
+
+/** A phase blocker as releases before R-A3 could store it, without its code. */
+export type LegacyPhaseBlocker = Omit<PhaseBlocker, 'code'> & {
+  readonly code?: PhaseBlockerCode;
+};
 import type { Roadmap, RoadmapEntryHold } from './roadmap.js';
 import type { WorkCycle } from './work-cycle.js';
 
@@ -14,9 +19,13 @@ import type { WorkCycle } from './work-cycle.js';
  * Attention for records written before codes existed (R-A3).
  *
  * This module is the single place that may read the old human-readable reason text, and
- * only to recover a code for a record that has none. Every new write declares its code;
- * every consumer calls these functions instead of looking at text. The prefixes are the
- * exact messages earlier releases wrote.
+ * only to recover a code for a record that has none. Every new write declares its code, and
+ * migration 0047 coded every stored record (R-B4b), so the daemon and the browser read stored
+ * codes only. What remains is the audit trail, which is never rewritten: R-C1's operator-wait
+ * measure decodes its rows here, and nothing else in production imports this module (it is
+ * not in the domain's index but its own entry, `@craftingtable/domain/attention-legacy`, and
+ * `check:scope` rule 13 holds it). The prefixes are the exact messages earlier releases wrote;
+ * migration 0047's test reads them as its reference.
  */
 
 const LEGACY_CYCLE_REASONS: readonly (readonly [string, CycleAttentionCode])[] = [
@@ -90,14 +99,14 @@ export function effectiveHoldAttention(hold: RoadmapEntryHold): RoadmapAttention
 }
 
 /** The resource a `resource-busy` blocker waits for, also for blockers stored before refs. */
-export function phaseBlockerResourceKey(blocker: PhaseBlocker): string | undefined {
+export function phaseBlockerResourceKey(blocker: LegacyPhaseBlocker): string | undefined {
   if (blocker.refs?.resourceKey) return blocker.refs.resourceKey;
   if (phaseBlockerCode(blocker) !== 'resource-busy') return undefined;
   return /^Waiting for (\S+):/.exec(blocker.message)?.[1];
 }
 
 /** A phase blocker's code, recovering one for a blocker stored before codes existed. */
-export function phaseBlockerCode(blocker: PhaseBlocker): PhaseBlockerCode {
+export function phaseBlockerCode(blocker: LegacyPhaseBlocker): PhaseBlockerCode {
   if (blocker.code) return blocker.code;
   const { kind, message } = blocker;
   if (kind === 'authorization' && message.startsWith('Resource controlled-native-test-host'))

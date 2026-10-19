@@ -97,6 +97,11 @@
  *    `pinReplayHost`, the workstation `replayHost`), with no namespace and no re-export of it, so
  *    the daemon compares a native approval with the live host digest. Like rule 7 it guards
  *    against a mistake, not evasion: a binding passed on as a value is not followed.
+ * 13. Only the operator-wait measure decodes text written before codes (R-B4b): migration 0047
+ *    coded every stored record, so the daemon and the browser read stored codes, and no
+ *    production module but `LEGACY_DECODER_USERS` imports `packages/domain/src/attention-legacy.ts`
+ *    (the domain's `attention-legacy` entry, which its index does not re-export). The audit
+ *    trail is never rewritten; R-C1's measure decodes its rows there. Tests may import it.
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -193,6 +198,7 @@ export const LOADER_AUTHORITY = new Map([
 
 /** The one module that reads a request's path parameters: it parses them for every route (R-H7). */
 export const PARAMETER_PARSER = 'apps/server/src/routes/route-access.ts';
+export const PROSE_LEGACY_MAPPING_PATH = 'packages/domain/src/attention-legacy.ts';
 
 /**
  * The replays' host pin (rule 12, R-B4b), and the only production modules that import it, each
@@ -202,6 +208,17 @@ export const REPLAY_HOST_PIN = 'apps/server/src/services/replay-host.ts';
 export const REPLAY_HOST_USERS = new Map([
   ['apps/server/src/controller-replay.ts', 'pinReplayHost'],
   ['apps/server/src/services/workstation.ts', 'replayHost'],
+]);
+
+/**
+ * The decoders of text written before codes (rule 13, R-B4b), and the one production module that
+ * imports them: the operator-wait measure, for audit rows written before codes.
+ */
+export const LEGACY_DECODER_USERS = new Set(['apps/server/src/services/operator-wait-service.ts']);
+const LEGACY_DECODER_FILES = new Set([
+  PROSE_LEGACY_MAPPING_PATH,
+  'packages/domain/dist/attention-legacy.js',
+  'packages/domain/dist/attention-legacy.d.ts',
 ]);
 
 /** The pure planning boundary (ADR-012). */
@@ -252,7 +269,7 @@ const PROSE_PACKAGES = new Set([
   'packages/storage',
 ]);
 /** The one module allowed to read reason text written by earlier releases (ADR-067). */
-const PROSE_LEGACY_MAPPING = 'packages/domain/src/attention-legacy.ts';
+const PROSE_LEGACY_MAPPING = PROSE_LEGACY_MAPPING_PATH;
 /** The one module that writes map vocabulary, and the table it writes it in (rule 7, R-F2). */
 const MAP_VOCABULARY_MODULE = 'packages/domain/src/map-capabilities.ts';
 const MAP_VOCABULARY_TABLE = 'V03_VOCABULARY';
@@ -2024,7 +2041,7 @@ function replayHostReexports(path, module, root) {
   return findings;
 }
 
-/** One module's findings under rules 1-5, 7, 9 and 12. */
+/** One module's findings under rules 1-5, 7, 9, 12 and 13. */
 function moduleFindings(root, module, production, vocabulary) {
   const findings = [];
   const path = posix(relative(root, module.file));
@@ -2047,6 +2064,14 @@ function moduleFindings(root, module, production, vocabulary) {
     const targetPackage = resolved === undefined ? undefined : placeOf(root, resolved);
     const targetPath = resolved === undefined ? undefined : posix(relative(root, resolved));
     if (targetPath === REPLAY_HOST_PIN) findings.push(...replayHostFindings(path, reference));
+    if (
+      targetPath !== undefined &&
+      LEGACY_DECODER_FILES.has(targetPath) &&
+      !LEGACY_DECODER_USERS.has(path)
+    )
+      findings.push(
+        `${path}: imports the decoders of text written before codes (${PROSE_LEGACY_MAPPING_PATH}); every stored record is coded since migration 0047, so read its stored code, as only the operator-wait measure decodes audit rows (R-B4b)`,
+      );
     if (owningPackage === 'packages/planning') {
       if (PLANNING_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(specifier)))
         findings.push(`${path}: planning package imports impure module "${specifier}"`);
@@ -2216,6 +2241,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules but the ${KNOWN_IMPORT_CYCLES.length} listed, the cycle core free of services and of file and process access, the replays' host pin imported only by the replay tool and the workstation, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules but the ${KNOWN_IMPORT_CYCLES.length} listed, the cycle core free of services and of file and process access, the replays' host pin imported only by the replay tool and the workstation, the decoders of text before codes imported only by the operator-wait measure, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
   );
 }

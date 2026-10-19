@@ -29,7 +29,8 @@ export const scopeReviewEvidenceSchema = z.strictObject({
 export const phaseBlockerSchema = z.strictObject({
   kind: z.enum(['dependency', 'evidence', 'review', 'authorization', 'resource']),
   message: z.string(),
-  code: phaseBlockerCodeSchema.optional(),
+  // Coded since R-A3; migration 0047 coded every one stored before (R-B4b).
+  code: phaseBlockerCodeSchema,
   refs: z
     .strictObject({
       checkpointId: branded<CheckpointId>(z.string().min(1).max(200)).optional(),

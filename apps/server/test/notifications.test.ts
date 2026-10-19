@@ -29,7 +29,6 @@ import {
   type CycleAttention,
   DEFAULT_COMPLETION_POLICY,
   DEFAULT_NOTIFICATION_PREFERENCES,
-  effectiveCycleAttention,
   type Finalization,
   heldStop,
   type Roadmap,
@@ -38,6 +37,7 @@ import {
   stopRecord,
   type WorkCycle,
 } from '@craftingtable/domain';
+import { effectiveCycleAttention } from '@craftingtable/domain/attention-legacy';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';

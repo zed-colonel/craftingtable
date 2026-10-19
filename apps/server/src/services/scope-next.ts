@@ -4,7 +4,6 @@ import {
   operatorOwnsAll,
   PHASE_BLOCKERS,
   type PhaseBlocker,
-  phaseBlockerCode,
   type WorkCycle,
 } from '@craftingtable/domain';
 import { checkpointSubjectKey } from './checkpoint-subject.js';
@@ -88,7 +87,6 @@ export function scopeNext(input: {
   if (blockers.length === 0) return { actor: 'controller', reason: 'No requirement waiting.' };
   const operator = operatorOwnsAll(blockers);
   // The headline names the operator's own blocker first, as the requirements list groups them.
-  const first =
-    blockers.find((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator') ?? blockers[0]!;
+  const first = blockers.find((b) => PHASE_BLOCKERS[b.code].owner === 'operator') ?? blockers[0]!;
   return { actor: operator ? 'operator' : 'controller', reason: first.message };
 }

@@ -218,7 +218,10 @@ scheduling held). While automation will act on a stop (a roadmap that merges, ve
 accepts automatically, conflict automation, scope recovery, prerequisite work) the controller
 records that claim and the stop is controller-owned until it lapses. Phase blockers and roadmap
 entry waits (`services/entry-waits.ts`) carry codes too; reasons and messages are display text.
-`packages/domain/src/attention-legacy.ts` is the one place that maps old reason text to codes.
+Migration 0047 coded every record stored before codes (R-B4b), so the daemon and the browser read
+stored codes only. `packages/domain/src/attention-legacy.ts` (the domain's `attention-legacy` entry)
+is the one place that maps old reason text to codes, and only the operator-wait measure imports
+it, for audit rows written before codes (`check:scope` rule 13).
 
 **Recovery within a cycle.** Operator guidance continues a stopped step without adding budget;
 an exhausted review can be granted 1–20 more remediation rounds. Agent questions stop the cycle

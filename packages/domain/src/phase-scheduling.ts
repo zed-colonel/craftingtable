@@ -4,8 +4,8 @@ export interface PhaseBlocker {
   readonly kind: 'dependency' | 'evidence' | 'review' | 'authorization' | 'resource';
   /** Display text only; never parsed. `code` carries the meaning. */
   readonly message: string;
-  /** Absent only on blockers stored before R-A3; read through `phaseBlockerCode`. */
-  readonly code?: import('./attention.js').PhaseBlockerCode;
+  /** What blocks: migration 0047 coded every blocker stored before R-A3 (R-B4b). */
+  readonly code: import('./attention.js').PhaseBlockerCode;
   readonly refs?: {
     readonly checkpointId?: CheckpointId;
     readonly sliceId?: SliceId;

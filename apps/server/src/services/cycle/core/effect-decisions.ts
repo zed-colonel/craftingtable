@@ -9,7 +9,6 @@ import {
   optionalFinding,
   parkedFollowUp,
   type PhaseBlocker,
-  phaseBlockerCode,
   raisesOpenQuestions,
   remediationAllowance,
   remediationUsed,
@@ -134,7 +133,7 @@ export function readinessOf(error: unknown): Readiness | undefined {
           kind: 'refused',
           code: 'phase-gate',
           message: error.message,
-          refs: { blockers: [...new Set(error.blockers.map(phaseBlockerCode))] },
+          refs: { blockers: [...new Set(error.blockers.map((b) => b.code))] },
         };
   if (error instanceof TypedRefusalError)
     return {

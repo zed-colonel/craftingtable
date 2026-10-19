@@ -5,9 +5,6 @@ import {
   CYCLE_ATTENTION,
   CYCLE_STATUSES,
   type CycleAttentionCode,
-  effectiveCycleAttention,
-  effectiveHoldAttention,
-  effectiveRoadmapAttention,
   type OperatorWaitKind,
   type OperatorWaitReport,
   type Roadmap,
@@ -21,7 +18,10 @@ import {
   type WorkCycle,
   type WorkspaceId,
   type WorkCycleId,
+  roadmapStop,
+  holdStop,
 } from '@craftingtable/domain';
+import { effectiveCycleAttention } from '@craftingtable/domain/attention-legacy';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -102,11 +102,11 @@ export function operatorWaitReport(
 export function roadmapWaitAudit(
   roadmap: Pick<Roadmap, 'status' | 'reason' | 'attention' | 'entryHolds'>,
 ): { readonly attention?: AuditedStop; readonly holds: readonly AuditedHold[] } {
-  const attention = effectiveRoadmapAttention(roadmap);
+  const attention = roadmapStop(roadmap);
   return {
     ...(attention ? { attention: auditedStop(attention) } : {}),
     holds: Object.entries(roadmap.entryHolds ?? {}).map(([entryId, hold]) => {
-      const held = effectiveHoldAttention(hold);
+      const held = holdStop(hold);
       // A hold's `refs.entryId` names the gate's entry, not the hold's (R-C10's follow-up): the
       // record keeps the hold's own key.
       const { entryId: _gated, ...stop } = held ? auditedStop(held) : {};

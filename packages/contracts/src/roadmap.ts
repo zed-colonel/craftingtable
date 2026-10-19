@@ -358,6 +358,19 @@ export const roadmapSchema = z.strictObject({
     )
     .optional(),
 });
+/**
+ * A roadmap as stored (R-B4b increment 3): every stop carries its code, the roadmap's and each
+ * entry hold's, as the writers declare them and migration 0047 coded the ones written before.
+ * Readers take the stored code (`roadmapStop`, `holdStop`) and never the reason.
+ */
+export const storedRoadmapSchema = roadmapSchema.refine(
+  (roadmap) =>
+    (roadmap.status !== 'needs-attention' || roadmap.attention !== undefined) &&
+    Object.values(roadmap.entryHolds ?? {}).every(
+      (hold) => hold.status !== 'needs-attention' || hold.attention !== undefined,
+    ),
+  { message: 'A roadmap or entry hold that needs attention carries its code' },
+);
 export const roadmapViewSchema = z.strictObject({
   roadmap: roadmapSchema,
   hostCapacity: z

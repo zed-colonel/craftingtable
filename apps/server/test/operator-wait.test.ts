@@ -296,7 +296,7 @@ describe('operator wait (R-C1)', () => {
     ]);
   });
 
-  it("audits the roadmap's stop and every hold by code, a hold stored before codes as legacy (R-C10)", () => {
+  it("audits the roadmap's stop and every hold by code, a hold stored before codes as 0047 coded it (R-C10)", () => {
     const [cycleId, entryId] = [asWorkCycleId('c'), asRoadmapEntryId('e')];
     expect(
       roadmapWaitAudit({
@@ -318,7 +318,12 @@ describe('operator wait (R-C1)', () => {
               refs: { cause: 'predecessor-merge-missing', entryId: asRoadmapEntryId('owner') },
             },
           },
-          b: { status: 'needs-attention', reason: 'Stored before codes.' },
+          // Stored before codes: migration 0047 coded it (R-B4b), and the stored code is read.
+          b: {
+            status: 'needs-attention',
+            reason: 'Stored before codes.',
+            attention: { code: 'legacy-attention', owner: 'operator' },
+          },
           c: { status: 'paused', reason: 'Item paused by operator.' },
         },
       }),

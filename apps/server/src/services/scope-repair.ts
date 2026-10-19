@@ -4,7 +4,6 @@ import type { AgentRun, ExecutionScope, WorkCycle } from '@craftingtable/domain'
 import {
   isTerminalAgentRunStatus,
   type PhaseBlockerCode,
-  phaseBlockerCode,
   sameExecutionScope,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
@@ -67,7 +66,7 @@ export function scopeReviewWait(tx: StorageRepositories, cycle: WorkCycle): stri
       { resources: false },
     );
     // Suppress duplicate attention only for prerequisite work, never missing authority/configuration.
-    if (blockers.length && blockers.every((b) => PREREQUISITE_WORK.has(phaseBlockerCode(b))))
+    if (blockers.length && blockers.every((b) => PREREQUISITE_WORK.has(b.code)))
       return `Waiting for prerequisite work: ${blockers.map((b) => b.message).join(' ')}`;
   } catch {
     /* Invalid bindings remain actionable through the normal recovery controls. */

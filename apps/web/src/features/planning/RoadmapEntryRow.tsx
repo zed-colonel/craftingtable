@@ -1,6 +1,5 @@
 import {
   CYCLE_STEPS,
-  phaseBlockerCode,
   type RoadmapAttempt,
   type RoadmapAutomation,
   type RoadmapEntry,
@@ -89,7 +88,7 @@ export const RoadmapEntryRow = memo(function RoadmapEntryRow({
       <p className="hint">{state?.reason}</p>
       {entry.executionScope &&
         state?.blockers?.some((b) =>
-          ['environment-approval', 'resource-unsupported'].includes(phaseBlockerCode(b)),
+          ['environment-approval', 'resource-unsupported'].includes(b.code),
         ) &&
         revealSetup(`${runtimePanelId}-native`, 'Set up verification environment')}
       {entry.executionScope &&

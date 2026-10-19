@@ -5,7 +5,7 @@ import {
   roadmapSummariesSchema,
   roadmapsResponseSchema,
 } from '@craftingtable/contracts';
-import { effectiveRoadmapAttention } from '@craftingtable/domain';
+import { roadmapStop } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   awaitRoadmapMerge,
@@ -192,9 +192,7 @@ it('lists the roadmaps lightly: name, status, reason and how many entries are do
       name: roadmap.definition.name,
       status: roadmap.status,
       reason: roadmap.reason,
-      ...(effectiveRoadmapAttention(roadmap)
-        ? { attentionCode: effectiveRoadmapAttention(roadmap)!.code }
-        : {}),
+      ...(roadmapStop(roadmap) ? { attentionCode: roadmapStop(roadmap)!.code } : {}),
       completed: progress.filter((p) => p.status === 'completed').length,
       entries: progress.length,
     })),

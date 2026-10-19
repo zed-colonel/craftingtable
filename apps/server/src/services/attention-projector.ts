@@ -11,7 +11,6 @@ import {
   type CycleOwner,
   DEFAULT_NOTIFICATION_PREFERENCES,
   designHasNoOpenQuestions,
-  effectiveRoadmapAttention,
   nextReminderAt,
   notificationText,
   type RoadmapId,
@@ -26,6 +25,7 @@ import {
   type SourceRepositoryId,
   asFinalizationId,
   cycleStop,
+  roadmapStop,
 } from '@craftingtable/domain';
 import type {
   CraftingTableStorage,
@@ -945,7 +945,7 @@ export class AttentionProjector implements WriteObserver {
     const refs = { roadmapId };
     const items: ProjectedItem[] = [];
     const superseded = new Set<string>();
-    const attention = effectiveRoadmapAttention(roadmap);
+    const attention = roadmapStop(roadmap);
     if (attention?.owner === 'operator') {
       // A sequential roadmap's stop on an entry is that entry's hold (R-C10's follow-up, decision
       // 3): the entry's own cycle, or its open round's repair, carries it while that has an item,

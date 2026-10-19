@@ -4,7 +4,6 @@ import {
   mapResource,
   PHASE_BLOCKERS,
   type PhaseBlocker,
-  phaseBlockerCode,
   type Worktree,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -18,7 +17,7 @@ export class PhaseGateError extends ExecutionRequestError {
   }
   /** The controller keeps waiting (and retrying) when every blocker is one it waits for. */
   get waiting() {
-    return this.blockers.every((b) => PHASE_BLOCKERS[phaseBlockerCode(b)].waits);
+    return this.blockers.every((b) => PHASE_BLOCKERS[b.code].waits);
   }
 }
 export function phaseResources(tx: StorageRepositories, r: ResolvedScope, phase: ExecutionPhase) {

@@ -1,11 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { HostSchedulingStatus, SaveHostScheduling } from '@craftingtable/contracts';
-import {
-  asAgentRunId,
-  asWorkspaceId,
-  phaseBlockerResourceKey,
-  type WorkspaceId,
-} from '@craftingtable/domain';
+import { asAgentRunId, asWorkspaceId, type WorkspaceId } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext } from './auth-service.js';
 import { carryPlanAcceptance } from './generated-plan-evidence.js';
@@ -73,8 +68,7 @@ export class HostSchedulingService {
       // Durable waits only: avoid recomputing the entire dependency graph on a settings read.
       waiting: cycles.flatMap((c) =>
         (['local-development', 'local-verification'] as const).flatMap((resourceKey) => {
-          if (!c.waits?.phase?.blockers.some((b) => phaseBlockerResourceKey(b) === resourceKey))
-            return [];
+          if (!c.waits?.phase?.blockers.some((b) => b.refs?.resourceKey === resourceKey)) return [];
           const used = reservations.filter((r) => r.resourceKey === resourceKey).length;
           const capacity =
             resourceKey === 'local-development' ? development.capacity : setting.capacity;

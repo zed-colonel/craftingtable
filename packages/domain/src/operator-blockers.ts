@@ -1,5 +1,4 @@
 import { PHASE_BLOCKERS } from './attention.js';
-import { phaseBlockerCode } from './attention-legacy.js';
 import type { PhaseBlocker } from './phase-scheduling.js';
 
 /**
@@ -11,9 +10,7 @@ import type { PhaseBlocker } from './phase-scheduling.js';
 export function operatorOwnsAll(blockers: readonly PhaseBlocker[] | undefined): boolean {
   return (
     !!blockers?.length &&
-    blockers.every(
-      (b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator' && !b.refs?.checkpointId,
-    )
+    blockers.every((b) => PHASE_BLOCKERS[b.code].owner === 'operator' && !b.refs?.checkpointId)
   );
 }
 
@@ -28,7 +25,7 @@ export function operatorSetupOnly(blockers: readonly PhaseBlocker[] | undefined)
   return (
     !!blockers?.length &&
     blockers.every((b) => {
-      const code = phaseBlockerCode(b);
+      const { code } = b;
       const { owner, waits } = PHASE_BLOCKERS[code];
       return (
         owner === 'operator' && (waits || code === 'reviewer-assignment') && !b.refs?.checkpointId

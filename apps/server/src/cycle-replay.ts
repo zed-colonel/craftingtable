@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   type AuditEvent,
-  phaseBlockerCode,
   type WorkCycle,
   type WorkspaceId,
   cycleStop,
@@ -166,7 +165,7 @@ function replayState(
           ...(attention.claim ? { claim: attention.claim } : {}),
         }
       : {}),
-    ...(cycle.waits?.phase ? { phaseWait: cycle.waits?.phase.blockers.map(phaseBlockerCode) } : {}),
+    ...(cycle.waits?.phase ? { phaseWait: cycle.waits?.phase.blockers.map((b) => b.code) } : {}),
     ...(cycle.waits?.design ? { designWait: true as const } : {}),
     ...(reserved ? { reserved: true as const } : {}),
     reason: digest(cycle.reason),

@@ -7,6 +7,8 @@ const fromHere = (path: string): string => fileURLToPath(new URL(path, import.me
 // Resolve workspace packages to TypeScript source so unit tests do not
 // require a prior `tsc -b`.
 const alias = {
+  // The domain's second entry, ahead of the first, which would match it as a prefix (R-B4b).
+  '@craftingtable/domain/attention-legacy': fromHere('./packages/domain/src/attention-legacy.ts'),
   '@craftingtable/domain': fromHere('./packages/domain/src/index.ts'),
   '@craftingtable/contracts': fromHere('./packages/contracts/src/index.ts'),
   '@craftingtable/planning': fromHere('./packages/planning/src/index.ts'),

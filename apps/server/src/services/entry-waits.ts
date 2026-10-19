@@ -1,6 +1,5 @@
 import {
   type EntryWaitCode,
-  phaseBlockerCode,
   type RoadmapEntryId,
   type RoadmapEntryWait,
   type WorkCycle,
@@ -48,7 +47,7 @@ export function phaseWait(error: PhaseGateError): EntryWaitInput {
   return {
     code: 'phase-blocked',
     reason: error.message.slice(0, 4000),
-    refs: { blockers: [...new Set(error.blockers.map((b) => phaseBlockerCode(b)))] },
+    refs: { blockers: [...new Set(error.blockers.map((b) => b.code))] },
   };
 }
 

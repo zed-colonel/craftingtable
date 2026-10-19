@@ -60,14 +60,11 @@ import {
   type RoadmapStatusEntry,
   type RoadmapStatusList,
   type RoadmapView,
-  effectiveRoadmapAttention,
   ENTRY_WAIT,
   mergeAdoptsChecks,
   roadmapAttention,
   type RoadmapAttention,
-  effectiveHoldAttention,
   PHASE_BLOCKERS,
-  phaseBlockerCode,
   operatorOwnsAll,
   resumeRedirect,
   sameExecutionScope,
@@ -82,6 +79,8 @@ import {
   type WorkCycleId,
   type ConcurrencyDefinitionId,
   cycleStop,
+  roadmapStop,
+  holdStop,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 /** A definition's save with each entry's profiles, as the daemon writes it (R-E5b). */
@@ -259,7 +258,7 @@ function holdCause(error: unknown): AttentionRefs | undefined {
   if (error instanceof PhaseGateError && !error.waiting)
     return {
       cause: 'phase-gate',
-      blockers: [...new Set(error.blockers.map((b) => phaseBlockerCode(b)))],
+      blockers: [...new Set(error.blockers.map((b) => b.code))],
     };
   return undefined;
 }
@@ -493,7 +492,7 @@ function operatorNeeds(
       p.status === 'completed' ||
       !p.blockers?.length ||
       !p.blockers.every(
-        (b) => PHASE_BLOCKERS[phaseBlockerCode(b)].owner === 'operator' || !!b.refs?.checkpointId,
+        (b) => PHASE_BLOCKERS[b.code].owner === 'operator' || !!b.refs?.checkpointId,
       )
     )
       continue;
@@ -1259,7 +1258,7 @@ export class RoadmapService {
     const ws = roadmap.workspaceId;
     const needs = operator.needs(progress);
     const items = this.storage.attention.open(ws);
-    const attention = effectiveRoadmapAttention(roadmap);
+    const attention = roadmapStop(roadmap);
     const entries: RoadmapStatusEntry[] = [];
     for (const entry of roadmap.definition.entries) {
       const state = progress.find((p) => p.entryId === entry.id);
@@ -1298,7 +1297,7 @@ export class RoadmapService {
         state: state.status,
       };
       const blockers = state.blockers?.length
-        ? { blockers: [...new Set(state.blockers.map((b) => phaseBlockerCode(b)))] }
+        ? { blockers: [...new Set(state.blockers.map((b) => b.code))] }
         : {};
       // A checkpoint the operator is asked to settle for this entry (R-C14).
       const checkpointItem = needs?.byEntry
@@ -1323,7 +1322,7 @@ export class RoadmapService {
           },
         });
       } else if (hold) {
-        const held = effectiveHoldAttention(hold);
+        const held = holdStop(hold);
         entries.push({
           ...base,
           actor: 'operator',
@@ -1637,7 +1636,7 @@ export class RoadmapService {
     return this.storage.readTransaction((tx) => {
       const snapshot = mapReadSnapshot(tx);
       return snapshot.roadmaps.list(workspaceId).map((roadmap) => {
-        const attention = effectiveRoadmapAttention(roadmap);
+        const attention = roadmapStop(roadmap);
         return {
           id: roadmap.id,
           name: roadmap.definition.name,
@@ -4591,9 +4590,7 @@ export class RoadmapService {
         tree.executionScope,
         'merge',
         { resources: false },
-      ).some(
-        (b) => phaseBlockerCode(b) === 'slice-requirement' && b.refs?.sliceId === slice.sourceId,
-      );
+      ).some((b) => b.code === 'slice-requirement' && b.refs?.sliceId === slice.sourceId);
     } catch {
       // A scope that no longer resolves lends nothing: the round keeps the ordinary limit.
       return false;
@@ -4699,7 +4696,7 @@ export class RoadmapService {
                   entryId: entry.id,
                   // Whether the operator is the one to move it is decided once every entry's
                   // blockers are known (`withOperatorNeeds`, R-C14).
-                  status: blockers.some((b) => phaseBlockerCode(b) === 'resource-busy')
+                  status: blockers.some((b) => b.code === 'resource-busy')
                     ? 'capacity-blocked'
                     : 'dependency-blocked',
                   reason: blockers.map((b) => `${phase} · ${b.kind}: ${b.message}`).join(' '),
@@ -4919,7 +4916,7 @@ export class RoadmapService {
       }
     }
     for (const [entryId, hold] of Object.entries(roadmap.entryHolds ?? {})) {
-      const held = effectiveHoldAttention(hold);
+      const held = holdStop(hold);
       if (!held) continue;
       const entry = roadmap.definition.entries.find((e) => e.id === entryId);
       if (!entry) continue;

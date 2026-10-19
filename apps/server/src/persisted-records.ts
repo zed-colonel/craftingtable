@@ -24,7 +24,7 @@ import {
   repositoryCleanupSchema,
   repositoryPolicySchema,
   roadmapDefinitionSchema,
-  roadmapSchema,
+  storedRoadmapSchema,
   roadmapWindDownSchema,
   runBuildRecordSchema,
   runCheckReceiptSchema,
@@ -71,7 +71,7 @@ const pin = <K extends PersistedRecordKind>(_kind: K) => equivalentSchema<Persis
 
 export const PERSISTED_RECORD_SCHEMAS = {
   'work-cycle': pin('work-cycle')(workCycleSchema),
-  roadmap: pin('roadmap')(roadmapSchema),
+  roadmap: pin('roadmap')(storedRoadmapSchema),
   'roadmap-definition': pin('roadmap-definition')(roadmapDefinitionSchema),
   finalization: pin('finalization')(finalizationSchema),
   'merge-operation': pin('merge-operation')(mergeOperationSchema),

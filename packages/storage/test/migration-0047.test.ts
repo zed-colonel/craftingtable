@@ -1,14 +1,13 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { AWAITING_MERGE_GATES, type CycleAttention } from '@craftingtable/domain';
 import {
-  AWAITING_MERGE_GATES,
-  type CycleAttention,
   effectiveCycleAttention,
   type LegacyCycleStop,
-  type PhaseBlocker,
+  type LegacyPhaseBlocker,
   phaseBlockerCode,
   phaseBlockerResourceKey,
-} from '@craftingtable/domain';
+} from '@craftingtable/domain/attention-legacy';
 import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../src/database.js';
@@ -102,7 +101,7 @@ function reshaped(row: ShapeRow, record: StoredCycle): StoredCycle {
           (record.updatedAt as string),
       };
   }
-  const phase = record.phaseWait as { startedAt: string; blockers: PhaseBlocker[] } | null;
+  const phase = record.phaseWait as { startedAt: string; blockers: LegacyPhaseBlocker[] } | null;
   const design = record.designWait as { startedAt: string; requirements: Json } | null;
   if (phase || design)
     out.waits = {

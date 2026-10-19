@@ -1,5 +1,5 @@
 import type { Roadmap, RoadmapEntryProgress, RoadmapStatus } from '@craftingtable/domain';
-import { effectiveRoadmapAttention } from '@craftingtable/domain';
+import { roadmapStop } from '@craftingtable/domain';
 
 /** A roadmap status as the roadmaps list and a roadmap's board name it. */
 export const ROADMAP_STATUS_LABELS: Record<RoadmapStatus, string> = {
@@ -11,7 +11,7 @@ export const ROADMAP_STATUS_LABELS: Record<RoadmapStatus, string> = {
   completed: 'Completed',
 };
 export function roadmapStatusLabel(roadmap: Roadmap, fallback: string) {
-  return effectiveRoadmapAttention(roadmap)?.code === 'restart-resume'
+  return roadmapStop(roadmap)?.code === 'restart-resume'
     ? 'Resume required after restart'
     : fallback;
 }

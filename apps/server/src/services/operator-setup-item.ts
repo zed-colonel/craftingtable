@@ -2,7 +2,6 @@ import {
   operatorSetupOnly,
   type PhaseBlocker,
   type PhaseBlockerCode,
-  phaseBlockerCode,
   type RoadmapEntry,
   type RoadmapId,
 } from '@craftingtable/domain';
@@ -41,7 +40,7 @@ export function operatorSetupItem(input: {
     ),
   ].sort();
   const dependency = held.some(({ blockers }) =>
-    blockers!.some((b) => DEPENDENCY_SETUP.has(phaseBlockerCode(b))),
+    blockers!.some((b) => DEPENDENCY_SETUP.has(b.code)),
   );
   return {
     subjectKey: `roadmap:${input.roadmapId}:environments`,

@@ -8,7 +8,9 @@ import {
   EMITTED_EXPORTS,
   inspectWorkspace,
   KNOWN_IMPORT_CYCLES,
+  LEGACY_DECODER_USERS,
   PROCESS_AUTHORITY,
+  PROSE_LEGACY_MAPPING_PATH,
   REPLAY_HOST_PIN,
   REPLAY_HOST_USERS,
   runCheck,
@@ -1348,6 +1350,36 @@ describe('the cycle core reaches no service and no file or process access (rule 
   });
 });
 
+describe('only the operator-wait measure decodes text written before codes (rule 13, R-B4b)', () => {
+  const decodes = (file) =>
+    `${file}: imports the decoders of text written before codes (${PROSE_LEGACY_MAPPING_PATH}); every stored record is coded since migration 0047, so read its stored code, as only the operator-wait measure decodes audit rows (R-B4b)`;
+  const decoders = '../../../../packages/domain/src/attention-legacy.js';
+
+  it('finds any other production module importing the decoders, the domain index included', () => {
+    const { findings } = inspectWorkspace(
+      workspace({
+        'packages/domain/src/attention-legacy.ts':
+          "export const phaseBlockerCode = (b: { code?: string }) => b.code ?? 'legacy-blocker';\n",
+        'packages/domain/src/index.ts': "export * from './attention-legacy.js';\n",
+        'apps/server/src/services/operator-wait-service.ts': `import { phaseBlockerCode } from '${decoders}';\nexport const measure = phaseBlockerCode;\n`,
+        'apps/server/src/services/roadmap-service.ts': `import { phaseBlockerCode } from '${decoders}';\nexport const read = phaseBlockerCode;\n`,
+        'apps/server/src/services/typed.ts': `export type Decode = typeof import('${decoders}').phaseBlockerCode;\n`,
+        // A test may decode, as migration 0047's test does for its reference.
+        'apps/server/test/decode.test.ts': `import { phaseBlockerCode } from '../../../packages/domain/src/attention-legacy.js';\nphaseBlockerCode({});\n`,
+      }),
+      EMITTED_EXPORTS,
+      [],
+    );
+    expect(findings.filter((finding) => finding.includes('decoders of text')).sort()).toEqual(
+      [
+        decodes('apps/server/src/services/roadmap-service.ts'),
+        decodes('apps/server/src/services/typed.ts'),
+        decodes('packages/domain/src/index.ts'),
+      ].sort(),
+    );
+  });
+});
+
 describe('only the replay tool pins the host a replay runs as (rule 12, R-B4b)', () => {
   const pinned = (file) =>
     `${file}: imports the replay host pin (${REPLAY_HOST_PIN}); only the replay tool sets it and only the workstation reads it, so the daemon compares native approvals with the live host digest (R-B4b)`;
@@ -1467,6 +1499,9 @@ it('passes on the real repository, having read and classified its modules', () =
   expect(classes.get('apps/server/src/index.ts')).toBe('production');
   // Rule 12 names the pin and its two users: a moved module would pass vacuously.
   for (const path of [REPLAY_HOST_PIN, ...REPLAY_HOST_USERS.keys()])
+    expect(classes.get(path)).toBe('production');
+  // Rule 13 names the decoders and their one user: a moved module would pass vacuously.
+  for (const path of [PROSE_LEGACY_MAPPING_PATH, ...LEGACY_DECODER_USERS])
     expect(classes.get(path)).toBe('production');
   // Rule 11 starts from the cycle core's modules: a moved core would pass vacuously.
   expect(classes.get('apps/server/src/services/cycle/core/machine.ts')).toBe('production');

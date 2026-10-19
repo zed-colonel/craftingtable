@@ -6,7 +6,6 @@ import type {
 import {
   executionScopeKey,
   PHASE_BLOCKERS,
-  phaseBlockerCode,
   type CycleView,
   type SourceRepositoryId,
   type WorktreeId,
@@ -153,7 +152,7 @@ export function ExecutionScopesPanel({
             <h4>{p.phase === next ? `Next: ${PHASE_TITLES[p.phase]}` : PHASE_TITLES[p.phase]}</h4>
             <Reasons
               reasons={p.blockers.map((b) => {
-                const destination = blockerDestination(phaseBlockerCode(b), workspaceId, {
+                const destination = blockerDestination(b.code, workspaceId, {
                   definitionId: choice.scope.definitionId,
                   roadmapId: cycles.find(
                     (c) =>
@@ -164,7 +163,7 @@ export function ExecutionScopesPanel({
                 return {
                   kind: b.kind,
                   text: b.message,
-                  owner: PHASE_BLOCKERS[phaseBlockerCode(b)].owner,
+                  owner: PHASE_BLOCKERS[b.code].owner,
                   ...(destination ? { destination } : {}),
                 };
               })}
@@ -259,9 +258,7 @@ export function ExecutionScopesPanel({
                 (p) =>
                   p.phase === 'merge' &&
                   p.blockers.some((b) =>
-                    ['checkpoint-evidence', 'decision-checkpoint-evidence'].includes(
-                      phaseBlockerCode(b),
-                    ),
+                    ['checkpoint-evidence', 'decision-checkpoint-evidence'].includes(b.code),
                   ),
               ) &&
               (decisionItemFor?.(existing.id) ? (

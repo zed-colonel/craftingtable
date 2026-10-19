@@ -16,7 +16,13 @@ import {
   type StorageStatus,
   storagePolicySchema,
 } from '@craftingtable/contracts';
-import type { AgentRunId, StoragePolicy, WorkspaceId, WorktreeId } from '@craftingtable/domain';
+import {
+  type AgentRunId,
+  asAgentRunId,
+  type StoragePolicy,
+  type WorkspaceId,
+  type WorktreeId,
+} from '@craftingtable/domain';
 import type {
   CraftingTableStorage,
   StorageRootIdentity,
@@ -632,7 +638,7 @@ export class StorageService {
         continue;
       }
       const run = this.storage.maintenance
-        .directories({ runId: candidate.runId })
+        .directories({ runId: asAgentRunId(candidate.runId) })
         .find((value) => (candidate.kind === 'build' ? value.buildEligible : value.eligible));
       if (!run) continue;
       const remove = async () => {

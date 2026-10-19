@@ -4,7 +4,7 @@ import {
   type CycleAttentionCode,
   cycleAttention,
 } from '../src/attention.js';
-import { cycleActions, resumeRedirect } from '../src/cycle-actions.js';
+import { cycleActions, guidanceAccepted, resumeRedirect } from '../src/cycle-actions.js';
 import { stopRecord } from '../src/cycle-stop.js';
 import type { WorkCycle } from '../src/work-cycle.js';
 import { asAgentRunId } from '../src/ids.js';
@@ -311,7 +311,7 @@ describe('what every stop offers, today (R-C17 part 4, increment 1)', () => {
     'authorize-remediation': ['review-open-questions-at-limit', 'remediation-exhausted'],
     'resolve-integration': ['integration-conflict'],
   };
-  it('offers Resume and Stop at every operator stop without a redirect', () => {
+  it('offers Resume and Stop at every stop without a redirect', () => {
     const redirected = new Set(Object.values(REDIRECTS).flat());
     for (const code of CYCLE_ATTENTION_CODES) {
       if (GATES.includes(code) || code === 'item-completed-unmerged') continue;
@@ -340,5 +340,98 @@ describe('what every stop offers, today (R-C17 part 4, increment 1)', () => {
         );
         expect(offered, code).not.toContain('change-settings');
       }
+  });
+});
+
+/**
+ * R-C17 part 4, decision 1: the one rule the offer and the command read for Continue with
+ * guidance, and the offer beside Resume where it holds.
+ */
+describe('Continue with guidance beside Resume (R-C17 part 4, decision 1)', () => {
+  const run = asAgentRunId('run-1');
+  const atStop = (overrides: Partial<WorkCycle> = {}) =>
+    ({
+      ...cycle('needs-attention', 'step-time-limit'),
+      step: 'implement',
+      currentRunId: run,
+      ...overrides,
+    }) as WorkCycle;
+  it('holds at a stop at implement, remediate or review, from the ended current run', () => {
+    for (const step of ['implement', 'remediate', 'review'] as const)
+      expect(guidanceAccepted(atStop({ step }), run, false), step).toBe(true);
+    expect(guidanceAccepted({ ...atStop(), status: 'paused' }, run, false)).toBe(true);
+  });
+  it.each<[string, Partial<WorkCycle>, ReturnType<typeof asAgentRunId> | undefined, boolean]>([
+    ['a design step', { step: 'design' }, run, false],
+    ['a plain pause', { status: 'paused', stop: undefined }, run, false],
+    ['a running cycle', { status: 'running', stop: undefined }, run, false],
+    ['a cycle awaiting its merge', { status: 'awaiting-merge' }, run, false],
+    ['a finalization', { finalizationId: 'f-1' as WorkCycle['finalizationId'] }, run, false],
+    [
+      'a verification review',
+      {
+        step: 'review',
+        executionScope: { kind: 'slice-verification' } as WorkCycle['executionScope'],
+      },
+      run,
+      false,
+    ],
+    [
+      'an owned integration resolution',
+      { integrationResolution: { status: 'resolving' } as WorkCycle['integrationResolution'] },
+      run,
+      false,
+    ],
+    [
+      'a detected integration conflict',
+      { integrationResolution: { status: 'detected' } as WorkCycle['integrationResolution'] },
+      run,
+      false,
+    ],
+    ['a newer run in the worktree', {}, asAgentRunId('run-2'), false],
+    ['no run at all', {}, undefined, false],
+    ['a live run', {}, run, true],
+  ])('does not hold for %s', (_label, overrides, newest, live) =>
+    expect(guidanceAccepted(atStop(overrides), newest, live)).toBe(false),
+  );
+  it('holds for a slice and an ended resolution', () => {
+    expect(
+      guidanceAccepted(
+        atStop({ executionScope: { kind: 'slice' } as WorkCycle['executionScope'] }),
+        run,
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      guidanceAccepted(
+        atStop({
+          integrationResolution: { status: 'completed' } as WorkCycle['integrationResolution'],
+        }),
+        run,
+        false,
+      ),
+    ).toBe(true);
+  });
+  const offered = (c: WorkCycle, accepts = true) =>
+    cycleActions(c, c.currentRunId, false, undefined, false, false, accepts);
+  it('is offered beside every Resume where the rule holds, and only there', () => {
+    expect(offered(atStop())).toEqual(['resume', 'continue-with-guidance', 'stop']);
+    expect(offered({ ...atStop(), status: 'paused' })).toEqual([
+      'resume',
+      'continue-with-guidance',
+      'stop',
+    ]);
+    expect(offered(atStop(), false)).toEqual(['resume', 'stop']);
+  });
+  it('stays the redirect that replaces Resume, once', () =>
+    expect(offered(cycle('needs-attention', 'implementation-open-questions'))).toEqual([
+      'continue-with-guidance',
+      'stop',
+    ]));
+  it('is not offered where Resume is not: a newer run outside the lineage, or the grant in its place', () => {
+    expect(cycleActions(atStop(), run, false, undefined, true, false, true)).toEqual(['stop']);
+    expect(
+      cycleActions(atStop({ step: 'review' }), run, false, undefined, false, true, true),
+    ).toEqual(['authorize-remediation', 'stop']);
   });
 });

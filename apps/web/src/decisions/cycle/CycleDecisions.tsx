@@ -53,6 +53,11 @@ export type Continuation = 'scope-review' | 'remediation' | 'guidance' | 'resume
 /** What a continuation reads of the cycle's projection: its actions and routed questions. */
 export type ContinuationProjection = Pick<CycleProjection, 'actions' | 'questionRoutes'>;
 
+/** The step's questions, routed or in its workflow: guidance answers them, so it is required. */
+function hasQuestions(cycle: WorkCycle, projection: ContinuationProjection): boolean {
+  return !!(projection.questionRoutes ?? cycle.workflow?.questions)?.length;
+}
+
 export function continuationOf(
   cycle: WorkCycle,
   projection: ContinuationProjection,
@@ -88,9 +93,7 @@ export function continuationOf(
   if (
     cycle.step !== 'design' &&
     ['paused', 'needs-attention'].includes(cycle.status) &&
-    (actions.includes('continue-with-guidance') ||
-      !!(projection.questionRoutes ?? cycle.workflow?.questions)?.length ||
-      cycleStop(cycle)?.code === 'remediation-stalled')
+    (actions.includes('continue-with-guidance') || hasQuestions(cycle, projection))
   )
     return 'guidance';
   if (cycle.status === 'needs-attention' && actions.includes('resume')) return 'resume';
@@ -165,8 +168,19 @@ export function CycleContinuation({
           cycle={cycle}
           {...(answer ? { answer } : {})}
           disabled={locked}
+          // The daemon offers a plain Resume beside it (R-C17 part 4, decision 2); guidance stays
+          // required where questions wait for answers.
+          resumable={projection.actions.includes('resume') && !hasQuestions(cycle, projection)}
           onContinue={(instructions) =>
-            void run(() => control(cycle, csrfToken, { action: 'resume', instructions }))
+            void run(() =>
+              control(
+                cycle,
+                csrfToken,
+                instructions === undefined
+                  ? { action: 'resume' }
+                  : { action: 'resume', instructions },
+              ),
+            )
           }
         />
       )}

@@ -4,6 +4,7 @@ import {
   type CycleAction,
   type CycleStep,
   cycleAttention,
+  guidanceAccepted,
   isTerminalAgentRunStatus,
   ownsIntegrationResolution,
   remediationAllowance,
@@ -283,8 +284,15 @@ export function decideResume(
       'Use Resolve integration conflicts to delegate the detected conflict.',
       { control: 'resolve-integration' },
     );
-  // The resolution's own command runs the launch gates itself.
-  if (ownsIntegrationResolution(cycle)) return { kind: 'resolution' };
+  // The resolution's own command runs the launch gates itself. It takes no guidance: its own
+  // form does (R-C17 part 4 design review H-2; the guidance was dropped before).
+  if (ownsIntegrationResolution(cycle))
+    return guidance === undefined
+      ? { kind: 'resolution' }
+      : refuse(
+          'guidance-invalid',
+          'An integration resolution is resumed without guidance; give its instructions through Resolve integration conflicts.',
+        );
   return { kind: 'gates' };
 }
 
@@ -334,13 +342,9 @@ export function decideResumeStep(
     );
   const scope = cycle.executionScope;
   if (guidance !== undefined && !cycle.finalizationId && (!scope || scope.kind === 'slice')) {
-    if (
-      !guidance.trim() ||
-      !['implement', 'remediate', 'review'].includes(cycle.step) ||
-      !run ||
-      run.id !== cycle.currentRunId ||
-      facts.liveRuns().length > 0
-    )
+    // The offer's rule (R-C17 part 4, decision 1): at a stop, at implement, remediate or review,
+    // from the ended current run.
+    if (!guidance.trim() || !run || !guidanceAccepted(cycle, run.id, facts.liveRuns().length > 0))
       return refuse(
         'guidance-invalid',
         'Guided continuation requires answers or guidance and the ended current implementation or review.',

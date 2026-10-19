@@ -1754,27 +1754,30 @@ describe('automated cycle controls', () => {
         'Two remediation rounds left the same open findings and gate result. Operator attention is required.',
       stop: stopRecord({ code: 'remediation-stalled', owner: 'operator' }, worktree.createdAt),
     };
+    // The daemon offers Continue with guidance beside Resume (R-C17 part 4, decision 1): one
+    // form, its guidance optional, its submit a plain Resume until guidance is given (decision 2).
+    const guided = { actions: ['resume', 'continue-with-guidance', 'stop'] as const };
     view.rerender(
       <CyclePanel
         {...recoveryProps}
-        cycles={daemon([stalled])}
+        cycles={daemon([stalled], { actions: [...guided.actions] })}
         runs={[run({ status: 'finished', role: 'review' })]}
       />,
     );
-    expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Authorize more remediation' })).toBeNull();
     expect(screen.getByText(/2 remediation attempts remain/)).toBeTruthy();
-    expect(
-      (screen.getByRole('button', { name: 'Continue with guidance' }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    const form = screen.getByRole('form', { name: 'Continue with guidance' });
+    expect(within(form).getByRole('button', { name: 'Resume automation' })).toBeTruthy();
+    expect(within(form).queryByRole('button', { name: 'Continue with guidance' })).toBeNull();
     fireEvent.change(screen.getByLabelText('Answers and recovery guidance'), {
       target: { value: 'Use the corrected controller launcher; retain the checks.' },
     });
     view.rerender(
       <CyclePanel
         {...recoveryProps}
-        cycles={daemon([{ ...stalled, version: stalled.version + 1 }])}
+        cycles={daemon([{ ...stalled, version: stalled.version + 1 }], {
+          actions: [...guided.actions],
+        })}
         runs={[run({ status: 'finished', role: 'review' })]}
       />,
     );

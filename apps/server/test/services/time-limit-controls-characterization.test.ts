@@ -74,7 +74,7 @@ const verification = {
   sourceId: 's',
 };
 
-describe('a guided resume at the step time limit, today (R-C17 part 4, increment 1)', () => {
+describe('a guided resume at the step time limit (R-C17 part 4, increments 1 and 2)', () => {
   it.each(['implement', 'remediate', 'review'] as const)(
     'continues the %s step with the guidance, the cancelled run as its parent',
     (step) =>
@@ -145,16 +145,28 @@ describe('a guided resume at the step time limit, today (R-C17 part 4, increment
       parent: { id: 'run-1' },
     }));
 
-  // Design review H-2: increment 2 refuses guidance here instead.
-  it('resumes an owned integration resolution through its own command, guidance or not', () => {
+  // Design review H-2, changed by increment 2: the guidance was dropped; now it is refused.
+  it('resumes an owned integration resolution through its own command, and refuses guidance for it', () => {
     const resolving = atTimeLimit({
       step: 'remediate',
       integrationResolution: { status: 'resolving', runIds: ['run-1'] },
     });
-    expect(decideResume(resolving, facts(), 'This text is dropped today.')).toEqual({
-      kind: 'resolution',
+    expect(decideResume(resolving, facts(), 'Not dropped any more.')).toMatchObject({
+      kind: 'refuse',
+      code: 'guidance-invalid',
     });
     expect(decideResume(resolving, facts(), undefined)).toEqual({ kind: 'resolution' });
+  });
+
+  // Increment 2: the command reads the offer's rule, which needs a stop (decision 1).
+  it('refuses guidance at a plain pause, and takes it at a pause kept at the stop', () => {
+    expect(
+      decideResumeStep(atTimeLimit({ status: 'paused', stop: undefined }), facts(), 'x'),
+    ).toMatchObject({ kind: 'refuse', code: 'guidance-invalid' });
+    expect(decideResumeStep(atTimeLimit({ status: 'paused' }), facts(), 'x')).toMatchObject({
+      kind: 'launch',
+      action: 'resume-with-guidance',
+    });
   });
 });
 

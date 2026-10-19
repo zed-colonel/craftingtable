@@ -142,6 +142,83 @@ it('resumes a transient stop with the daemon command', async () => {
   ]);
 });
 
+// R-C17 part 4, decisions 1 and 2: where the daemon offers Continue with guidance beside Resume,
+// one form takes either: empty, its submit resumes; with guidance, it continues with it.
+it('resumes the time-limit stop, or continues it with guidance, from one form (R-C17 part 4)', async () => {
+  vi.mocked(request).mockResolvedValue({});
+  const guided = { actions: ['resume', 'continue-with-guidance', 'stop'] as const };
+  const stopped = cycle(
+    { attention: { code: 'step-time-limit', owner: 'operator' } },
+    { actions: [...guided.actions] },
+  );
+  expect(continuation(stopped)).toBe('guidance');
+  const onChanged = vi.fn();
+  const view = render(
+    <CycleContinuation
+      cycle={stopped.cycle}
+      projection={stopped.projection}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={onChanged}
+    />,
+  );
+  const field = screen.getByLabelText('Answers and recovery guidance') as HTMLTextAreaElement;
+  expect(field.required).toBe(false);
+  expect(screen.queryByRole('button', { name: 'Continue with guidance' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Resume automation' }));
+  await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  fireEvent.change(field, { target: { value: '  Run the slow test alone first.  ' } });
+  expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with guidance' }));
+  await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
+  expect(posted()).toEqual([
+    { url: '/api/workspaces/ws/cycles/c1/control', body: { action: 'resume', expectedVersion: 3 } },
+    {
+      url: '/api/workspaces/ws/cycles/c1/control',
+      body: {
+        action: 'resume',
+        expectedVersion: 3,
+        instructions: 'Run the slow test alone first.',
+      },
+    },
+  ]);
+  view.unmount();
+});
+
+it('keeps guidance required where it is the only way on, or questions wait for answers (R-C17 part 4)', () => {
+  for (const view of [
+    // A redirect: Continue with guidance replaces Resume.
+    cycle({ attention: { code: 'implementation-open-questions', owner: 'operator' } }),
+    // Questions to answer, though Resume is offered too.
+    cycle(
+      {
+        attention: { code: 'work-item-questions', owner: 'operator' },
+        workflow: { questions: ['Which queue?'] } as unknown as WorkCycle['workflow'],
+      },
+      { actions: ['resume', 'continue-with-guidance', 'stop'] },
+    ),
+  ]) {
+    const rendered = render(
+      <CycleContinuation
+        cycle={view.cycle}
+        projection={view.projection}
+        csrfToken="csrf"
+        disabled={false}
+        onChanged={vi.fn()}
+      />,
+    );
+    expect(
+      (screen.getByLabelText('Answers and recovery guidance') as HTMLTextAreaElement).required,
+    ).toBe(true);
+    expect(
+      (screen.getByRole('button', { name: 'Continue with guidance' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Resume automation' })).toBeNull();
+    rendered.unmount();
+  }
+});
+
 it('reviews a completed parent review again, with its instructions', async () => {
   vi.mocked(request).mockResolvedValue({});
   const scope = {

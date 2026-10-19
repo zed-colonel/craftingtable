@@ -14,6 +14,7 @@ import type {
 import {
   type AgentRun,
   cycleActions,
+  guidanceAccepted,
   type CycleOwner,
   type CycleProjection,
   type CycleView,
@@ -592,6 +593,12 @@ export class WorkCycleService {
         c,
         latestRunId && tx.execution.runs.find(c.workspaceId, latestRunId),
         reviewFacts(tx, c),
+      ),
+      // The guided resume's rule, read as the command reads it (R-C17 part 4, decision 1).
+      guidanceAccepted(
+        c,
+        latestRunId,
+        tx.execution.runs.liveForWorktree(c.workspaceId, c.worktreeId).length > 0,
       ),
     );
     const routes =

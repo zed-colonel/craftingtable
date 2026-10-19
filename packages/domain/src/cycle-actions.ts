@@ -1,5 +1,5 @@
 import type { CycleAttentionCode } from './attention.js';
-import type { WorkCycle } from './work-cycle.js';
+import { ownsIntegrationResolution, type WorkCycle } from './work-cycle.js';
 import type { AgentRunId } from './ids.js';
 import { cycleStop, heldStop } from './cycle-stop.js';
 
@@ -136,6 +136,41 @@ export const INVESTIGATION_STOPS: ReadonlySet<CycleAttentionCode> = new Set<Cycl
   'shared-decision-required',
 ]);
 
+/**
+ * Whether a guided resume (Continue with guidance) is accepted: the offer and the command read
+ * this one rule (R-C17 part 4, decision 1). The cycle stands at a stop, `needs-attention` or paused
+ * at a stop it kept (not a plain pause); it is no finalization, its scope a slice or none; it owns
+ * no integration resolution and has none detected (their own forms take guidance); its step is
+ * implement, remediate or review; its current run is the worktree's newest; and no run is live.
+ */
+export function guidanceAccepted(
+  cycle: Pick<
+    WorkCycle,
+    | 'status'
+    | 'stop'
+    | 'step'
+    | 'currentRunId'
+    | 'finalizationId'
+    | 'executionScope'
+    | 'integrationResolution'
+  >,
+  newestRunId: AgentRunId | undefined,
+  live: boolean,
+): boolean {
+  return (
+    (cycle.status === 'needs-attention' || cycle.status === 'paused') &&
+    heldStop(cycle) !== undefined &&
+    !cycle.finalizationId &&
+    (!cycle.executionScope || cycle.executionScope.kind === 'slice') &&
+    !ownsIntegrationResolution(cycle as WorkCycle) &&
+    cycle.integrationResolution?.status !== 'detected' &&
+    (cycle.step === 'implement' || cycle.step === 'remediate' || cycle.step === 'review') &&
+    newestRunId !== undefined &&
+    newestRunId === cycle.currentRunId &&
+    !live
+  );
+}
+
 /** The stop's code as its actions read it: a pause taken at a stop keeps that stop's. */
 export function stopCode(
   cycle: Pick<WorkCycle, 'status' | 'stop'>,
@@ -181,6 +216,11 @@ export function cycleActions(
    * (increment 6 review).
    */
   resumeAtRoundLimit = false,
+  /**
+   * `guidanceAccepted` holds: Continue with guidance is offered beside every Resume offered (R-C17
+   * part 4, decision 1), where it is not already the redirect that replaces Resume.
+   */
+  acceptsGuidance = false,
 ): readonly CycleAction[] {
   const offered = cycleActionsAt(cycle, latestRunId, reviewNeedsRounds, investigation);
   const noResume = latestOutsideLineage || stopCode(cycle) === 'item-completed-unmerged';
@@ -197,7 +237,9 @@ export function cycleActions(
           ? grant
             ? ['authorize-remediation']
             : []
-          : [action],
+          : acceptsGuidance && !offered.includes('continue-with-guidance')
+            ? [action, 'continue-with-guidance']
+            : [action],
   );
 }
 

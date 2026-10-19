@@ -17,9 +17,9 @@ import {
 
 /**
  * R-C17 part 4 (found live 2026-10-16 on WIP-07): the `step-time-limit` stop's controls, through
- * the daemon. Increment 1 characterizes them before the part changes them: the stop offers Resume
- * and Stop, the guided resume the browser never offers is accepted and relaunches the step with a
- * fresh window from the cycle's own policy.
+ * the daemon. Increment 1 characterized them (the stop offered Resume and Stop; the guided resume
+ * it did not offer was accepted); since increment 2 the stop offers Continue with guidance beside
+ * Resume, and the guided resume relaunches the step with a fresh window from the cycle's policy.
  */
 
 afterEach(cleanupExecutionFixtures);
@@ -92,9 +92,9 @@ const control = (state: Ready, cycleId: string, payload: Record<string, unknown>
     payload,
   });
 
-it('offers Resume and Stop at the time-limit stop, and accepts the guided resume it does not offer (R-C17 part 4, increment 1)', async () => {
+it('offers Continue with guidance at the time-limit stop, and continues the step with it (R-C17 part 4, increments 1 and 2)', async () => {
   const { state, backend, cycle, clock } = await atTimeLimit();
-  expect(await actions(state, cycle.id)).toEqual(['resume', 'stop']);
+  expect(await actions(state, cycle.id)).toEqual(['resume', 'continue-with-guidance', 'stop']);
   const stopped = currentCycle(state, cycle);
   expect(stopped).toMatchObject({ status: 'needs-attention', step: 'implement' });
 
@@ -116,7 +116,7 @@ it('offers Resume and Stop at the time-limit stop, and accepts the guided resume
   expect(brief).toContain('Run flow_capacity alone under a timeout first.');
 });
 
-it('offers Resume and Stop at the time-limit stop a pause kept (R-C17 part 4, increment 1)', async () => {
+it('offers the same at the time-limit stop a pause kept (R-C17 part 4, increments 1 and 2)', async () => {
   const { state, cycle } = await atTimeLimit();
   const paused = await control(state, cycle.id, {
     action: 'pause',
@@ -124,5 +124,5 @@ it('offers Resume and Stop at the time-limit stop a pause kept (R-C17 part 4, in
   });
   expect(paused.statusCode, paused.body).toBe(200);
   expect(heldStop(currentCycle(state, cycle))?.code).toBe('step-time-limit');
-  expect(await actions(state, cycle.id)).toEqual(['resume', 'stop']);
+  expect(await actions(state, cycle.id)).toEqual(['resume', 'continue-with-guidance', 'stop']);
 });

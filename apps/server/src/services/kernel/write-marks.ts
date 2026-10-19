@@ -24,40 +24,42 @@ const WAKING_RUN_EVENTS: ReadonlySet<string> = new Set([
  * merge's reservation, a phase reservation's release, a test's direct write) is seen at once.
  *
  * The storage reports `written` only for record kinds its guard checks, and `ended` for every
- * outermost transaction: a committed transaction that reported no write at all wrote only tables
- * the guard does not see (phase reservations, repositories, sessions), and counts as waking. A
- * guarded write outside any transaction has no `ended`; it wakes once the task that made it ends.
+ * outermost transaction with how many rows it changed: a committed transaction that reported no
+ * guarded write but changed rows wrote only tables the guard does not see (phase reservations,
+ * repositories, sessions), and counts as waking; one that changed nothing wakes nothing
+ * (increment 3 review MEDIUM-1: delivery's and the scheduler's empty transactions). A guarded
+ * write outside any transaction has no `ended`: it wakes once the task that made it ends, apart
+ * from any transaction's flags (LOW-1).
  */
-export function writeMarks(wake: () => void): WriteObserver {
+export function writeMarks(wake: () => void, inTransaction: () => boolean): WriteObserver {
   let wrote = false;
   let waking = false;
-  let settling = false;
-  const settle = () => {
-    if (settling) return;
-    settling = true;
-    queueMicrotask(() => {
-      settling = false;
-      // What a transaction wrote, its `ended` took already; what is left was written outside one.
-      const outside = waking;
-      wrote = false;
-      waking = false;
-      if (outside) wake();
-    });
+  let outside = false;
+  const waken = (record: { readonly kind?: unknown }, kind: string): boolean => {
+    if (QUIET_KINDS.has(kind)) return false;
+    if (kind !== 'run-event') return true;
+    return WAKING_RUN_EVENTS.has(String(record.kind));
   };
   return {
     written(kind, record) {
-      wrote = true;
-      if (!QUIET_KINDS.has(kind)) {
-        const event = kind === 'run-event' ? (record as { readonly kind: string }).kind : undefined;
-        if (event === undefined || WAKING_RUN_EVENTS.has(event)) waking = true;
+      const wakes = waken(record as { readonly kind?: unknown }, kind);
+      if (!inTransaction()) {
+        if (!wakes || outside) return;
+        outside = true;
+        queueMicrotask(() => {
+          outside = false;
+          wake();
+        });
+        return;
       }
-      settle();
+      wrote = true;
+      if (wakes) waking = true;
     },
     beforeCommit() {
       // Nothing: the commit may still fail.
     },
-    ended(committed) {
-      const wakes = committed && (waking || !wrote);
+    ended(committed, changed) {
+      const wakes = committed && (waking || (!wrote && changed > 0));
       wrote = false;
       waking = false;
       if (wakes) wake();

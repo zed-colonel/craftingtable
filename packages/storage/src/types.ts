@@ -285,8 +285,12 @@ export interface WriteObserver {
   ): void;
   /** Runs inside the outermost write transaction, just before it commits. */
   beforeCommit(tx: StorageRepositories): void;
-  /** The outermost write transaction ended; `committed` says how. */
-  ended(committed: boolean): void;
+  /**
+   * The outermost write transaction ended; `committed` says how, and `changed` how many rows its
+   * statements inserted, updated or deleted (SQLite's change count), so an observer can tell a
+   * transaction that wrote only tables the guard does not see from one that wrote nothing (R-B5).
+   */
+  ended(committed: boolean, changed: number): void;
 }
 
 export interface CraftingTableStorage extends StorageRepositories {
@@ -297,6 +301,8 @@ export interface CraftingTableStorage extends StorageRepositories {
    * then the controller kernel's marks (R-B5).
    */
   observeWrites(observer: WriteObserver): void;
+  /** Whether a write transaction is open now: a write seen outside one has no `ended` (R-B5). */
+  readonly inTransaction: boolean;
   transaction<T>(operation: (tx: StorageRepositories) => T): T;
   readTransaction<T>(operation: (tx: StorageRepositories) => T): T;
   /**

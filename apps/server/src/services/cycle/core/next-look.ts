@@ -28,9 +28,10 @@ export function nextLook(
 ): number | undefined {
   const at = now.getTime();
   const ahead = (time: number | undefined) => (time !== undefined && time > at ? time : undefined);
-  // A provider retry not yet due says when (the core's own `dueAt`).
-  if (decision.kind === 'idle' && decision.dueAt !== undefined)
-    return ahead(Date.parse(decision.dueAt));
+  const earliest = (...times: (number | undefined)[]) => {
+    const due = times.filter((time): time is number => time !== undefined);
+    return due.length ? Math.min(...due) : undefined;
+  };
   switch (decision.guard) {
     case 'investigation-live': {
       // A live investigation whose run outlives its deadline is closed two minutes past it.
@@ -48,12 +49,18 @@ export function nextLook(
     default:
       break;
   }
-  // A guard after the step deadline decided: the deadline was asked and has not passed, so it is
-  // the next thing to find by itself while the cycle runs (its run or its launch).
-  if (
+  // A provider retry not yet due says when (the core's own `dueAt`); and a guard after the step
+  // deadline decided, so the deadline was asked and has not passed: the earlier of the two is the
+  // next thing to find by itself while the cycle runs (a retry need not move the deadline:
+  // increment 3 review MEDIUM-3).
+  const retry =
+    decision.kind === 'idle' && decision.dueAt !== undefined
+      ? ahead(Date.parse(decision.dueAt))
+      : undefined;
+  const deadline =
     cycle.status === 'running' &&
     CYCLE_GUARDS.indexOf(decision.guard) > CYCLE_GUARDS.indexOf('step-deadline')
-  )
-    return ahead(Date.parse(cycle.runDeadlineAt));
-  return undefined;
+      ? ahead(Date.parse(cycle.runDeadlineAt))
+      : undefined;
+  return earliest(retry, deadline);
 }

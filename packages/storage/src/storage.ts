@@ -138,9 +138,19 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
     return this.committed;
   }
 
+  get inTransaction(): boolean {
+    return this.depth > 0;
+  }
+
+  /** Rows inserted, updated or deleted on this connection since it opened. */
+  private changes(): number {
+    return (this.database.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
+  }
+
   transaction<T>(operation: (tx: StorageRepositories) => T): T {
     // A nested call runs as a savepoint of the outer transaction, which owns the commit.
     const outermost = this.depth === 0;
+    const before = outermost && this.observers.length ? this.changes() : 0;
     this.definitions.begin();
     this.depth += 1;
     try {
@@ -154,11 +164,14 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
         .immediate();
       this.definitions.commit();
       if (outermost) this.committed += 1;
-      if (outermost) for (const observer of this.observers) observer.ended(true);
+      if (outermost) {
+        const changed = this.observers.length ? this.changes() - before : 0;
+        for (const observer of this.observers) observer.ended(true, changed);
+      }
       return result;
     } catch (error) {
       this.definitions.rollback();
-      if (outermost) for (const observer of this.observers) observer.ended(false);
+      if (outermost) for (const observer of this.observers) observer.ended(false, 0);
       throw error;
     } finally {
       this.depth -= 1;

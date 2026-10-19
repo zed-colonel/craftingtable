@@ -44,10 +44,17 @@ it('leaves a deadline an earlier guard pre-empts to that guard', () => {
     ).toBeUndefined();
 });
 
-it("arms a provider retry's due time", () => {
+it("arms a provider retry's due time, or the step deadline when it comes first (MEDIUM-3)", () => {
   expect(nextLook(cycleOf(), idle('provider-retry-due', at(5)), memory(), NOW)).toBe(
     Date.parse(at(5)),
   );
+  expect(nextLook(cycleOf(), idle('provider-retry-due', at(45)), memory(), NOW)).toBe(
+    Date.parse(at(30)),
+  );
+  // Not running (a paused retry's cycle): only the retry.
+  expect(
+    nextLook(cycleOf({ status: 'paused' }), idle('provider-retry-due', at(45)), memory(), NOW),
+  ).toBe(Date.parse(at(45)));
 });
 
 it("arms an investigation's stuck time and an open change's next comparison", () => {

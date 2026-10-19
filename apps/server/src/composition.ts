@@ -401,7 +401,12 @@ export async function createServices(
   workCycleService.attachPasses(controllerPasses);
   // What wakes the cycle controller besides notifications (R-B5, decision 2): every committed
   // write that is not only quiet, and the release of a worktree or of a repository's merge lane.
-  storage.observeWrites(writeMarks(() => workCycleService.wake('write')));
+  storage.observeWrites(
+    writeMarks(
+      () => workCycleService.wake('write'),
+      () => storage.inTransaction,
+    ),
+  );
   worktreeMutations.onRelease = () => workCycleService.wake('release');
   executionService.branches.onRelease = () => workCycleService.wake('release');
   if (recovering) workCycleService.recoverInterrupted({ cleanStop });

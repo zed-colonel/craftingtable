@@ -298,7 +298,6 @@ export class CycleInvestigations {
         change = worktreeChange(investigation.worktree, await this.investigatedTree(cycle));
       } finally {
         this.locks.settlingInvestigations.delete(investigation.id);
-        this.locks.released(cycle.id);
       }
       // The inspection awaited Git: settle what the cycle holds now.
       const reread = this.storage.execution.cycles.find(cycle.workspaceId, cycle.id);

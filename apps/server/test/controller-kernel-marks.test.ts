@@ -8,7 +8,15 @@ import {
   storedCycle,
   storedRun,
 } from './cycle-test-support.js';
-import { cleanupExecutionFixtures, startCycle, waitUntil } from './execution-test-support.js';
+import {
+  awaitRoadmapMerge,
+  cleanupExecutionFixtures,
+  parallelFixture,
+  roadmapControl,
+  saveRoadmapRequest,
+  startCycle,
+  waitUntil,
+} from './execution-test-support.js';
 
 /**
  * What wakes the cycle controller now that it does not look every second (R-B5 increment 3): a
@@ -123,4 +131,74 @@ it('takes a cycle once the investigation a command launches has started (its hol
   locks.releaseCommand(cycle.id);
   expect(locks.heldByCommand(cycle.id)).toBe(false);
   expect(kernelOf(f).causes.get('release')).toBe(before + 1);
+});
+
+it('does not run an awaiting-merge cycle with a refresh owner again and again (review HIGH-1)', async () => {
+  const { state, root, input } = await parallelFixture({ workers: true });
+  expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
+  await roadmapControl(state, 'start');
+  await awaitRoadmapMerge(state, 0);
+  const causes = (
+    state.context.services.workCycleService as unknown as {
+      kernel: { readonly causes: ReadonlyMap<string, number> };
+    }
+  ).kernel.causes;
+  const total = () => [...causes.values()].reduce((sum, n) => sum + n, 0);
+  // Its refresh finds nothing new: before the fix every round marked its own cycle again,
+  // about twenty rounds a second, three Git commands each.
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const before = total();
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  expect(total() - before).toBeLessThan(10);
+  // A refresh that returns before any I/O (the repository's merge lane held) never starves the
+  // event loop: a timer beside it fires while the lane is held.
+  let fired = false;
+  const held = state.context.services.executionService.branches.duringMerge(
+    root,
+    () => new Promise<void>((resolve) => setTimeout(resolve, 300)),
+  );
+  setTimeout(() => {
+    fired = true;
+  }, 50);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(fired).toBe(true);
+  await held;
+});
+
+it("marks a cycle when the scheduler's own integration refresh of it ends", async () => {
+  const { f } = await freeRunning();
+  const cycle = await startCycle(f, f.worktreeId);
+  await waitUntil(() => runLive(f, cycle), 'the design run is live');
+  const before = kernelOf(f).causes.get('release') ?? 0;
+  await f.services.workCycleService.refreshIntegration(storedCycle(f, cycle.id));
+  expect(kernelOf(f).causes.get('release')).toBe(before + 1);
+});
+
+it('wakes on a commit of tables the guard does not see, and not on one that changed nothing', async () => {
+  const { f } = await freeRunning();
+  const writes = () => kernelOf(f).causes.get('write') ?? 0;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const before = writes();
+  // Nothing changed: no wake (delivery's and the scheduler's empty transactions, MEDIUM-1).
+  f.context.storage.transaction(() => undefined);
+  expect(writes()).toBe(before);
+  // A phase reservation's release, a repository's registration: unguarded rows changed.
+  f.context.storage.transaction((tx) => {
+    tx.execution.sourceRepositories.retire({
+      workspaceId: f.workspaceId,
+      repositoryId: f.repositoryId as never,
+      occurredAt: new Date().toISOString(),
+    });
+  });
+  expect(writes()).toBe(before + 1);
+});
+
+it("counts the cycle controller quiet once it has nothing to look at (the push's quiescence)", async () => {
+  // On the manual clock nothing but an event can start a round; the roadmap worker runs its
+  // own loop. With nothing marked the cycles worker does not hold a first push back.
+  const { f } = await freeRunning();
+  const passes = f.services.controllerPasses;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const opened = passes.current;
+  await waitUntil(() => passes.quietSince(opened), 'quiet: the roadmap worker passed once more');
 });

@@ -59,7 +59,6 @@ export class CycleIntegration {
       return await this.performIntegrationRefresh(cycle, parent, launching);
     } finally {
       this.locks.refreshing.delete(cycle.id);
-      this.locks.released(cycle.id);
     }
   }
 

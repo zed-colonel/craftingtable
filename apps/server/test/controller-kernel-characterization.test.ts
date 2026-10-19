@@ -181,9 +181,12 @@ it("completes a cycles pass only when the round's slow job has ended (pushes wai
   const { f, gate, hold } = await heldPreflight();
   hold();
   try {
-    const opened = f.services.controllerPasses.current;
     await startCycle(f, f.worktreeId);
     await waitUntil(() => gate.entered, "A's launch is held in its Git preflight");
+    // An item opened now (a stop the launch's job may yet take over): no cycles pass completes
+    // while the job runs, whatever else marks a round meanwhile.
+    const opened = f.services.controllerPasses.current;
+    f.services.workCycleService.wake('test');
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(f.services.controllerPasses.quietSince(opened)).toBe(false);
   } finally {

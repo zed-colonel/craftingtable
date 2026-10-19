@@ -291,8 +291,21 @@ export class WorkCycleService {
   finalizationRemediationBlocker(cycle: WorkCycle): string | undefined {
     return this.remediation.finalizationRemediationBlocker(cycle);
   }
-  refreshIntegration(cycle: WorkCycle, parent?: AgentRun, launching = false): Promise<boolean> {
-    return this.integration.refreshIntegration(cycle, parent, launching);
+  /**
+   * The roadmap scheduler's integration refresh. A round that met it in flight left the cycle
+   * idle (`kernel-busy`), so its end marks the cycle (R-B5). A round's own refresh marks nothing:
+   * that would wake the round that ran it, again and again (increment 3 review HIGH-1).
+   */
+  async refreshIntegration(
+    cycle: WorkCycle,
+    parent?: AgentRun,
+    launching = false,
+  ): Promise<boolean> {
+    try {
+      return await this.integration.refreshIntegration(cycle, parent, launching);
+    } finally {
+      this.kernel.mark('release', [cycle.id]);
+    }
   }
   resolveIntegration(
     context: CommandContext,
@@ -716,7 +729,11 @@ export class WorkCycleService {
     // Idle when nothing is marked and no round or job runs: it has had its chance (R-B5).
     this.passes?.register(
       'cycles',
-      () => !this.kernel.pending() && this.passing === undefined && this.job === undefined,
+      () =>
+        !this.kernel.pending() &&
+        !this.rounding &&
+        this.passing === undefined &&
+        this.job === undefined,
     );
     this.kernel.start();
     this.task = this.loop();
@@ -741,14 +758,25 @@ export class WorkCycleService {
   private async loop(): Promise<void> {
     this.kernel.mark('start');
     while (!this.locks.stopping()) {
+      this.rounding = true;
       const marked = this.kernel.take();
       if (marked === undefined) {
+        this.rounding = false;
         await this.kernel.marked(this.locks.signal);
         continue;
       }
-      await this.round(marked, true);
+      try {
+        await this.round(marked, true);
+      } finally {
+        this.rounding = false;
+      }
+      // A macrotask between rounds: rounds that await no I/O never starve the event loop's timers
+      // and requests, whatever marks them (increment 3 review HIGH-1).
+      await new Promise((resolve) => setImmediate(resolve));
     }
   }
+  /** From the loop's take to its round's end: not idle, though nothing is marked (LOW-5). */
+  private rounding = false;
 
   /**
    * One controller pass over every cycle, serialized with the worker loop. Tests step the
@@ -764,11 +792,12 @@ export class WorkCycleService {
     const round: { dispatched?: Promise<void> } = {};
     this.passing = this.pass(marked, lanes ? round : undefined).finally(() => {
       this.passing = undefined;
-      // A pass that failed still gave automation its chance; pushes do not wait on it. A round
-      // that handed a decision to the slow lane completes when that job has (design review M-1).
+      // A pass that failed still gave automation its chance; pushes do not wait on it. While the
+      // slow lane's job runs (this round's or an earlier one's), automation has not had it yet:
+      // the round completes when the job has (design review M-1).
       if (started === undefined) return;
-      if (round.dispatched)
-        void round.dispatched.finally(() => this.passes?.completed('cycles', started));
+      const job = round.dispatched ?? this.job?.done;
+      if (job) void job.finally(() => this.passes?.completed('cycles', started));
       else this.passes?.completed('cycles', started);
     });
     await this.passing;
@@ -778,7 +807,9 @@ export class WorkCycleService {
    * The slow lane's one job (R-B5, decision 4): a decision whose application awaits I/O, from the
    * free-running loop. While it runs its cycle is left out of every round.
    */
-  private job: { readonly cycleId: string; readonly done: Promise<void> } | undefined;
+  private job:
+    | { readonly cycleId: string; readonly done: Promise<void>; markedMeanwhile: boolean }
+    | undefined;
   /** Cycles whose slow decision found the lane taken: decided afresh when it frees (H-2). */
   private readonly laneWaiting = new Set<string>();
   /** The workflow generation the declared attention was last brought up to date at. */
@@ -807,9 +838,15 @@ export class WorkCycleService {
     if (marked === 'all') this.kernel.keepDue(new Set(active.map((cycle) => cycle.id)));
     for (const cycle of prioritizeRoadmapCycles(
       // A cycle a command holds is left to it (decision 15); its release marks it. So is the
-      // slow lane's cycle, whose job's end marks it (design review M-2).
+      // slow lane's cycle (design review M-2): a mark it meets now is kept for the job's end.
       (marked === 'all' ? active : active.filter((cycle) => marked.has(cycle.id))).filter(
-        (cycle) => !this.locks.heldByCommand(cycle.id) && cycle.id !== this.job?.cycleId,
+        (cycle) => {
+          if (cycle.id === this.job?.cycleId) {
+            this.job.markedMeanwhile = true;
+            return false;
+          }
+          return !this.locks.heldByCommand(cycle.id);
+        },
       ),
       (cycle) => cycleOwnership(snapshot, cycle),
     )) {
@@ -925,12 +962,16 @@ export class WorkCycleService {
           // A failure that cannot even be recorded leaves the cycle to the next look.
           .catch(() => undefined)
           .finally(() => {
+            // Every cycle that waited for the lane is decided afresh, and the job's own only if
+            // something marked it meanwhile: its writes mark it themselves, and a job that wrote
+            // nothing (a refresh that found nothing new) must not run again at once
+            // (increment 3 review HIGH-1).
+            const again = this.job?.markedMeanwhile ? [cycle.id] : [];
             this.job = undefined;
-            // The job's cycle, and every cycle that waited for the lane, are decided afresh.
-            this.kernel.mark('lane', [cycle.id, ...this.laneWaiting]);
+            this.kernel.mark('lane', [...again, ...this.laneWaiting]);
             this.laneWaiting.clear();
           });
-        this.job = { cycleId: cycle.id, done };
+        this.job = { cycleId: cycle.id, done, markedMeanwhile: false };
         lane.dispatched = done;
         return;
       }

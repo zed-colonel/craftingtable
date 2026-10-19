@@ -23,6 +23,7 @@ it('takes the keys marked since the last take, or every aggregate', () => {
 
 it('wakes a waiting controller on a mark, at once when one is pending, and at its stop', async () => {
   const { kernel: k } = kernel();
+  k.start();
   const stop = new AbortController();
   let woken = false;
   const waiting = k.marked(stop.signal).then(() => {
@@ -56,6 +57,20 @@ it('marks an aggregate when its due time comes, and not before', () => {
   clock.advance(10_000);
   expect(k.take()).toBeUndefined();
   k.stop();
+});
+
+it('arms no timer before it starts or after it stops (review LOW-2)', () => {
+  const { clock, kernel: k } = kernel();
+  k.dueAt('a', clock.now() + 1000);
+  clock.advance(SWEEP_MS * 2);
+  expect(k.take()).toBeUndefined();
+  k.start();
+  clock.advance(0);
+  expect(k.take()).toEqual(new Set(['a']));
+  k.stop();
+  k.dueAt('b', clock.now() + 1000);
+  clock.advance(SWEEP_MS * 2);
+  expect(k.take()).toBeUndefined();
 });
 
 it('replaces and forgets due times', () => {

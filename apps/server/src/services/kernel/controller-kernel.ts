@@ -39,7 +39,8 @@ export class ControllerKernel {
   private timer: { readonly handle: unknown; readonly at: number } | undefined;
   private sweepTimer: unknown;
   private wake: (() => void) | undefined;
-  private stopped = false;
+  /** Timers are armed only between `start` and `stop` (increment 3 review LOW-2). */
+  private running = false;
   /** How many marks each cause made, since start (decision 9's figures read them). */
   readonly causes = new Map<string, number>();
 
@@ -78,7 +79,7 @@ export class ControllerKernel {
 
   /** Resolves at the next mark (at once when one is pending) or at the stop. */
   marked(signal: AbortSignal): Promise<void> {
-    if (this.pending() || signal.aborted || this.stopped) return Promise.resolve();
+    if (this.pending() || signal.aborted || !this.running) return Promise.resolve();
     return new Promise((resolve) => {
       const done = () => {
         signal.removeEventListener('abort', done);
@@ -119,13 +120,13 @@ export class ControllerKernel {
 
   /** Starts the sweep (and the due timer, if anything is due). */
   start(): void {
-    this.stopped = false;
+    this.running = true;
     this.scheduleSweep();
     this.arm();
   }
 
   stop(): void {
-    this.stopped = true;
+    this.running = false;
     if (this.timer) this.clock.clearTimeout(this.timer.handle);
     this.timer = undefined;
     if (this.sweepTimer !== undefined) this.clock.clearTimeout(this.sweepTimer);
@@ -136,7 +137,7 @@ export class ControllerKernel {
   }
 
   private scheduleSweep(): void {
-    if (this.stopped) return;
+    if (!this.running) return;
     this.sweepTimer = this.clock.setTimeout(() => {
       this.mark('sweep');
       // Due times are wall-clock and the timer runs on the monotonic clock: a clock stepped
@@ -154,7 +155,7 @@ export class ControllerKernel {
 
   /** One timer for the earliest due time, never further than the sweep. */
   private arm(): void {
-    if (this.stopped) return;
+    if (!this.running) return;
     const earliest = this.nextDue();
     if (earliest === undefined) {
       if (this.timer) this.clock.clearTimeout(this.timer.handle);

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { cycleAttention } from '../src/attention.js';
+import {
+  CYCLE_ATTENTION_CODES,
+  type CycleAttentionCode,
+  cycleAttention,
+} from '../src/attention.js';
 import { cycleActions, resumeRedirect } from '../src/cycle-actions.js';
 import { stopRecord } from '../src/cycle-stop.js';
 import type { WorkCycle } from '../src/work-cycle.js';
@@ -273,4 +277,68 @@ describe('a resume at the round limit', () => {
     ).toEqual(['authorize-remediation', 'stop']));
   it('offers Resume where the resume would not reach the limit', () =>
     expect(cycleActions(cycle('paused'))).toEqual(['resume', 'stop']));
+});
+
+/**
+ * R-C17 part 4, increment 1 (characterize before changing): what every stop offers today. No
+ * stop offers Continue with guidance beside Resume: it is offered only as a redirect that replaces
+ * Resume. `step-time-limit` offers Resume and Stop, whatever the step.
+ */
+describe('what every stop offers, today (R-C17 part 4, increment 1)', () => {
+  const offers = (status: WorkCycle['status'], code: CycleAttentionCode) =>
+    cycleActions(cycle(status, code));
+  const GATES = [
+    'merge-approval',
+    'merge-requirements',
+    'final-promotion',
+    'record-scope-evidence',
+  ];
+  const REDIRECTS: Record<string, readonly string[]> = {
+    'continue-with-guidance': [
+      'workflow-report-invalid',
+      'implementation-open-questions',
+      'review-open-questions',
+      'checkpoint-attestation-failed',
+      'remediation-no-change',
+    ],
+    'resolve-design': [
+      'design-investigation-finished',
+      'design-report-invalid',
+      'design-planning-conflict',
+      'design-decision-required',
+      'design-open-questions',
+    ],
+    'authorize-remediation': ['review-open-questions-at-limit', 'remediation-exhausted'],
+    'resolve-integration': ['integration-conflict'],
+  };
+  it('offers Resume and Stop at every operator stop without a redirect', () => {
+    const redirected = new Set(Object.values(REDIRECTS).flat());
+    for (const code of CYCLE_ATTENTION_CODES) {
+      if (GATES.includes(code) || code === 'item-completed-unmerged') continue;
+      expect(offers('needs-attention', code), code).toEqual(
+        redirected.has(code)
+          ? [Object.keys(REDIRECTS).find((action) => REDIRECTS[action]?.includes(code)), 'stop']
+          : ['resume', 'stop'],
+      );
+    }
+    expect(offers('needs-attention', 'step-time-limit')).toEqual(['resume', 'stop']);
+  });
+  it('offers Resume and Stop at every stop a pause kept, and at a plain pause', () => {
+    for (const code of CYCLE_ATTENTION_CODES)
+      expect(offers('paused', code), code).toEqual(
+        code === 'item-completed-unmerged' ? ['stop'] : ['resume', 'stop'],
+      );
+    expect(cycleActions(cycle('paused'))).toEqual(['resume', 'stop']);
+  });
+  it('never offers Continue with guidance beside Resume, nor a settings change', () => {
+    for (const status of ['needs-attention', 'paused'] as const)
+      for (const code of CYCLE_ATTENTION_CODES) {
+        if (status === 'needs-attention' && GATES.includes(code)) continue;
+        const offered: readonly string[] = offers(status, code);
+        expect(offered.includes('continue-with-guidance') && offered.includes('resume'), code).toBe(
+          false,
+        );
+        expect(offered, code).not.toContain('change-settings');
+      }
+  });
 });

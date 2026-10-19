@@ -152,3 +152,15 @@ it('offers no guidance once a newer manual run outside the lineage is the worktr
   await runToFinish(state, worktree.id, { role: 'implement' });
   expect(await actions(state, cycle.id)).toEqual(['change-settings', 'stop']);
 });
+
+// Increment 1 re-check RL-1: a newer run inside the lineage keeps Resume (it adopts the run), but
+// the guided resume needs the cycle's own run to be the newest, so no guidance is offered: the
+// projection reads the tree's newest run, as the command does.
+it('offers no guidance once a newer run in the lineage is the worktree’s newest, while Resume adopts it (R-C17 part 4, increment 2)', async () => {
+  const { state, cycle, worktree } = await atTimeLimit();
+  await runToFinish(state, worktree.id, {
+    role: 'implement',
+    parentRunId: currentCycle(state, cycle).currentRunId,
+  });
+  expect(await actions(state, cycle.id)).toEqual(['resume', 'change-settings', 'stop']);
+});

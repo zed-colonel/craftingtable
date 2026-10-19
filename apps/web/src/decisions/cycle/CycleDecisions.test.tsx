@@ -346,3 +346,10 @@ it.each([
     expect(text()).toBe('');
   },
 );
+
+// Increment 1 re-check RN-1: a plain pause with no questions has no continuation here; its Resume
+// is the cycle panel's manual control.
+it('gives a plain pause no continuation', () =>
+  expect(
+    continuation(cycle({ status: 'paused' }, { actions: ['resume', 'stop'] })),
+  ).toBeUndefined());

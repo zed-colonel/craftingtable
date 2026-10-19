@@ -202,4 +202,28 @@ it("counts the cycle controller quiet once it has nothing to look at (the push's
   await new Promise((resolve) => setTimeout(resolve, 100));
   const opened = passes.current;
   await waitUntil(() => passes.quietSince(opened), 'quiet: the roadmap worker passed once more');
+  // Quiet by its own idleness, not because a round came by (mutation round 3).
+  const idle = (passes as unknown as { idle: ReadonlyMap<string, () => boolean> }).idle;
+  expect(idle.get('cycles')?.()).toBe(true);
+});
+
+it('lets timers and requests run between rounds that mark themselves (increment 3 review HIGH-1)', async () => {
+  const { f } = await freeRunning();
+  const cycle = await startCycle(f, f.worktreeId);
+  await waitUntil(() => runLive(f, cycle), 'the design run is live');
+  const service = f.services.workCycleService;
+  // Every cycle a round takes up marks the controller again: rounds without end, none awaiting I/O.
+  service.observePass({ cycle: () => service.wake('test') });
+  try {
+    service.wake('test');
+    // Starved, neither would ever come: the test would time out.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const rounds = service.figures().rounds;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(service.figures().rounds).toBeGreaterThan(rounds);
+    const response = await f.context.app.inject({ method: 'GET', url: '/api/health' });
+    expect(response.statusCode).toBe(200);
+  } finally {
+    service.observePass(undefined);
+  }
 });

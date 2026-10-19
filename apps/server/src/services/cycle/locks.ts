@@ -64,9 +64,9 @@ export class CycleLocks {
     else this.commandHolds.delete(id);
     this.released(id);
   }
-  /** The cycles commands hold, each with when its first hold began. */
+  /** The cycles commands hold, each with its hold's record and when its first hold began. */
   commandHeld(): ReadonlyMap<string, { readonly since: number }> {
-    return this.commandHolds;
+    return new Map(this.commandHolds);
   }
 
   /** Stops the controller (`WorkCycleService.shutdown`). */

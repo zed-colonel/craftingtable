@@ -29,6 +29,22 @@ export function systemClock(now: () => Date): KernelClock {
 /** What a round looks at: every aggregate, or the keys marked. */
 export type Marked = 'all' | ReadonlySet<string>;
 
+/**
+ * What made a mark, as the figures count it (decision 9): the loop's start, a workflow
+ * notification, a committed write, a hold's release, a due time, the sweep, the slow lane freed,
+ * a test's own. A closed list, so the diagnostics' strict contract always holds it (increment 7
+ * review L-3).
+ */
+export type MarkCause =
+  | 'start'
+  | 'workflow'
+  | 'write'
+  | 'release'
+  | 'due'
+  | 'sweep'
+  | 'lane'
+  | 'test';
+
 /** The safety sweep's interval (decision 3). */
 export const SWEEP_MS = 30_000;
 
@@ -42,7 +58,7 @@ export class ControllerKernel {
   /** Timers are armed only between `start` and `stop` (increment 3 review LOW-2). */
   private running = false;
   /** How many marks each cause made, since start (decision 9's figures read them). */
-  readonly causes = new Map<string, number>();
+  readonly causes = new Map<MarkCause, number>();
   /** When the sweep last marked everything (wall-clock milliseconds), for the figures. */
   lastSweepAt: number | undefined;
 
@@ -52,7 +68,7 @@ export class ControllerKernel {
   ) {}
 
   /** Marks the given keys dirty, or every aggregate; wakes the controller if it waits. */
-  mark(cause: string, keys?: Iterable<string>): void {
+  mark(cause: MarkCause, keys?: Iterable<string>): void {
     if (keys === undefined) this.everything = true;
     else for (const key of keys) this.keys.add(key);
     this.causes.set(cause, (this.causes.get(cause) ?? 0) + 1);

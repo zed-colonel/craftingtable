@@ -11,8 +11,9 @@ notification, whether anything had changed or not. Each look read the cycle's fa
 most decided nothing. A pass applied its decisions in turn, so one decision that awaited I/O (a
 launch's Git preflight, an integration refresh, a review's reassessment) held every other cycle:
 a deadline, a turn's end or a stop waited behind it. The 2026-09 system review (R-B5) measured
-the daemon idle at about 1.1% CPU, with a stall of about 110 ms every 30 s, and during
-transitions with 19 to 23 of every 30 seconds holding a stall of 100 ms or more.
+the daemon idle at about 1.1% CPU, with a stall of 110 to 215 ms every 30 s (the storage
+service's run-directory query, rewritten with this item), and during transitions with 19 to 23 of
+every 30 seconds holding a stall of 100 ms or more.
 
 ## Decision
 
@@ -46,8 +47,9 @@ cycles need a look, and when; the controller decides and acts as before (`decide
 
 ## Consequences
 
-- An idle daemon does nothing between sweeps; a slow launch no longer delays another cycle's
-  deadline (R-B5's done-when).
+- An idle cycle controller does nothing between sweeps (the roadmap scheduler's loop, the
+  notifications' and the storage service's timers remain until R-B5's part 2); a slow launch no
+  longer delays another cycle's deadline (R-B5's done-when).
 - A change that nothing writes, notifies or releases is found by the sweep, up to 30 s later,
   where the one-second loop found it within a second.
 - Parts 2 and 3 of R-B5 (bounded backoff, batched agent events, the streams' fallback) build on

@@ -48,6 +48,7 @@ import { decisionLane } from './cycle/core/lanes.js';
 import {
   ControllerKernel,
   type KernelClock,
+  type MarkCause,
   type Marked,
   systemClock,
 } from './kernel/controller-kernel.js';
@@ -734,7 +735,7 @@ export class WorkCycleService {
    * Marks every active cycle for a look (R-B5): a committed write, or the release of a lock outside
    * the cycle (a repository's merge lane, a worktree's guard) that a cycle may have idled on.
    */
-  wake(cause: string): void {
+  wake(cause: MarkCause): void {
     this.kernel.mark(cause);
   }
 
@@ -823,13 +824,13 @@ export class WorkCycleService {
       });
     }
     for (const [cycleId, hold] of this.locks.commandHeld()) {
-      const key = `${cycleId}:${hold.since}`;
-      if (now - hold.since <= LONG_MS || this.warnedHolds.has(key)) continue;
-      this.warnedHolds.add(key);
+      if (now - hold.since <= LONG_MS || this.warnedHolds.has(hold)) continue;
+      this.warnedHolds.add(hold);
       this.log.warn('A command has held a cycle for over ten minutes', { cycleId });
     }
   }
-  private readonly warnedHolds = new Set<string>();
+  /** Each hold warned of, by its record: a hold taken again is a new one (review L-2). */
+  private readonly warnedHolds = new WeakSet<object>();
 
   /**
    * One controller pass over every cycle, serialized with the worker loop. Tests step the
@@ -1037,7 +1038,6 @@ export class WorkCycleService {
       );
     } catch (error) {
       met.guard = guard;
-      met.decision = undefined;
       this.laneWaiting.delete(cycle.id);
       this.observer?.decided?.(cycle, { failed: error, guard });
       return this.refused(cycle, error, guard);

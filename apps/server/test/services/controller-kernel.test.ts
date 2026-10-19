@@ -136,3 +136,22 @@ it('re-arms a timer that fired before its due time (the wall clock stepped back)
   expect(k.take()).toEqual(new Set(['a']));
   k.stop();
 });
+
+it('never asks for a timer longer than the sweep, however far the due time (mutation round 3)', () => {
+  // Node fires a timer over 2^31 ms at once: an uncapped wait for a far due time would spin.
+  const clock = new ManualClock();
+  const asked: number[] = [];
+  const k = new ControllerKernel({
+    now: () => clock.now(),
+    setTimeout: (callback, ms) => {
+      asked.push(ms);
+      return clock.setTimeout(callback, ms);
+    },
+    clearTimeout: (handle) => clock.clearTimeout(handle),
+  });
+  k.start();
+  k.dueAt('a', clock.now() + 40 * 24 * 60 * 60_000);
+  expect(asked.length).toBeGreaterThan(0);
+  expect(Math.max(...asked)).toBeLessThanOrEqual(SWEEP_MS);
+  k.stop();
+});

@@ -4,7 +4,9 @@ import { afterEach, expect, it } from 'vitest';
 import {
   type CycleFixture,
   createCycleFixture,
+  item2,
   ManualClock,
+  secondWorktree,
   storedCycle,
 } from './cycle-test-support.js';
 import { cleanupExecutionFixtures, startCycle, waitUntil } from './execution-test-support.js';
@@ -80,24 +82,99 @@ it.each([
   },
 );
 
-it('keeps a broken invariant in the log alone when the cycle changed meanwhile (decision 8)', async () => {
-  const { warnings, runLog } = logged();
-  const f = await createCycleFixture({ runLog });
-  brokenLaunch(f, async (cycle) => {
-    const response = await f.context.app.inject({
-      method: 'POST',
-      url: `/api/workspaces/${f.workspaceId}/cycles/${cycle.id}/control`,
-      headers: f.headers,
-      payload: { action: 'pause', expectedVersion: storedCycle(f, cycle.id).version },
+it.each([
+  ['a round', false],
+  ['the slow lane', true],
+] as const)(
+  'keeps a broken invariant met in %s in the log alone when the cycle changed meanwhile (decision 8)',
+  async (_, workers) => {
+    const { warnings, runLog } = logged();
+    const f = await createCycleFixture({ workers, runLog });
+    // A newer version, still running: only the version check skips the failure's write.
+    brokenLaunch(f, async (cycle) => {
+      const current = storedCycle(f, cycle.id);
+      expect(
+        f.context.storage.execution.cycles.replace(
+          { ...current, version: current.version + 1 },
+          current.version,
+        ),
+      ).toBeTruthy();
     });
-    expect(response.statusCode, response.body).toBe(200);
-  });
+    const cycle = await startCycle(f, f.worktreeId);
+    if (!workers) await f.services.workCycleService.tick();
+    const met = () =>
+      warnings.some((w) => w.message === 'The cycle controller met a broken invariant');
+    await waitUntil(met, 'the invariant logged');
+    expect(storedCycle(f, cycle.id).status).toBe('running');
+    expect(failureRows(f, cycle)).toEqual([]);
+  },
+);
+
+it("logs a job's failure that cannot itself be recorded (increment 5 review LOW-1)", async () => {
+  const { warnings, runLog } = logged();
+  const f = await createCycleFixture({ workers: true, runLog });
+  const service = f.services.workCycleService as unknown as { stopAfterFailure: () => void };
+  service.stopAfterFailure = () => {
+    throw new Error('the database is full');
+  };
+  f.services.agentRunService.startForCycle = async () => {
+    throw new Error('unexpected');
+  };
   const cycle = await startCycle(f, f.worktreeId);
-  await f.services.workCycleService.tick();
-  expect(storedCycle(f, cycle.id).status).toBe('paused');
-  expect(failureRows(f, cycle).filter((row) => row.status !== 'paused')).toEqual([]);
-  expect(failureRows(f, cycle).some((row) => row.invariant !== undefined)).toBe(false);
-  expect(warnings.map((w) => w.message)).toContain('The cycle controller met a broken invariant');
+  await waitUntil(
+    () =>
+      warnings.some((w) => w.message === 'The cycle controller could not record a job’s failure'),
+    'the failure logged',
+  );
+  const warning = warnings.find((w) => w.message.startsWith('The cycle controller could not'));
+  expect(warning?.detail).toMatchObject({ cycleId: cycle.id, workspaceId: f.workspaceId });
+  expect(String(warning?.detail.error)).toContain('the database is full');
+});
+
+it('logs a slow job past ten minutes once, and reports it in the figures (design review L-13)', async () => {
+  const clock = new ManualClock();
+  const { warnings, runLog } = logged();
+  const queue: (() => void)[] = [];
+  let holding = false;
+  const f = await createCycleFixture({
+    workers: true,
+    independent: true,
+    now: clock.date,
+    kernelClock: clock,
+    runLog,
+    git: (real) => ({
+      ...real,
+      resolveBranch: async (path, branch) => {
+        if (holding) await new Promise<void>((resolve) => queue.push(resolve));
+        return real.resolveBranch(path, branch);
+      },
+    }),
+  });
+  const other = await secondWorktree(f);
+  const service = f.services.workCycleService;
+  const long = () => warnings.filter((w) => w.message.startsWith('A cycle controller job'));
+  holding = true;
+  try {
+    const a = await startCycle(f, f.worktreeId);
+    await waitUntil(() => queue.length === 1, "A's launch is held");
+    await startCycle({ ...f, workItemId: item2 }, other);
+    await waitUntil(() => service.figures().lane.waiting === 1, 'B waits for the lane');
+    clock.advance(10 * 60_000);
+    let rounds = service.figures().rounds;
+    clock.advance(1);
+    // Ten minutes is not over ten minutes.
+    expect(service.figures().lane).toMatchObject({ running: true, runningForMs: 10 * 60_000 + 1 });
+    clock.advance(30_000);
+    await waitUntil(() => long().length === 1, 'the long job logged');
+    expect(long()[0]?.detail).toEqual({ cycleId: a.id });
+    rounds = service.figures().rounds;
+    clock.advance(30_000);
+    await waitUntil(() => service.figures().rounds > rounds, 'a later round');
+    expect(long()).toHaveLength(1);
+  } finally {
+    holding = false;
+    for (const release of queue.splice(0)) release();
+  }
 });
 
 it('records no invariant for an unexpected failure that is not one', async () => {
@@ -130,14 +207,23 @@ it("logs a command's hold older than ten minutes once (increment 5 review LOW-5)
   ).locks;
   locks.holdForCommand(cycle.id);
   const held = () => warnings.filter((w) => w.message.startsWith('A command has held'));
-  // Ten minutes is not over ten minutes; the sweep after it is.
-  clock.advance(10 * 60_000);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // Ten minutes is not over ten minutes; the sweep after it is. Each look waits for a round
+  // to have run (review L-5).
+  const service = f.services.workCycleService;
+  const aRound = async () => {
+    const rounds = service.figures().rounds;
+    await waitUntil(() => service.figures().rounds > rounds, 'a round');
+  };
+  clock.advance(10 * 60_000 - 30_000);
+  const tenMinutes = aRound();
+  clock.advance(30_000);
+  await tenMinutes;
   expect(held()).toEqual([]);
   clock.advance(30_000);
   await waitUntil(() => held().length === 1, 'the hold logged');
-  clock.advance(60_000);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  const later = aRound();
+  clock.advance(30_000);
+  await later;
   expect(held()).toHaveLength(1);
   expect(held()[0]?.detail).toEqual({ cycleId: cycle.id });
   locks.releaseCommand(cycle.id);

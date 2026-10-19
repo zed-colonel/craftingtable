@@ -406,3 +406,25 @@ export class ManualClock {
     this.wall += ms;
   }
 }
+
+/** The fixture plan's second item. */
+export const item2 = asWorkItemId('item-2');
+
+/** A worktree for the fixture's second item, admitted, so its cycle runs beside the first's. */
+export async function secondWorktree(f: CycleFixture): Promise<WorktreeId> {
+  const post = async (url: string, payload: Record<string, unknown>) => {
+    const response = await f.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${f.workspaceId}${url}`,
+      headers: f.headers,
+      payload,
+    });
+    if (response.statusCode !== 200) throw new Error(`${url}: ${response.body}`);
+    return response.json();
+  };
+  const { worktree } = createWorktreeResponseSchema.parse(
+    await post(`/work-items/${item2}/worktrees`, { repositoryId: f.repositoryId }),
+  );
+  await post(`/work-items/${item2}/control`, { action: 'admit' });
+  return worktree.id;
+}

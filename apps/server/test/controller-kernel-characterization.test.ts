@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { asWorkItemId, type WorkCycle, type WorktreeId } from '@craftingtable/domain';
-import { createWorktreeResponseSchema } from '@craftingtable/contracts';
+import type { WorkCycle } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import { TypedRefusalError } from '../src/services/errors.js';
 import {
   type CycleFixture,
   createCycleFixture,
+  item2,
   ManualClock,
+  secondWorktree,
   storedCycle,
   storedRun,
 } from './cycle-test-support.js';
@@ -28,27 +29,6 @@ import {
  */
 
 afterEach(cleanupExecutionFixtures);
-
-const item2 = asWorkItemId('item-2');
-
-/** A worktree for the fixture's second item, admitted, so its cycle runs beside the first's. */
-async function secondWorktree(f: CycleFixture): Promise<WorktreeId> {
-  const post = async (url: string, payload: Record<string, unknown>) => {
-    const response = await f.context.app.inject({
-      method: 'POST',
-      url: `/api/workspaces/${f.workspaceId}${url}`,
-      headers: f.headers,
-      payload,
-    });
-    if (response.statusCode !== 200) throw new Error(`${url}: ${response.body}`);
-    return response.json();
-  };
-  const { worktree } = createWorktreeResponseSchema.parse(
-    await post(`/work-items/${item2}/worktrees`, { repositoryId: f.repositoryId }),
-  );
-  await post(`/work-items/${item2}/control`, { action: 'admit' });
-  return worktree.id;
-}
 
 async function control(f: CycleFixture, cycle: WorkCycle, action: 'stop' | 'pause') {
   const response = await f.context.app.inject({
@@ -415,9 +395,10 @@ it('withdraws a launch paused while its session starts, and launches it again on
   const cycle = await startCycle(f, f.worktreeId);
   await waitUntil(() => entered, "the backend's launch is under way");
   await control(f, cycle, 'pause');
-  release();
   const runId = storedCycle(f, cycle.id).currentRunId;
+  // The session's start is cancelled while the backend still holds it (mutation round 3).
   await waitUntil(() => storedRun(f, runId)?.status === 'cancelled', 'the run withdrawn');
+  release();
   // A session the backend still made is ended at once: no agent runs under the paused cycle.
   await waitUntil(() => f.backend.sessions.every((s) => !s.send()), 'its session ended');
   expect(storedCycle(f, cycle.id).status).toBe('paused');
@@ -496,4 +477,100 @@ it("records a job's refusal and an unexpected failure as a pass did (the slow la
     "the job's failure stop",
   );
   runs.startForCycle = start;
+});
+
+/** A free-running daemon whose every Git preflight (`resolveBranch`) waits for its own release. */
+async function queuedPreflights(options: { now?: () => Date } = {}) {
+  const queue: (() => void)[] = [];
+  let holding = false;
+  const f = await createCycleFixture({
+    workers: true,
+    independent: true,
+    ...options,
+    git: (real) => ({
+      ...real,
+      resolveBranch: async (path, branch) => {
+        if (holding) await new Promise<void>((resolve) => queue.push(resolve));
+        return real.resolveBranch(path, branch);
+      },
+    }),
+  });
+  return {
+    f,
+    other: await secondWorktree(f),
+    queue,
+    hold: (on: boolean) => {
+      holding = on;
+    },
+  };
+}
+
+it("completes a round that left a cycle waiting only once that cycle's own job has run (review MEDIUM-2)", async () => {
+  const { f, other, queue, hold } = await queuedPreflights();
+  hold(true);
+  try {
+    await startCycle(f, f.worktreeId);
+    await waitUntil(() => queue.length === 1, "A's launch is held");
+    const b = await startCycle({ ...f, workItemId: item2 }, other);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(storedRun(f, storedCycle(f, b.id).currentRunId)).toBeUndefined();
+    const opened = f.services.controllerPasses.current;
+    // A's launch returns; B, which waited, takes the lane and is held in its own preflight.
+    queue.shift()?.();
+    await waitUntil(() => queue.length === 1, "B's launch is held");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(f.services.controllerPasses.quietSince(opened)).toBe(false);
+  } finally {
+    hold(false);
+    for (const release of queue.splice(0)) release();
+  }
+  await waitUntil(() => f.backend.sessions.length === 2, 'both agents started');
+});
+
+it('withdraws a launch at its step deadline by its own timer, its cycle left out of rounds (decision 7)', async () => {
+  // Past its record, in the protected-ref snapshot; the deadline comes while it is held there.
+  let shift = 0;
+  let held: Promise<void> | undefined;
+  let entered = false;
+  let release: () => void = () => undefined;
+  const f = await createCycleFixture({
+    workers: true,
+    now: () => new Date(Date.now() + shift),
+    git: (real) => ({
+      ...real,
+      branchHeads: async (...args: Parameters<typeof real.branchHeads>) => {
+        if (held) {
+          entered = true;
+          await held;
+        }
+        return real.branchHeads(...args);
+      },
+    }),
+  });
+  const runs = f.services.agentRunService;
+  const start = runs.startForCycle.bind(runs);
+  runs.startForCycle = async (cycle) => {
+    // The step's time runs out 300 ms into its launch.
+    shift = Date.parse(cycle.runDeadlineAt) - Date.now() - 300;
+    return start(cycle);
+  };
+  held = new Promise((resolve) => {
+    release = resolve;
+  });
+  try {
+    const cycle = await startCycle(f, f.worktreeId);
+    await waitUntil(() => entered, 'the launch is past its record');
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(storedCycle(f, cycle.id).status).toBe('running');
+  } finally {
+    held = undefined;
+    release();
+  }
+  await waitUntil(
+    () =>
+      (runs as unknown as { state: { cycleLaunches: Map<string, unknown> } }).state.cycleLaunches
+        .size === 0,
+    'the launch ended',
+  );
+  expect(f.backend.sessions).toHaveLength(0);
 });

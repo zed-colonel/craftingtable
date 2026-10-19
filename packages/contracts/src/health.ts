@@ -41,6 +41,7 @@ const count = z.number().int().nonnegative();
  */
 const controllerSummarySchema = z.strictObject({
   rounds: count,
+  /** At most the last 4,096 rounds: above about 68 a second, less than a minute (review L-4). */
   lastMinute: z.strictObject({
     rounds: count,
     p50Ms: milliseconds,

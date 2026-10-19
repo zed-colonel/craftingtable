@@ -191,7 +191,9 @@ export interface AuditRepository {
   lastUserAction(workspaceId: WorkspaceId, userId?: UserId): string | undefined;
   /**
    * A workspace's recorded cycle transitions from `from` to `until`, oldest first, plus
-   * each cycle's last transition before `from` (R-C1).
+   * each cycle's last transition before `from` (R-C1): the cycle's step history (R-B4 decision
+   * 9), each with the status it left and the controller decision's kind and guard that wrote it,
+   * where its row records them.
    */
   listCycleTransitions(
     workspaceId: WorkspaceId,
@@ -201,6 +203,9 @@ export interface AuditRepository {
     readonly cycleId: WorkCycleId;
     readonly occurredAt: string;
     readonly metadata: Readonly<Record<string, unknown>>;
+    readonly previousStatus: string | undefined;
+    readonly decision: string | undefined;
+    readonly guard: string | undefined;
   }[];
   /** The same for a workspace's recorded roadmap writes (R-C10's follow-up). */
   listRoadmapTransitions(

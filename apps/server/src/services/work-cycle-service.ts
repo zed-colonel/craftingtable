@@ -739,7 +739,11 @@ export class WorkCycleService {
       // Only contention and an unexpected exception reach here (R-B4): every expected refusal
       // was decided where it was met.
       const failure = decideFailure(error);
-      if (failure.kind !== 'retry') this.stopAfterFailure(cycle, failure);
+      // Recorded in the step history as the pass's own stop (R-B4 decision 9), as a refusal is.
+      if (failure.kind !== 'retry')
+        await this.writer.decided({ kind: 'failure', guard: undefined }, async () =>
+          this.stopAfterFailure(cycle, failure),
+        );
     }
   }
 
@@ -782,14 +786,19 @@ export class WorkCycleService {
         },
       );
       this.observer?.decided?.(cycle, { decision });
-      await this.apply(cycle, decision);
+      const decided = decision;
+      await this.writer.decided({ kind: decided.kind, guard: decided.guard }, () =>
+        this.apply(cycle, decided),
+      );
     } catch (error) {
       if (!decision) this.observer?.decided?.(cycle, { failed: error, guard });
       // A typed refusal a fact, the decision's writes or its effect met is decided here (R-B4,
       // decision 3); contention and the unexpected go on to the pass.
       const refused = decideRefusal(error);
       if (!refused) throw error;
-      this.stopAfterFailure(cycle, refused);
+      await this.writer.decided({ kind: 'refusal', guard: guard ?? decision?.guard }, async () =>
+        this.stopAfterFailure(cycle, refused),
+      );
     }
   }
 

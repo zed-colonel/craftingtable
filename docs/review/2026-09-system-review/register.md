@@ -956,7 +956,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-B4b
 
-**Cycle state shape: stop, waits and attempt records, end codes, step history** · Phase P4 · Effort M · Status: building on `remediation/p4` from 2026-10-18 (its first step, the replays' host pin, and increments 1 to 3 built and reviewed); decided 2026-10-15 (split from [R-B4](#r-b4) by its decision 12)
+**Cycle state shape: stop, waits and attempt records, end codes, step history** · Phase P4 · Effort M · Status: built on `remediation/p4` 2026-10-18 (its first step, the replays' host pin, and increments 1 to 4), not merged or deployed; decided 2026-10-15 (split from [R-B4](#r-b4) by its decision 12)
 
 - **Resolves (with R-B4):** [DATA-04](findings/DATA-storage-domain-contracts.md#data-04-workcycle-is-a-50-field-god-record-with-embedded-sub-state-machines-two-entity-kinds-and-projection-fields-mixed-in), [HIST-01](findings/HIST-history-and-live-usage.md#hist-01-development-proceeded-by-patching-each-live-blockage-with-new-state-panels-and-vocabulary-spaghetti-fication-measured), and the rest of [CTRL-11](findings/CTRL-controller.md#ctrl-11-control-flow-depends-on-the-wording-of-human-readable-messages): the controller stops reading old text.
 - **Change:** R-B4's decisions 5 to 9 and 11, as designed in [R-B4](#r-b4)'s entry ("The stop record", "Step history", "Old records", and the decisions themselves).
@@ -1046,6 +1046,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
       - *LOW-3, the host pools' waiting list:* a row in `cycle-stop-record.test.ts` (listed by the blocker's stored key; another resource's wait is not listed).
       - *LOW-4, a hold's code is optional in the domain type:* accepted. The shared hold schema also reads map amendments' `previous` roadmaps, which 0047 does not recode, so a union type there would make an amendment stored before 0047 with an uncoded hold unreadable; storage refuses such a write (MEDIUM-1's rows).
       - *NITs:* `LegacyPhaseBlocker` below the imports, the index sorted, the test count recounted (above).
+      - *Gate at 6084f24:* `pnpm check` passed (4,135 unit tests and 5 skipped, the 101 confined ones, e2e; the reaping test with them) and `pnpm replays` (unchanged); `/dev/shm` peaked at 1.8 GB. Its mutation round (`rb4b/review/inc3s-mutants.json`): 9 mutants, 8 caught; the survivor (a hold that needs attention decoded when uncoded) is equivalent, as storage refuses such a hold.
+  - *Increment 4, the history (decision 9).* Each `work-cycle.updated` audit row records `previousStatus` (the status the write left) and, for a write the cycle pass's decision made, `decision` (the decision's kind: its `CycleDecision` kind, `refusal` for a typed refusal the pass met, `failure` for its stop after an unexpected one) and `guard`. The writer holds the decision for the duration of its own work (`CycleWriter.decided`, an `AsyncLocalStorage` scope closed when that work returns), so a write a run's later callback makes is not taken for it; an operator's command and a write outside a pass record no decision. `audit.listCycleTransitions` reads the three fields (absent on rows written before, and anything not text read as absent). The audit trail stays the one history (decision 9 A): nothing else records a transition.
+    - Tests: `cycle-history.test.ts` (a pass's stop records `outcome` at `step-outcome` from `running`, every row the pass wrote names its decision, the operator's start and stop none; a write after the decision's work has returned is not tagged; a row from before reads as having none).
+    - The unit suite passes (4,138 tests, 5 skipped); `pnpm replays` unchanged (65 of 73 at 0 changed, 8 only as expected, 0 failed), as the increment expects.
 
 ### R-B5
 

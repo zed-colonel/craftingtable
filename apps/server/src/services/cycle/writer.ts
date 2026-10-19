@@ -5,6 +5,7 @@
  */
 
 import { finalizationAgent } from '../agent-profile-policy.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import {
   type AgentRun,
@@ -66,6 +67,31 @@ export class CycleWriter {
     private readonly branches: BranchService,
     private readonly locks: CycleLocks,
   ) {}
+
+  /**
+   * The controller decision a pass is carrying out (R-B4 decision 9): each audit row written while
+   * it runs records the decision's kind and guard, the step history the operator-wait measure and
+   * the cycle's timeline read. It is open only until the decision's own work returns, so a write a
+   * run's later callback makes is not taken for that decision's.
+   */
+  private readonly deciding = new AsyncLocalStorage<{
+    readonly kind: string;
+    readonly guard: string | undefined;
+    open: boolean;
+  }>();
+
+  /** Carries out `apply` as the pass's decision of `kind` at `guard`. */
+  async decided<T>(
+    decision: { readonly kind: string; readonly guard: string | undefined },
+    apply: () => Promise<T>,
+  ): Promise<T> {
+    const scope = { kind: decision.kind, guard: decision.guard, open: true };
+    try {
+      return await this.deciding.run(scope, apply);
+    } finally {
+      scope.open = false;
+    }
+  }
 
   /** A new cycle's record (a start, or a finalization's), with the audit row of `recorded`. */
   insert(
@@ -247,7 +273,7 @@ export class CycleWriter {
     this.storage.transaction((tx) => {
       if (!tx.execution.cycles.replace(updated, cycle.version))
         throw new ConcurrentModificationError('Cycle changed while this operation was in progress');
-      this.record(tx, updated, action, context);
+      this.record(tx, updated, action, context, cycle.status);
     });
     // The run is read-only, so ending it loses nothing; left live, it would hold the worktree.
     if (investigationEnded && ended && !ended.result)
@@ -283,8 +309,10 @@ export class CycleWriter {
     cycle: WorkCycle,
     action: string,
     context?: CommandContext,
+    previous?: WorkCycle['status'],
   ): void {
     const stopped = heldStop(cycle);
+    const decision = this.deciding.getStore();
     tx.audit.append({
       id: asAuditEventId(randomUUID()),
       occurredAt: cycle.updatedAt,
@@ -308,6 +336,12 @@ export class CycleWriter {
             }
           : {}),
         status: cycle.status,
+        // The step history (R-B4 decision 9): the status it left, and the controller decision
+        // that wrote it; an operator's command, or a write outside a pass, records none.
+        ...(previous ? { previousStatus: previous } : {}),
+        ...(decision?.open
+          ? { decision: decision.kind, ...(decision.guard ? { guard: decision.guard } : {}) }
+          : {}),
         step: cycle.step,
         reason: cycle.reason,
         runId: cycle.currentRunId,
@@ -584,7 +618,13 @@ export class CycleWriter {
         // A change of owner or code changes who the stop waits on, so it is audited like a
         // transition for operator-wait measurement (R-C1); claim details alone are not.
         if (current.code !== stopped.code || current.owner !== stopped.owner)
-          this.record(tx, { ...updated, updatedAt: at }, 'attention-refreshed');
+          this.record(
+            tx,
+            { ...updated, updatedAt: at },
+            'attention-refreshed',
+            undefined,
+            cycle.status,
+          );
         return true;
       });
       if (!written) return cycle;

@@ -40,6 +40,19 @@ async function control(f: CycleFixture, cycle: WorkCycle, action: 'stop' | 'paus
   expect(response.statusCode, response.body).toBe(200);
 }
 
+/**
+ * Whether the cycles worker, by itself, lets a push opened at `opened` go: a pass begun after it
+ * completed, or nothing to look at. Other workers are left out, so the roadmap worker's own
+ * pace cannot stand in for it (mutation round 4).
+ */
+function cyclesQuiet(f: CycleFixture, opened: number): boolean {
+  const passes = f.services.controllerPasses as unknown as {
+    workers: ReadonlyMap<string, number>;
+    idle: ReadonlyMap<string, () => boolean>;
+  };
+  return (passes.workers.get('cycles') ?? -1) > opened || passes.idle.get('cycles')?.() === true;
+}
+
 /** The cycle's reserved run is recorded and its session has started. */
 const runLive = (f: CycleFixture, cycle: WorkCycle) =>
   storedRun(f, storedCycle(f, cycle.id).currentRunId)?.status === 'running';
@@ -171,7 +184,7 @@ it("completes a cycles pass only when the round's slow job has ended (pushes wai
     const opened = f.services.controllerPasses.current;
     f.services.workCycleService.wake('test');
     await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(f.services.controllerPasses.quietSince(opened)).toBe(false);
+    expect(cyclesQuiet(f, opened)).toBe(false);
   } finally {
     gate.release();
   }
@@ -519,7 +532,7 @@ it("completes a round that left a cycle waiting only once that cycle's own job h
     queue.shift()?.();
     await waitUntil(() => queue.length === 1, "B's launch is held");
     await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(f.services.controllerPasses.quietSince(opened)).toBe(false);
+    expect(cyclesQuiet(f, opened)).toBe(false);
   } finally {
     hold(false);
     for (const release of queue.splice(0)) release();

@@ -207,9 +207,18 @@ it("logs a command's hold older than ten minutes once (increment 5 review LOW-5)
   ).locks;
   locks.holdForCommand(cycle.id);
   const held = () => warnings.filter((w) => w.message.startsWith('A command has held'));
+  // A second hold nine minutes on, nested in the first, does not make the hold younger
+  // (mutation round 4).
+  clock.step(9 * 60_000);
+  locks.holdForCommand(cycle.id);
+  clock.step(-9 * 60_000);
   // Ten minutes is not over ten minutes; the sweep after it is. Each look waits for a round
   // to have run (review L-5).
   const service = f.services.workCycleService;
+  const busy = () => {
+    const state = service as unknown as { rounding: boolean; passing: unknown };
+    return state.rounding || state.passing !== undefined;
+  };
   const aRound = async () => {
     const rounds = service.figures().rounds;
     await waitUntil(() => service.figures().rounds > rounds, 'a round');
@@ -221,11 +230,14 @@ it("logs a command's hold older than ten minutes once (increment 5 review LOW-5)
   expect(held()).toEqual([]);
   clock.advance(30_000);
   await waitUntil(() => held().length === 1, 'the hold logged');
+  // The round that logged it has ended before the next is awaited (mutation round 4).
+  await waitUntil(() => !busy(), 'that round ended');
   const later = aRound();
   clock.advance(30_000);
   await later;
   expect(held()).toHaveLength(1);
   expect(held()[0]?.detail).toEqual({ cycleId: cycle.id });
+  locks.releaseCommand(cycle.id);
   locks.releaseCommand(cycle.id);
 });
 

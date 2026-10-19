@@ -89,6 +89,22 @@ it("leaves no write in flight once a write's failure is thrown (review MEDIUM-1)
   expect(await stillLanding(base)).toBe(false);
 });
 
+it('leaves no write in flight once `write` itself throws a failure (mutation round 4)', async () => {
+  const base = root();
+  writeFileSync(join(base, 'taken'), 'a file, not a directory');
+  const writes = new FileWrites();
+  await writes.write(join(base, 'taken', 'inside'), 'x', { mode: 0o600 });
+  let thrown = false;
+  for (let i = 0; i < 200 && !thrown; i++)
+    await writes
+      .write(join(base, 'out', `d${i}`, 'f'), 'x'.repeat(65_536), { mode: 0o600 })
+      .catch(() => {
+        thrown = true;
+      });
+  expect(thrown).toBe(true);
+  expect(await stillLanding(base)).toBe(false);
+});
+
 it('leaves no write in flight when its caller throws mid-loop (review MEDIUM-1)', async () => {
   const base = root();
   await expect(

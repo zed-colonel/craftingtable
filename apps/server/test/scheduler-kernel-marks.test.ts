@@ -368,13 +368,20 @@ it("takes no marks while a test's tick runs, so none is lost (the loop waits for
   };
   const tick = service.tick();
   await waitUntil(() => rounds.calls() === 1, "the test's tick is in flight");
-  service.wake('test');
+  // Marked by key, so the loop takes a set of its own, not the `'all'` every round shares
+  // (increment 12 review MEDIUM-2).
+  (service as unknown as { kernel: { mark(cause: string, keys: string[]): void } }).kernel.mark(
+    'test',
+    [storedRoadmap(state).id],
+  );
   await sleep(100);
   gate();
   await tick;
   await waitUntil(() => taken.length >= 1, 'the mark taken after the tick');
   await quiet(state);
-  for (const marked of taken) expect(ran).toContain(marked);
+  // Every batch taken ran a round of its own: the rounds are the test's tick and one per batch
+  // (a batch taken while the tick ran, and dropped, would leave one fewer).
+  expect(ran.length).toBe(taken.length + 1);
 });
 
 it("waits on the merge lane an entry's blocker found busy, and starts it at the release", async () => {

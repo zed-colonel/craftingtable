@@ -276,8 +276,12 @@ it("reports the controller's figures in the owner-only diagnostics (decision 9)"
   expect(first.lastSweepAgoMs).toBeUndefined();
   // The scheduler's and delivery's drains beside it (R-B5 part 2).
   expect(first.drains?.map((drain) => drain.name)).toEqual(['roadmaps', 'delivery']);
-  expect(first.drains?.[0]?.rounds).toBeGreaterThan(0);
-  expect(first.drains?.[1]?.marks.some((mark) => mark.cause === 'start')).toBe(true);
+  const drain = (name: string) => first.drains?.find((d) => d.name === name);
+  // Each drain's own kernel: the scheduler's marks and rounds, delivery's start mark.
+  expect(drain('roadmaps')?.rounds).toBeGreaterThan(0);
+  expect(drain('roadmaps')?.marks.find((mark) => mark.cause === 'start')?.count).toBe(1);
+  expect(drain('delivery')?.marks.find((mark) => mark.cause === 'start')?.count).toBe(1);
+  expect(drain('delivery')?.timers.due).toBeGreaterThanOrEqual(0);
   clock.advance(30_000);
   await waitUntil(
     () => kernelSweeps(f) === 1 && f.services.workCycleService.figures().rounds > first.rounds,
@@ -285,6 +289,9 @@ it("reports the controller's figures in the owner-only diagnostics (decision 9)"
   );
   const second = await read();
   expect(second.marks.find((mark) => mark.cause === 'sweep')?.count).toBe(1);
+  // The sweep reaches the other drains too.
+  for (const d of second.drains ?? [])
+    expect(d.marks.find((mark) => mark.cause === 'sweep')?.count, d.name).toBe(1);
   expect(second.lastSweepAgoMs).toBe(0);
   // Counters only grow: a phase's figures are the difference of two reads.
   for (const mark of first.marks)

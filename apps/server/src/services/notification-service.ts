@@ -419,16 +419,16 @@ export class NotificationService {
       await new Promise((resolve) => setImmediate(resolve));
     }
   }
-  /**
-   * One delivery round, then its due time: the earliest moment after the claims' own `now` at
-   * which a refusal they met can turn (part 2 review MEDIUM-4); one already come by the round's
-   * end marks it once more.
-   */
   /** Delivery's figures for the owner-only diagnostics (R-B5 part 2). */
   figures(): DrainSummary {
     return drainSummary('delivery', this.rounds, this.kernel, this.now().getTime());
   }
   private rounds = 0;
+  /**
+   * One delivery round, then its due time: the earliest moment after the claims' own `now` at
+   * which a refusal they met can turn (part 2 review MEDIUM-4); one already come by the round's
+   * end marks it once more.
+   */
   private async round(): Promise<void> {
     this.rounds += 1;
     this.nextAt = undefined;

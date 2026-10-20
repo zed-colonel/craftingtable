@@ -214,7 +214,7 @@ class SupersededRoadmapOperation extends Error {}
  * again), then the refusal holds as any other.
  */
 class MergeTargetMovedRetry extends Error {}
-const TARGET_MOVED_BACKOFF_MS = [1000, 1000, 1000] as const;
+const TARGET_MOVED_RETRY_MS = [1000, 1000, 1000] as const;
 /** A definition's shared-decision inbox as the R-C3b hold reads it, and when it was built. */
 interface HoldInbox {
   readonly generation: number;
@@ -3454,7 +3454,7 @@ export class RoadmapService {
           } catch (error) {
             if (error instanceof ExecutionRequestError && error.detail?.reason === 'target-moved') {
               const refusals = (this.targetMovedRefusals.get(attempt.worktreeId) ?? 0) + 1;
-              const wait = TARGET_MOVED_BACKOFF_MS[refusals - 1];
+              const wait = TARGET_MOVED_RETRY_MS[refusals - 1];
               if (wait !== undefined) {
                 this.targetMovedRefusals.set(attempt.worktreeId, refusals);
                 const at = this.now().getTime() + wait;

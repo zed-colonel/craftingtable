@@ -1,4 +1,5 @@
 import type { ControllerSummary } from '@craftingtable/contracts';
+import type { ControllerKernel } from './controller-kernel.js';
 
 /** One more drain on the kernel, as the figures show it (R-B5 part 2). */
 export type DrainSummary = NonNullable<ControllerSummary['drains']>[number];
@@ -24,7 +25,6 @@ export function drainSummary(
     },
   };
 }
-import type { ControllerKernel } from './controller-kernel.js';
 
 /** Round durations kept for the last minute's percentiles; older ones are dropped. */
 const RECENT_ROUNDS = 4096;

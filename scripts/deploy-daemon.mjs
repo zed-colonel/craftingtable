@@ -444,7 +444,9 @@ export async function drainDaemon(directory, mode, options = {}) {
       if (status?.requestId === id) {
         if (status.state === 'drained') return { acknowledged: true, ...status };
         if (status.state === 'failed')
-          throw new Error(`The daemon could not drain: ${status.message ?? 'unknown error'}`);
+          throw new Error(
+            `The daemon could not drain: ${status.message ?? 'unknown error'}. The release was not switched; the daemon restarts itself, undrained, within two minutes.`,
+          );
         if (status.busyRuns !== reported) {
           say(`Draining: ${status.busyRuns} live agent turn(s) still working…`);
           reported = status.busyRuns;

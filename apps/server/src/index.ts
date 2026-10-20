@@ -21,10 +21,12 @@ if (retired.length > 0)
 const shutdown = daemonStop({ runtime, lock });
 
 // A deploy that drained this daemon restarts it within seconds. If none does, the deploy
-// was interrupted after the drain; exit with a failure status so the service manager
-// restarts the daemon, and the recorded clean stop resumes automation (R-B9).
+// was interrupted after the drain, or the drain failed; exit with a failure status so the
+// service manager restarts the daemon, and a recorded clean stop resumes automation (R-B9).
 runtime.services.daemonDrain.whenStranded(() => {
-  runtime.app.log.warn('drained for a deploy that never restarted the daemon; exiting to restart');
+  runtime.app.log.warn(
+    'drained or failed to drain for a deploy that never restarted the daemon; exiting to restart',
+  );
   void shutdown('SIGTERM').finally(() => process.exit(75));
 });
 

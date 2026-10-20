@@ -567,7 +567,11 @@ it("sees a deploy's drain request and its withdrawal through the watch, not a po
 /** A drain of its own over a scratch data directory, with one live turn that never ends. */
 function standaloneDrain(
   dataDir: string,
-  runs: { busyRunCount?: () => number; interruptForRestart?: () => Promise<number> } = {},
+  runs: {
+    busyRunCount?: () => number;
+    interruptForRestart?: () => Promise<number>;
+    cancelDrain?: () => void;
+  } = {},
 ): DaemonDrain {
   return new DaemonDrain(
     { transaction() {} } as never,
@@ -712,5 +716,32 @@ it("throws nothing out of the watch's timers when a look fails (increment 18 rev
   } finally {
     drain.stopWatching();
     rmSync(base, { recursive: true, force: true });
+  }
+});
+
+it('leaves a withdrawn drain that failed to restore to the daemon, not to a restart (increment 19 review LOW-1)', async () => {
+  const dataDir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'drain-withdrawn-'));
+  const drain = standaloneDrain(dataDir, {
+    cancelDrain: () => {
+      throw new Error('cancel failed');
+    },
+  });
+  let stranded = 0;
+  drain.whenStranded(() => {
+    stranded += 1;
+  }, 50);
+  try {
+    writeFileSync(
+      join(dataDir, DRAIN_REQUEST_FILE),
+      JSON.stringify({ id: 'r', mode: 'when-idle' }),
+    );
+    drain.poll();
+    expect(drain.isDraining()).toBe(true);
+    rmSync(join(dataDir, DRAIN_REQUEST_FILE));
+    drain.poll();
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(stranded).toBe(0);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
   }
 });

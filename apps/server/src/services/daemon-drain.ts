@@ -125,8 +125,9 @@ export class DaemonDrain {
 
   /**
    * Called when a deploy's drain finished but no restart followed within `afterMs`: the
-   * deploy was interrupted after the drain (Ctrl-C, a closed terminal, a failed switch).
-   * The daemon has stopped its loops and admits nothing, so it must restart to resume.
+   * deploy was interrupted after the drain (Ctrl-C, a closed terminal, a failed switch), or the
+   * drain failed (the deploy does not switch then). The daemon admits nothing, so it must
+   * restart to resume.
    */
   whenStranded(listener: () => void, afterMs = 120_000): void {
     this.stranded = { listener, afterMs };
@@ -258,8 +259,12 @@ export class DaemonDrain {
           if (this.request !== request) return;
           this.finish('drained', interrupted);
         },
-        (error: unknown) =>
-          this.finish('failed', undefined, error instanceof Error ? error.message : 'failed'),
+        (error: unknown) => {
+          // A withdrawn drain has resumed admissions: it is no deploy's to answer (increment 19
+          // review LOW-1).
+          if (this.request !== request) return;
+          this.finish('failed', undefined, error instanceof Error ? error.message : 'failed');
+        },
       );
       return;
     }
@@ -287,7 +292,11 @@ export class DaemonDrain {
         this.deadline = undefined;
         this.agentRuns.cancelDrain();
         this.roadmaps.holdAdmissions(false);
-        rmSync(join(this.dataDir, DRAIN_STATUS_FILE), { force: true });
+        try {
+          rmSync(join(this.dataDir, DRAIN_STATUS_FILE), { force: true });
+        } catch {
+          // A stale status names the withdrawn request, which no deploy waits on.
+        }
         log?.info({}, 'drain cancelled; admissions resumed');
         return 0;
       }
@@ -340,12 +349,11 @@ export class DaemonDrain {
    * A deploy's drain ended: its answer written, retried each second while it cannot be (a full
    * disk), never ending the daemon's process from a rejected promise; and, drained or failed,
    * the daemon admits nothing more, so it restarts should no deploy restart it (increment 17
-   * review LOW-6, increment 18 review MEDIUM-1: a failed drain ended the process before).
+   * review LOW-6, increment 18 review MEDIUM-1). A deploy told `failed` does not switch, so a
+   * failed drain's daemon restarts itself, undrained, after `afterMs`.
    */
   private finish(state: 'drained' | 'failed', interrupted?: number, message?: string): void {
-    const request = this.request;
     const write = () => {
-      if (this.request !== request) return;
       try {
         this.writeStatus(state, interrupted, message);
       } catch {

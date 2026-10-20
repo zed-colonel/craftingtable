@@ -2645,7 +2645,10 @@ describe("delivery's due time (R-B5 part 2, increment 10)", () => {
   it('is due at the commanding window or the grace for a first push, and a test request’s retry', async () => {
     // The operator issues commands (the settings saved) but does not watch: the first push waits
     // for the earlier of the grace's end and the commanding window's.
+    // The item opens a minute after the save, so the commanding window ends a minute before the
+    // grace would (increment 11 review LOW-3: equal times masked the window's due time).
     const f = await fixture(undefined, { settleMs: 0 });
+    f.advance(1);
     f.setCycle('needs-attention', { attention: cycleAttention('review-open-questions') });
     f.send.mockClear();
     expect(await walk(f, PRESENCE_GRACE_MS / 1000 + 5)).toBe(true);
@@ -2655,6 +2658,23 @@ describe("delivery's due time (R-B5 part 2, increment 10)", () => {
     f.service.test(f.auth, f.workspaceId);
     expect(await walk(f, 5)).toBe(true);
     expect(await walk(f, 120)).toBe(true);
+  });
+
+  it('looks again 5 s on after a round cut short (increment 10 review LOW-2)', async () => {
+    const f = await fixture();
+    const notifications = f.context.storage.notifications as unknown as {
+      listSettings: () => unknown;
+    };
+    const list = notifications.listSettings;
+    notifications.listSettings = () => {
+      throw new Error('The database is busy.');
+    };
+    try {
+      await expect(f.service.tick()).rejects.toThrow('The database is busy.');
+    } finally {
+      notifications.listSettings = list;
+    }
+    expect(f.service.kernel.nextDue()).toBe(f.now().getTime() + 5000);
   });
 
   it('looks again at the quiescence limit while a controller has not had its chance', async () => {

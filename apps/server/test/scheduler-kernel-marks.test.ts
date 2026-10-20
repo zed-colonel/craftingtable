@@ -297,12 +297,18 @@ it('marks at the round end the roadmaps that met a lock after its release in tha
       target.waitOnLock(storedRoadmap(state).id, 'lane');
     }
   };
+  const drain = drainOf(state);
   service.wake('test');
   await waitUntil(() => entered, 'the round is in its await');
   const looked = rounds.calls();
+  const released = drain.cause('release');
   // Released outside the round, while it awaits; the roadmap records its wait after.
   service.lockReleased('lane');
+  // No waiter yet: the release itself marks nothing.
+  expect(drain.cause('release')).toBe(released);
   gate();
+  // The round's end marks the roadmap that met the lane after its release, once.
+  await waitUntil(() => drain.cause('release') === released + 1, 'the mark at the round end');
   await waitUntil(() => rounds.calls() > looked, 'the look the release owes it');
 });
 
@@ -342,13 +348,33 @@ it("takes no marks while a test's tick runs, so none is lost (the loop waits for
       });
     }
   };
+  // Every batch of marks the loop takes reaches a round: none is taken and dropped.
+  const kernel = (service as unknown as { kernel: { take(): unknown } }).kernel;
+  const taken: unknown[] = [];
+  const take = kernel.take.bind(kernel);
+  kernel.take = () => {
+    const marked = take();
+    if (marked !== undefined) taken.push(marked);
+    return marked;
+  };
+  const ran: unknown[] = [];
+  const body = (service as unknown as { roundBody(marked: unknown): Promise<void> }).roundBody;
+  (service as unknown as { roundBody(marked: unknown): Promise<void> }).roundBody = function (
+    this: unknown,
+    marked: unknown,
+  ) {
+    ran.push(marked);
+    return body.call(this, marked);
+  };
   const tick = service.tick();
   await waitUntil(() => rounds.calls() === 1, "the test's tick is in flight");
   service.wake('test');
   await sleep(100);
   gate();
   await tick;
-  await waitUntil(() => rounds.calls() === 2, 'the mark taken after the tick');
+  await waitUntil(() => taken.length >= 1, 'the mark taken after the tick');
+  await quiet(state);
+  for (const marked of taken) expect(ran).toContain(marked);
 });
 
 it("waits on the merge lane an entry's blocker found busy, and starts it at the release", async () => {
@@ -423,4 +449,23 @@ it("does not mark the cycle for a refresh the scheduler's call found in flight (
   } finally {
     locks.refreshing.delete(cycleId);
   }
+});
+
+it('keeps the cycle controller from counting as idle while a look is due within seconds (increment 9 review LOW-5)', async () => {
+  const { state, clock } = await waitingRoadmap();
+  const idle = (
+    state.context.services.controllerPasses as unknown as {
+      idle: ReadonlyMap<string, () => boolean>;
+    }
+  ).idle;
+  const kernel = (
+    state.context.services.workCycleService as unknown as {
+      kernel: { dueAt(key: string, at: number | undefined): void };
+    }
+  ).kernel;
+  expect(idle.get('cycles')?.()).toBe(true);
+  kernel.dueAt('a-retry', clock.now() + 1000);
+  expect(idle.get('cycles')?.()).toBe(false);
+  kernel.dueAt('a-retry', undefined);
+  expect(idle.get('cycles')?.()).toBe(true);
 });

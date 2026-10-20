@@ -274,6 +274,10 @@ it("reports the controller's figures in the owner-only diagnostics (decision 9)"
     Date.parse(storedCycle(f, cycle.id).runDeadlineAt) - clock.now(),
   );
   expect(first.lastSweepAgoMs).toBeUndefined();
+  // The scheduler's and delivery's drains beside it (R-B5 part 2).
+  expect(first.drains?.map((drain) => drain.name)).toEqual(['roadmaps', 'delivery']);
+  expect(first.drains?.[0]?.rounds).toBeGreaterThan(0);
+  expect(first.drains?.[1]?.marks.some((mark) => mark.cause === 'start')).toBe(true);
   clock.advance(30_000);
   await waitUntil(
     () => kernelSweeps(f) === 1 && f.services.workCycleService.figures().rounds > first.rounds,

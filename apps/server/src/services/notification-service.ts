@@ -32,6 +32,7 @@ import {
   SWEEP_MS,
   systemClock,
 } from './kernel/controller-kernel.js';
+import { type DrainSummary, drainSummary } from './kernel/figures.js';
 import { inboxPath } from './attention-service.js';
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError } from './errors.js';
@@ -423,7 +424,13 @@ export class NotificationService {
    * which a refusal they met can turn (part 2 review MEDIUM-4); one already come by the round's
    * end marks it once more.
    */
+  /** Delivery's figures for the owner-only diagnostics (R-B5 part 2). */
+  figures(): DrainSummary {
+    return drainSummary('delivery', this.rounds, this.kernel, this.now().getTime());
+  }
+  private rounds = 0;
   private async round(): Promise<void> {
+    this.rounds += 1;
     this.nextAt = undefined;
     this.waitsOnQuiet = false;
     try {

@@ -57,6 +57,18 @@ const controllerSummarySchema = z.strictObject({
   }),
   timers: z.strictObject({ due: count, nextDueInMs: milliseconds.optional() }),
   lastSweepAgoMs: milliseconds.optional(),
+  /** The scheduler's and delivery's drains on the same kernel (R-B5 part 2). */
+  drains: z
+    .array(
+      z.strictObject({
+        name: z.enum(['roadmaps', 'delivery']),
+        rounds: count,
+        marks: z.array(z.strictObject({ cause: z.string().min(1).max(32), count })).max(32),
+        timers: z.strictObject({ due: count, nextDueInMs: milliseconds.optional() }),
+      }),
+    )
+    .max(2)
+    .optional(),
 });
 
 /**

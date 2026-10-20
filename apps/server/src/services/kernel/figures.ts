@@ -1,4 +1,29 @@
 import type { ControllerSummary } from '@craftingtable/contracts';
+
+/** One more drain on the kernel, as the figures show it (R-B5 part 2). */
+export type DrainSummary = NonNullable<ControllerSummary['drains']>[number];
+
+/** A drain's figures: its rounds since start, its marks by cause, its armed due times. */
+export function drainSummary(
+  name: DrainSummary['name'],
+  rounds: number,
+  kernel: ControllerKernel,
+  now: number,
+): DrainSummary {
+  const nextDue = kernel.nextDue();
+  return {
+    name,
+    rounds,
+    marks: [...kernel.causes]
+      .map(([cause, count]) => ({ cause, count }))
+      .toSorted((a, b) => a.cause.localeCompare(b.cause))
+      .slice(0, 32),
+    timers: {
+      due: kernel.dueCount(),
+      ...(nextDue === undefined ? {} : { nextDueInMs: Math.max(0, Math.round(nextDue - now)) }),
+    },
+  };
+}
 import type { ControllerKernel } from './controller-kernel.js';
 
 /** Round durations kept for the last minute's percentiles; older ones are dropped. */

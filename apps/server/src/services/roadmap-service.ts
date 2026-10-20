@@ -18,6 +18,7 @@ import {
   SWEEP_MS,
   systemClock,
 } from './kernel/controller-kernel.js';
+import { type DrainSummary, drainSummary } from './kernel/figures.js';
 import { inRetiredVersion, retiredOrRetiring, retiredVersionIds } from './retired-versions.js';
 import { cycleOwnership, ownerOf } from './cycle-ownership.js';
 import { type ItemRefusal, itemGate, predecessorGate } from './transition-gate.js';
@@ -208,12 +209,12 @@ class SupersededRoadmapOperation extends Error {}
 /**
  * A delegated merge refused because its destination moved (`target-moved`), left for a later
  * pass (R-G10, operator decision 2026-10-07): that pass refreshes the worktree if integration
- * advanced, then merges again. Its target moves when other merges land, so a later try usually
- * succeeds: three quick retries a second apart, then 1, 5 and 15 minutes on (R-B5 decision 17,
- * in memory: a restart starts again), and after the last the refusal holds as any other.
+ * advanced, then merges again. Three retries a second apart (each refresh counts toward the
+ * cycle's own refresh limit, which bounds a target that keeps moving: R-B5 decision 17, asked
+ * again), then the refusal holds as any other.
  */
 class MergeTargetMovedRetry extends Error {}
-const TARGET_MOVED_BACKOFF_MS = [1000, 1000, 1000, 60_000, 5 * 60_000, 15 * 60_000] as const;
+const TARGET_MOVED_BACKOFF_MS = [1000, 1000, 1000] as const;
 /** A definition's shared-decision inbox as the R-C3b hold reads it, and when it was built. */
 interface HoldInbox {
   readonly generation: number;
@@ -1158,7 +1159,7 @@ export class RoadmapService {
   }
   /** When a standing preparation that could not be reserved is tried again, per decision. */
   private readonly preparationRetryAt = new Map<string, number>();
-  /** Consecutive `target-moved` refusals of each worktree's delegated merge, in memory. */
+  /** `target-moved` refusals of each worktree's delegated merge since its last merge, in memory. */
   private readonly targetMovedRefusals = new Map<string, number>();
   /** When each worktree's refused delegated merge may be tried again (R-B5 part 2). */
   private readonly targetMovedNotBefore = new Map<string, number>();
@@ -2774,7 +2775,13 @@ export class RoadmapService {
       done();
     }
   }
+  /** The scheduler drain's figures for the owner-only diagnostics (R-B5 part 2). */
+  figures(): DrainSummary {
+    return drainSummary('roadmaps', this.rounds, this.kernel, this.now().getTime());
+  }
+  private rounds = 0;
   private async roundBody(marked: Marked): Promise<void> {
+    this.rounds += 1;
     const pass = this.passes?.started();
     this.passInboxes = new Map();
     this.looks.clear();

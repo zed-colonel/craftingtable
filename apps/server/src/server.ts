@@ -208,7 +208,10 @@ export function buildServer(
   registerDiagnosticsRoutes(
     app,
     deps.workspaceService,
-    new DaemonDiagnostics(() => deps.workCycleService.figures()),
+    new DaemonDiagnostics(() => ({
+      ...deps.workCycleService.figures(),
+      drains: [deps.roadmapService.figures(), deps.notificationService.figures()],
+    })),
   );
 
   app.addHook('onReady', async () => {

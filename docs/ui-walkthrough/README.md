@@ -22,6 +22,11 @@ harness appends one row to [INDEX.md](INDEX.md), which is committed with the UI 
 history records which capture belongs to which commit. Back up the capture store with the rest
 of the workstation if the images matter to you; Git does not.
 
+The one exception is the README's four screenshots in [`docs/images/readme/`](../images/readme/),
+which the public README needs in the repository. `pnpm docs:screenshots`
+(`e2e/readme-screenshots.spec.ts`) seeds a scripted session on the Lantern fixture plan and
+rewrites them; re-take them after a UI change they show, and commit them with it.
+
 Captures are a historical record: take one before and after UI work that changes page
 structure, compare, and keep both. Do not edit captured images by hand. The spec that produces
 them is `e2e/walkthrough.spec.ts`; extend it when the app grows a page or a state worth

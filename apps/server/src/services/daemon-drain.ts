@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  type FSWatcher,
+  readFileSync,
+  renameSync,
+  rmSync,
+  watch,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
@@ -135,19 +143,45 @@ export class DaemonDrain {
     return this.completion !== undefined;
   }
 
-  /** Watches for a deploy's drain request; stale files from an earlier daemon are removed. */
-  startWatching(intervalMs = 1000): void {
+  /**
+   * Watches for a deploy's drain request; stale files from an earlier daemon are removed. The
+   * data directory is watched (not its subdirectories, where the database writes), so a request
+   * written or withdrawn is seen at once, and polled every `fallbackMs` should a watch event be
+   * missed, inside the deploy's 15 s wait for an answer (`deploy-daemon.mjs`), which takes
+   * silence for a daemon without drains; a directory that cannot be watched is polled every
+   * second, as before (R-B5 decision 22: the poll woke an idle daemon every second).
+   */
+  startWatching(fallbackMs = 10_000): void {
     if (this.watcher) return;
     rmSync(join(this.dataDir, DRAIN_REQUEST_FILE), { force: true });
     rmSync(join(this.dataDir, DRAIN_STATUS_FILE), { force: true });
-    this.watcher = setInterval(() => this.poll(), intervalMs);
+    let interval = fallbackMs;
+    try {
+      this.fileWatch = watch(this.dataDir, { persistent: false }, (_event, name) => {
+        if (name === null || name === DRAIN_REQUEST_FILE) this.poll();
+      });
+      // A watch that fails later (its directory removed, a watcher limit) falls back to the poll.
+      this.fileWatch.on('error', () => {
+        this.fileWatch?.close();
+        this.fileWatch = undefined;
+        clearInterval(this.watcher);
+        this.watcher = setInterval(() => this.poll(), 1000);
+        this.watcher.unref();
+      });
+    } catch {
+      interval = 1000;
+    }
+    this.watcher = setInterval(() => this.poll(), interval);
     this.watcher.unref();
   }
 
   stopWatching(): void {
+    this.fileWatch?.close();
+    this.fileWatch = undefined;
     clearInterval(this.watcher);
     this.watcher = undefined;
   }
+  private fileWatch: FSWatcher | undefined;
 
   /** One watcher pass; exposed so tests step it deterministically. */
   poll(): void {

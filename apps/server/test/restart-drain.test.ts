@@ -510,3 +510,28 @@ describe('restart drain and automatic resume (R-B9)', () => {
     expect(stranded).toBe(1);
   });
 });
+
+it("sees a deploy's drain request and its withdrawal through the watch, not a poll (R-B5 decision 22)", async () => {
+  const f = await fixture();
+  await startLiveCycle(f);
+  const drain = f.services.daemonDrain;
+  const dataDir = f.context.config.dataDir;
+  const status = () => JSON.parse(readFileSync(join(dataDir, DRAIN_STATUS_FILE), 'utf8'));
+  // The fallback poll is an hour off: only the watch can see the request.
+  drain.startWatching(3_600_000);
+  try {
+    writeFileSync(
+      join(dataDir, DRAIN_REQUEST_FILE),
+      JSON.stringify({ id: 'watched', mode: 'when-idle' }),
+    );
+    for (let turn = 0; turn < 200 && !existsSync(join(dataDir, DRAIN_STATUS_FILE)); turn++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(status()).toMatchObject({ requestId: 'watched', state: 'draining' });
+    rmSync(join(dataDir, DRAIN_REQUEST_FILE));
+    for (let turn = 0; turn < 200 && drain.isDraining(); turn++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(drain.isDraining()).toBe(false);
+  } finally {
+    drain.stopWatching();
+  }
+});

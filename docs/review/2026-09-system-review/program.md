@@ -1245,6 +1245,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **R-B5 decided, 2026-10-20.** The operator accepted part 2's idle figure as near zero, so R-B5's done-when is met; the other four items left (a round's own error ending the controller loop, a follow-up; the deploy's unheard final status, left; the CLI's password reset, accepted; `scopeReviewWait`, a later performance item) are decided in its entry. Next: a short look at the `restart-reaping` hard-kill test's flake, then R-B6.
 
+**R-B5 deployed, 2026-10-20.** Deployed at d39b549 (no migration). The live daemon's idle went from 3.6 % to 2.7 % of a core; about 2.5 points of what is left is the storage service's once-a-minute walk of the run directories (older than R-B5, invisible on a snapshot copy), a follow-up for the operator to place (R-B5's entry).
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

@@ -155,3 +155,15 @@ it('never asks for a timer longer than the sweep, however far the due time (muta
   expect(Math.max(...asked)).toBeLessThanOrEqual(SWEEP_MS);
   k.stop();
 });
+
+it('says whether a look is due within a span (the idle probes, increment 9 review LOW-5)', () => {
+  const { clock, kernel: k } = kernel();
+  expect(k.dueWithin(5_000)).toBe(false);
+  k.dueAt('a', clock.now() + 6_000);
+  expect(k.dueWithin(5_000)).toBe(false);
+  k.dueAt('b', clock.now() + 1_000);
+  expect(k.dueWithin(5_000)).toBe(true);
+  k.dueAt('b', undefined);
+  clock.step(1_000);
+  expect(k.dueWithin(5_000)).toBe(true);
+});

@@ -1204,9 +1204,21 @@ it('retries a delegated merge refused as target-moved on a later pass, without a
   expect(Object.keys(storedRoadmap(state).entryHolds ?? {})).toEqual([]);
 });
 
-it('holds the roadmap as before once target-moved refusals pass the retry bound (R-G10, operator decision 2026-10-07)', async () => {
+it('backs a target-moved merge off 1, 5 and 15 minutes after its quick retries, then holds the roadmap as before (R-G10; R-B5 decision 17)', async () => {
   const { gitOperations, calls } = movedTargetGit(Number.POSITIVE_INFINITY);
-  const fixture = await roadmapFixture(undefined, { gitOperations });
+  let time = Date.now();
+  const now = () => new Date(time);
+  const merged: number[] = [];
+  const fixture = await roadmapFixture(undefined, {
+    now,
+    gitOperations: {
+      ...gitOperations,
+      mergeBranch: (input) => {
+        merged.push(time);
+        return gitOperations.mergeBranch(input);
+      },
+    },
+  });
   const { state } = fixture;
   await useIntegration(fixture);
   await saveRoadmapRequest(state, {
@@ -1214,14 +1226,24 @@ it('holds the roadmap as before once target-moved refusals pass the retry bound 
     automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
   });
   await roadmapControl(state, 'start');
-  await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'held after the bound');
+  // Each step moves the clock ten seconds on: the backoff passes in steps, not in real minutes.
+  await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'held after the backoff', {
+    step: async () => {
+      time += 10_000;
+      await stepDaemons();
+    },
+  });
   // Held as before the retry: the scheduler's stop, with the refusal as its reason.
   expect(storedRoadmap(state)).toMatchObject({
     attention: { code: 'scheduler-error' },
     reason: expect.stringMatching(/moved while it was merged into/),
   });
-  // Three retries, then the hold: no further merge is attempted.
-  expect(calls.count).toBe(4);
+  // Three quick retries, then 1, 5 and 15 minutes on, then the hold: no further merge.
+  expect(calls.count).toBe(7);
+  const gaps = merged.slice(1).map((at, i) => at - (merged[i] ?? at));
+  for (const [i, least] of [1000, 1000, 1000, 60_000, 5 * 60_000, 15 * 60_000].entries())
+    expect(gaps[i]).toBeGreaterThanOrEqual(least);
+  expect(gaps[5]).toBeLessThan(15 * 60_000 + 60_000);
   await stepDaemons(5);
-  expect(calls.count).toBe(4);
+  expect(calls.count).toBe(7);
 });

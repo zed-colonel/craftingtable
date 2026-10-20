@@ -283,11 +283,11 @@ it('marks at the round end the roadmaps that met a lock after its release in tha
   const target = service as unknown as Advance & {
     waitOnLock(id: string, key: string): void;
   };
-  const advance = target.advance.bind(service);
+  // Its units write nothing, so only the release can bring another round.
   let gate: () => void = () => undefined;
   let entered = false;
   let once = true;
-  target.advance = async (...args: unknown[]) => {
+  target.advance = async () => {
     if (once) {
       once = false;
       entered = true;
@@ -296,7 +296,6 @@ it('marks at the round end the roadmaps that met a lock after its release in tha
       });
       target.waitOnLock(storedRoadmap(state).id, 'lane');
     }
-    return advance(...args);
   };
   service.wake('test');
   await waitUntil(() => entered, 'the round is in its await');
@@ -332,17 +331,16 @@ it("takes no marks while a test's tick runs, so none is lost (the loop waits for
   const service = state.context.services.roadmapService;
   const rounds = counted(service, 'roundBody');
   const target = service as unknown as Advance;
-  const advance = target.advance.bind(service);
+  // Its units write nothing, so only the mark made during the tick can bring another round.
   let gate: () => void = () => undefined;
   let held = true;
-  target.advance = async (...args: unknown[]) => {
+  target.advance = async () => {
     if (held) {
       held = false;
       await new Promise<void>((resolve) => {
         gate = resolve;
       });
     }
-    return advance(...args);
   };
   const tick = service.tick();
   await waitUntil(() => rounds.calls() === 1, "the test's tick is in flight");
@@ -379,4 +377,50 @@ it("waits on the merge lane an entry's blocker found busy, and starts it at the 
   release();
   await held;
   await waitUntil(() => storedRoadmap(state).attempts.length === 1, 'the entry started');
+});
+
+it('is not idle for the pushes while a retry is due within seconds (increment 9 review LOW-5)', async () => {
+  const { state, service, rounds, clock } = await failing(
+    () => new ConcurrentModificationError('A newer version'),
+  );
+  const idle = (
+    state.context.services.controllerPasses as unknown as {
+      idle: ReadonlyMap<string, () => boolean>;
+    }
+  ).idle;
+  service.wake('test');
+  await waitUntil(() => rounds.calls() >= 1, 'the round that lost');
+  await quiet(state);
+  expect(idle.get('roadmaps')?.()).toBe(false);
+  // Its look is now more than five seconds off: idle again.
+  clock.step(-10_000);
+  expect(idle.get('roadmaps')?.()).toBe(true);
+});
+
+it('records no waiter outside a round: a read of the board waits on nothing (increment 9 review LOW-4)', async () => {
+  const { state } = await waitingRoadmap();
+  const service = state.context.services.roadmapService as unknown as {
+    waitOnLock(id: string, key: string): void;
+  };
+  service.waitOnLock(storedRoadmap(state).id, 'lane');
+  expect(drainOf(state).waiters('lane')).toEqual([]);
+});
+
+it("does not mark the cycle for a refresh the scheduler's call found in flight (increment 9 review M-1)", async () => {
+  const { state } = await waitingRoadmap();
+  const cycles = state.context.services.workCycleService;
+  const cycleId = storedRoadmap(state).attempts[0]?.cycleId as WorkCycleId;
+  const kernel = (cycles as unknown as { kernel: { causes: ReadonlyMap<string, number> } }).kernel;
+  const locks = (cycles as unknown as { locks: { refreshing: Set<string> } }).locks;
+  const released = kernel.causes.get('release') ?? 0;
+  locks.refreshing.add(cycleId);
+  try {
+    const cycle = state.context.storage.execution.cycles.find(state.workspaceId, cycleId);
+    if (!cycle) throw new Error('no cycle');
+    expect(await cycles.refreshIntegration(cycle)).toBe(true);
+    await sleep(50);
+    expect(kernel.causes.get('release') ?? 0).toBe(released);
+  } finally {
+    locks.refreshing.delete(cycleId);
+  }
 });

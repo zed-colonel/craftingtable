@@ -80,6 +80,7 @@ it('runs delivery only on a mark or at its due time (flipped by increment 10)', 
   const before = marks();
   await sleep(5_600);
   expect(rounds.calls()).toBeLessThanOrEqual(marks() - before);
+  expect(rounds.calls()).toBeLessThanOrEqual(2);
   // The stopped cycle's item waits for its settle window: delivery looks again when it ends.
   const due = delivery.kernel.nextDue();
   expect(due).toBeGreaterThan(clock.now());

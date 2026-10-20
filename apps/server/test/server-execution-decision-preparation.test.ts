@@ -25,6 +25,7 @@ import {
 } from '../src/services/architecture-decision-inbox.js';
 import { RepositoryMutationBusyError } from '../src/services/branch-service.js';
 import { ConcurrentModificationError } from '../src/services/errors.js';
+import { WorktreeMutationBusyError } from '../src/services/worktree-mutation-guard.js';
 import { milestoneSatisfied } from '../src/services/cross-project-service.js';
 
 /**
@@ -1275,4 +1276,28 @@ it('tries a preparation refused by a lost race again a second on, not on every p
   const due = roadmaps.kernel.nextDue() ?? 0;
   expect(due).toBeGreaterThan(Date.now());
   expect(due).toBeLessThanOrEqual(Date.now() + 1000);
+});
+
+it('holds a preparation that met the worktree guard busy until a guard release, not a lane release (R-B5 increment 9 review LOW-3)', async () => {
+  const fixture = await decisionFixture();
+  const { f } = fixture;
+  let refused = 0;
+  vi.spyOn(
+    f.state.context.services.executionService,
+    'createDecisionWorktree',
+  ).mockImplementationOnce(async () => {
+    refused += 1;
+    throw new WorktreeMutationBusyError();
+  });
+  await grantAndStart(fixture);
+  await waitFor(() => refused === 1, 'the preparation met the busy guard');
+  const roadmaps = f.state.context.services.roadmapService;
+  roadmaps.lockReleased('lane');
+  for (let pass = 0; pass < 3; pass++) await roadmaps.tick();
+  expect(preparation(fixture, 'LOCAL-ADR-01')).toBeUndefined();
+  roadmaps.lockReleased('guard');
+  await waitFor(
+    () => preparation(fixture, 'LOCAL-ADR-01') !== undefined,
+    'tried at the guard release',
+  );
 });

@@ -208,10 +208,12 @@ class SupersededRoadmapOperation extends Error {}
 /**
  * A delegated merge refused because its destination moved (`target-moved`), left for a later
  * pass (R-G10, operator decision 2026-10-07): that pass refreshes the worktree if integration
- * advanced, then merges again. After TARGET_MOVED_RETRIES the refusal holds as any other.
+ * advanced, then merges again. Its target moves when other merges land, so a later try usually
+ * succeeds: three quick retries a second apart, then 1, 5 and 15 minutes on (R-B5 decision 17,
+ * in memory: a restart starts again), and after the last the refusal holds as any other.
  */
 class MergeTargetMovedRetry extends Error {}
-const TARGET_MOVED_RETRIES = 3;
+const TARGET_MOVED_BACKOFF_MS = [1000, 1000, 1000, 60_000, 5 * 60_000, 15 * 60_000] as const;
 /** A definition's shared-decision inbox as the R-C3b hold reads it, and when it was built. */
 interface HoldInbox {
   readonly generation: number;
@@ -1051,8 +1053,13 @@ export class RoadmapService {
       cp = roadmap.definition.crossProject,
       ws = roadmap.workspaceId;
     if (!grant?.enabled || !cp || !this.agents || !this.git) return;
-    // Held back by a busy lock until its release, or by a transient refusal for a second.
-    if (this.preparationsHeld.has(roadmap.id)) return;
+    // Held back by a busy lock until its release (or a sweep's length at most, should the release
+    // be missed: increment 10 review LOW-1), or by a transient refusal for a second.
+    const held = this.preparationsHeld.get(roadmap.id);
+    if (held !== undefined) {
+      if (held.at + SWEEP_MS > this.now().getTime()) return;
+      this.preparationsHeld.delete(roadmap.id);
+    }
     const notBefore = this.preparationsNotBefore.get(roadmap.id);
     if (notBefore !== undefined) {
       if (notBefore > this.now().getTime()) {
@@ -1127,10 +1134,11 @@ export class RoadmapService {
         if (retried(error) || error instanceof DaemonDrainingError) {
           // Its reservation was written and removed, which marks every roadmap: tried again at
           // the lock's release, or a second on, not at once (increment 9 review HIGH-2).
+          const at = this.now().getTime();
           if (error instanceof RepositoryMutationBusyError)
-            this.preparationsHeld.set(roadmap.id, 'lane');
+            this.preparationsHeld.set(roadmap.id, { key: 'lane', at });
           else if (error instanceof WorktreeMutationBusyError)
-            this.preparationsHeld.set(roadmap.id, 'guard');
+            this.preparationsHeld.set(roadmap.id, { key: 'guard', at });
           else {
             const at = this.now().getTime() + 1000;
             this.preparationsNotBefore.set(roadmap.id, at);
@@ -2686,12 +2694,13 @@ export class RoadmapService {
     const own = this.ownRound.getStore();
     if (own !== undefined && own === this.roundToken) return;
     if (this.rounding) this.releasedMeanwhile.add(key);
-    // A decision preparation held back by this lock may be tried again (review HIGH-2).
-    for (const [roadmapId, held] of this.preparationsHeld)
-      if (held === key) this.preparationsHeld.delete(roadmapId);
     this.markWaiters(key);
   }
   private markWaiters(key: string): void {
+    // A decision preparation held back by this lock may be tried again (review HIGH-2), on this
+    // path or the round end's (increment 10 review LOW-1).
+    for (const [roadmapId, held] of this.preparationsHeld)
+      if (held.key === key) this.preparationsHeld.delete(roadmapId);
     const waiting = this.lockWaiters.get(key);
     if (!waiting) return;
     this.lockWaiters.delete(key);
@@ -2869,7 +2878,10 @@ export class RoadmapService {
    * again until it is released, since each try writes a reservation and removes it, waking
    * every roadmap (increment 9 review HIGH-2).
    */
-  private readonly preparationsHeld = new Map<string, string>();
+  private readonly preparationsHeld = new Map<
+    string,
+    { readonly key: string; readonly at: number }
+  >();
   /** When a roadmap's decision preparations may be tried after a transient refusal. */
   private readonly preparationsNotBefore = new Map<string, number>();
   /** Roadmaps that met a lock busy, by the lock's key, marked at its release. */
@@ -3435,9 +3447,10 @@ export class RoadmapService {
           } catch (error) {
             if (error instanceof ExecutionRequestError && error.detail?.reason === 'target-moved') {
               const refusals = (this.targetMovedRefusals.get(attempt.worktreeId) ?? 0) + 1;
-              if (refusals <= TARGET_MOVED_RETRIES) {
+              const wait = TARGET_MOVED_BACKOFF_MS[refusals - 1];
+              if (wait !== undefined) {
                 this.targetMovedRefusals.set(attempt.worktreeId, refusals);
-                const at = this.now().getTime() + 1000;
+                const at = this.now().getTime() + wait;
                 this.targetMovedNotBefore.set(attempt.worktreeId, at);
                 this.lookAgain(roadmap.id, at);
                 throw new MergeTargetMovedRetry(error.message);

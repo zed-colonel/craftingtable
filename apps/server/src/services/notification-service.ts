@@ -428,6 +428,11 @@ export class NotificationService {
     this.waitsOnQuiet = false;
     try {
       await this.deliverDue();
+    } catch (error) {
+      // A round cut short (a storage failure) is tried again 5 s on, as the loop's wait did; what
+      // it claimed keeps its lease (increment 10 review LOW-2).
+      this.soon(this.now().getTime() + 5000, this.now().getTime());
+      throw error;
     } finally {
       const at = this.nextAt;
       if (at !== undefined && at <= this.now().getTime()) {

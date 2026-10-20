@@ -2586,11 +2586,15 @@ describe("delivery's due time (R-B5 part 2, increment 10)", () => {
       await f.service.tick();
       if (f.send.mock.calls.length > before) {
         const at = f.now().getTime();
-        if (armed !== undefined)
+        // After the first round, a send that only time made possible must have been due: a round
+        // that armed nothing would have waited for the sweep (increment 10 review MEDIUM-1).
+        if (step > 0) {
           expect(
             armed,
-            `the due time armed before the send at ${new Date(at).toISOString()}`,
-          ).toBeLessThanOrEqual(at);
+            `a due time armed before the send at ${new Date(at).toISOString()}`,
+          ).toBeDefined();
+          expect(armed).toBeLessThanOrEqual(at);
+        }
         return true;
       }
       armed = f.service.kernel.nextDue();
@@ -2634,6 +2638,21 @@ describe("delivery's due time (R-B5 part 2, increment 10)", () => {
       reason: 'Quota',
       retryAt: new Date(f.now().getTime() + 90_000).toISOString(),
     });
+    expect(await walk(f, 5)).toBe(true);
+    expect(await walk(f, 120)).toBe(true);
+  });
+
+  it('is due at the commanding window or the grace for a first push, and a test request’s retry', async () => {
+    // The operator issues commands (the settings saved) but does not watch: the first push waits
+    // for the earlier of the grace's end and the commanding window's.
+    const f = await fixture(undefined, { settleMs: 0 });
+    f.setCycle('needs-attention', { attention: cycleAttention('review-open-questions') });
+    f.send.mockClear();
+    expect(await walk(f, PRESENCE_GRACE_MS / 1000 + 5)).toBe(true);
+    // An explicit test that fails is retried at its backoff.
+    f.advance(30);
+    f.send.mockResolvedValueOnce({ status: 'retry', reason: 'Temporary failure' });
+    f.service.test(f.auth, f.workspaceId);
     expect(await walk(f, 5)).toBe(true);
     expect(await walk(f, 120)).toBe(true);
   });

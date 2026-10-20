@@ -129,7 +129,10 @@ afterEach(async () => {
 
 /**
  * A stand-in `claude` whose group outlives the daemon: it ignores SIGTERM, ignores the end of
- * its input, and starts a member of its own group that ignores SIGTERM too.
+ * its input, and starts a member of its own group that ignores SIGTERM too. The member writes
+ * `member.pid` itself, once it ignores SIGTERM: a test waits for that file, so a signal the
+ * daemon sends after it never finds the member still starting (R-I12: under load a new Node
+ * process took over 50 ms to reach its handler, and the group's SIGTERM killed it first).
  */
 const STUBBORN_AGENT = `#!${process.execPath}
 // The daemon reads the CLI's version at start (R-G15): answer it and start nothing.
@@ -144,6 +147,7 @@ const MEMBER = ${JSON.stringify(`
 const fs = require('node:fs');
 const path = require('node:path');
 process.on('SIGTERM', () => {});
+fs.writeFileSync('member.pid', String(process.pid));
 const root = process.env.BUSY_ROOT;
 const used = root ? fs.readdirSync(root).filter((name) => /^[0-9a-f]+$/.test(name)) : [];
 setInterval(() => {
@@ -151,8 +155,8 @@ setInterval(() => {
 }, 5);`)};
 // With POLITE, an ordinary agent instead: no member, and it ends with its input.
 if (!process.env.POLITE) process.on('SIGTERM', () => {});
-const member = process.env.POLITE ? process : require('node:child_process').spawn(process.execPath, ['-e', MEMBER], { stdio: 'ignore' });
-fs.writeFileSync('member.pid', String(member.pid));
+if (process.env.POLITE) fs.writeFileSync('member.pid', String(process.pid));
+else require('node:child_process').spawn(process.execPath, ['-e', MEMBER], { stdio: 'ignore' });
 // A \`speak\` file in its directory makes it say something more.
 setInterval(() => {
   if (!fs.existsSync('speak')) return;
@@ -217,8 +221,9 @@ async function liveRun(
   });
   expect(started.statusCode, started.body).toBe(200);
   const runId = startAgentRunResponseSchema.parse(started.json()).run.id;
-  // The member's pid, once the stand-in has written all of it: the file exists, empty, for a
-  // moment before its digits land, and a busy host can catch that moment.
+  // The member's pid, once the member has written all of it, which it does only once it ignores
+  // SIGTERM (a polite stand-in writes its own): the file exists, empty, for a moment before its
+  // digits land, and a busy host can catch that moment.
   const memberFile = join(worktree.path, 'member.pid');
   const writtenMember = () => {
     try {

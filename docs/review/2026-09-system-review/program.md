@@ -1249,6 +1249,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **Placed by the operator, 2026-10-20.** Two small items go next, before R-B6, in one session: [R-I12](register.md#r-i12) (the restart-reaping hard-kill test that fails under gate load) and then [R-H8](register.md#r-h8) (the storage service's minute walk of every run directory). The order above is otherwise unchanged.
 
+**R-I12 done, 2026-10-20.** The hard-kill test's failures were the test's own: its stand-in agent announced a member that had not yet started ignoring SIGTERM, and under load the group's SIGTERM came first (35 % of runs under the unit suite with a process-spawning load, 0 in 67 after the fix). Fixed in the test ([R-I12](register.md#r-i12)); the reaping was right. Next: R-H8.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

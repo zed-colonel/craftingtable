@@ -3,7 +3,6 @@
  * operator's commands, and `finalize` with what it calls (the protected refs' check, the run's
  * temporary and agent directories).
  */
-
 import { randomUUID } from 'node:crypto';
 import type { NormalizedAgentEvent } from '@craftingtable/agents';
 import {

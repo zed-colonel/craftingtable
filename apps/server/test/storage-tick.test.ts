@@ -31,6 +31,7 @@ import {
   StorageService,
   type StorageTickPacing,
 } from '../src/services/storage-service.js';
+import { WorktreeMutationGuard } from '../src/services/worktree-mutation-guard.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
 /**
@@ -88,7 +89,10 @@ type Tree = 'active' | 'merged' | 'removed-unmerged';
  * tick's walking budget is unbounded and its walks unpaused unless a test sets them (R-H8
  * decision 5), so what one tick reads never depends on the machine's speed.
  */
-async function tickFixture(pacing: Partial<StorageTickPacing> = {}) {
+async function tickFixture(
+  pacing: Partial<StorageTickPacing> = {},
+  mutations?: WorktreeMutationGuard,
+) {
   let instant = Date.now();
   const context = await createTestContext();
   contexts.push(context);
@@ -106,7 +110,7 @@ async function tickFixture(pacing: Partial<StorageTickPacing> = {}) {
     context.config,
     context.services.workspaceService,
     () => new Date(instant),
-    undefined,
+    mutations,
     { ...STORAGE_TICK_PACING, walkBudgetMs: Infinity, walkSliceMs: Infinity, ...pacing },
   );
   const projectId = asProjectId('project'),
@@ -830,8 +834,8 @@ it('walks about its budget a tick, at least one directory, never-read ones first
     return f.cargo(run, 'target', 1);
   });
   const left = () => runs.filter(existsSync).length;
-  // One directory a tick; one just cleaned is read again at the next (review M-2).
-  for (const expected of [2, 2, 1, 1, 0]) {
+  // One directory a tick within the budget; one just cleaned is read again at the next, outside it.
+  for (const expected of [2, 1, 0]) {
     expect(await tick(f.service)).toBeUndefined();
     expect(left()).toBe(expected);
     f.advance(1 / 1440);
@@ -851,9 +855,8 @@ it('reads a standing refusal again every tick, outside the budget (R-H8 decision
   // The first tick reads only the first directory, and it is refused.
   expect(refused(await tick(f.service), { wide })).toEqual(['wide']);
   expect(left()).toBe(2);
-  // Each later tick reads it again, refused, and one other directory besides (a cleaned one
-  // again at the next).
-  for (const expected of [1, 1, 0]) {
+  // Each later tick reads it again, refused, and one other directory besides.
+  for (const expected of [1, 0]) {
     f.advance(1 / 1440);
     expect(refused(await tick(f.service), { wide })).toEqual(['wide']);
     expect(left()).toBe(expected);
@@ -872,5 +875,59 @@ it('pauses a long walk after each slice of it (R-H8 decision 5)', async () => {
   const started = performance.now();
   await directoryBytes(run.scratch, undefined, new WalkPacer(0, 20));
   // 31 entries, each after a 20 ms pause: the walk gave the event loop back throughout.
+  expect(performance.now() - started).toBeGreaterThanOrEqual(600);
+});
+
+it('reads due directories after unread ones, each by its due time (R-H8 decision 5, review LOW-4)', async () => {
+  const f = await tickFixture({ walkBudgetMs: 0 });
+  // Merged 29.99 days ago, its scratch 40 days old: read now, due in about 14 minutes.
+  const due = f.addRun({ status: 'finished', tree: 'merged', exited: true, retained: 29.99 });
+  f.scratchFile(due, 40);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(due.scratch)).toBe(true);
+  // A run never read, listed after it.
+  const unread = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  const cache = f.cargo(unread, 'target', 1);
+  f.advance(0.02);
+  // The one read this tick is the unread one; the due one waits.
+  expect(await tick(f.service)).toBeUndefined();
+  expect([existsSync(cache), existsSync(due.scratch)]).toEqual([false, true]);
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(due.scratch)).toBe(false);
+});
+
+it('reads a directory whose removal keeps being skipped every tick, outside the budget (increment 2 review MEDIUM-1)', async () => {
+  const guard = new WorktreeMutationGuard();
+  const f = await tickFixture({ walkBudgetMs: 0 }, guard);
+  const held = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  const heldCache = f.cargo(held, 'target', 1);
+  let release = () => {};
+  guard.hold(held.worktreeId, new Promise<void>((resolve) => (release = resolve)));
+  const other = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  const otherCache = f.cargo(other, 'target', 1);
+  // The first tick reads the held run's directory; its worktree is busy, so the cache stays.
+  expect(await tick(f.service)).toBeUndefined();
+  expect([existsSync(heldCache), existsSync(otherCache)]).toEqual([true, true]);
+  // The next reads it again outside the budget, and the other directory within it.
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect([existsSync(heldCache), existsSync(otherCache)]).toEqual([true, false]);
+  // Once the worktree is free, the held cache goes at the next tick.
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(heldCache)).toBe(false);
+});
+
+it("paces the tick's own walk (R-H8 decision 5, review LOW-4)", async () => {
+  const f = await tickFixture({ walkSliceMs: 0, walkPauseMs: 20 });
+  const run = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  for (let index = 0; index < 30; index++)
+    mkdirSync(join(run.scratch, String(index)), { recursive: true });
+  const started = performance.now();
+  expect(await tick(f.service)).toBeUndefined();
+  // The cache search visits the scratch and its 30 directories, each after a 20 ms pause.
   expect(performance.now() - started).toBeGreaterThanOrEqual(600);
 });

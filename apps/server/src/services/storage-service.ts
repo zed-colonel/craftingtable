@@ -129,8 +129,17 @@ export class StorageService {
   private readonly runCleanups = new Map<WorktreeId, Promise<void>>();
   /** Run directories the tick read with nothing to act on, by run id (R-H8, in memory only). */
   private readonly inspected = new Map<string, InspectedDirectory>();
-  /** The tick's standing refusals, by run id: reported until a walk of the run passes. */
-  private readonly refusals = new Map<string, string>();
+  /** Run directories the tick refused: read again every tick until a read passes (decision 6). */
+  private readonly refusals = new Set<string>();
+  /**
+   * Run directories whose last read found something to act on, or that cleanup was handed:
+   * read again every tick, outside the budget, until a read finds nothing (the design review's
+   * M-2; increment 2's review MEDIUM-1: inside it, one whose removal keeps failing would starve
+   * every other directory).
+   */
+  private readonly unsettled = new Set<string>();
+  /** Bumped by every forget, so a read under way when one lands keeps no result (LOW-1). */
+  private forgets = 0;
   private stopping = false;
   private readonly alertGate = new StorageAlertGate();
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -673,8 +682,11 @@ export class StorageService {
     this.candidates = [];
     this.scanResult = null;
     for (const candidate of candidates) {
-      // Whatever comes of it, the run's directory is read afresh next time (R-H8).
-      this.inspected.delete(candidate.runId);
+      // Whatever comes of it, the run's directory is read afresh at the next tick (R-H8).
+      if (candidate.runId) {
+        this.inspected.delete(candidate.runId);
+        this.unsettled.add(candidate.runId);
+      }
       if (candidate.worktreeId) {
         if (await this.removeWorktreeCache(candidate, context, workspaceId)) {
           count++;
@@ -974,6 +986,7 @@ export class StorageService {
     readonly runId?: AgentRunId;
     readonly worktreeId?: WorktreeId;
   }): void {
+    this.forgets++;
     for (const [runId, inspected] of this.inspected)
       if (runId === scope.runId || inspected.worktreeId === scope.worktreeId)
         this.inspected.delete(runId);
@@ -1036,29 +1049,35 @@ export class StorageService {
             // A directory read with nothing to act on stands until its due time, unless it was
             // read for another retention or builds, in another place, or later than now (R-H8).
             const inspected = this.inspected.get(run.runId);
-            if (inspected?.key === key && inspected.readAt <= at && at < inspected.dueAt) continue;
-            // Never-read directories before due ones, each by its due time (the review's L-4).
-            const rank = this.inspected.get(run.runId)?.dueAt ?? Number.MIN_SAFE_INTEGER;
+            const current = inspected?.key === key && inspected.readAt <= at;
+            if (current && at < inspected.dueAt) continue;
+            // Unread directories (never read, or read under what no longer holds) before due
+            // ones, these by their due time (the design review's L-4).
+            const rank = current ? inspected.dueAt : Number.MIN_SAFE_INTEGER;
             due.push({ run, retention, builds, key, rank });
           }
-          for (const runId of this.inspected.keys())
-            if (!listed.has(runId)) this.inspected.delete(runId);
-          for (const runId of this.refusals.keys())
-            if (!listed.has(runId)) this.refusals.delete(runId);
+          for (const kept of [this.inspected, this.refusals, this.unsettled])
+            for (const runId of kept.keys()) if (!listed.has(runId)) kept.delete(runId);
           due.sort((a, b) => a.rank - b.rank);
           const read = async (
             { run, retention, builds, key }: (typeof due)[number],
             pacer: WalkPacer,
           ) => {
+            const forgets = this.forgets;
+            this.inspected.delete(run.runId);
             try {
               const found = await inspectRunDirectory(run, retention, now, { builds, pacer });
               this.refusals.delete(run.runId);
               // A directory with something to act on is read again at every tick until it has
               // nothing (the design review's M-2): a removal skipped or failed is retried.
               if (found.candidates.length) {
-                this.inspected.delete(run.runId);
+                this.unsettled.add(run.runId);
                 candidates.push(...found.candidates);
-              } else
+                return;
+              }
+              this.unsettled.delete(run.runId);
+              // A forget while it was read: what it read may be stale (increment 2's review LOW-1).
+              if (forgets === this.forgets)
                 this.inspected.set(run.runId, {
                   key,
                   worktreeId: run.worktreeId,
@@ -1066,18 +1085,21 @@ export class StorageService {
                   dueAt: Math.min(found.dueAt, at + this.pacing.recheckMs),
                 });
             } catch {
-              const refusal = `Could not inspect eligible scratch for run ${run.runId}; retained.`;
-              this.inspected.delete(run.runId);
-              this.refusals.set(run.runId, refusal);
-              failures.push(refusal);
+              this.unsettled.delete(run.runId);
+              this.refusals.add(run.runId);
+              failures.push(`Could not inspect eligible scratch for run ${run.runId}; retained.`);
             }
           };
-          const pace = () => new WalkPacer(this.pacing.walkSliceMs, this.pacing.walkPauseMs);
-          // Standing refusals are read again at every tick, outside the budget, so one costly
-          // refusal starves no other directory (decision 6; the operator, 2026-10-20).
-          const standing = due.filter((item) => this.refusals.has(item.run.runId));
-          const refusing = pace();
-          for (const item of standing) await read(item, refusing);
+          const pace = () =>
+            new WalkPacer(this.pacing.walkSliceMs, this.pacing.walkPauseMs, () => this.stopping);
+          // Standing refusals and directories with something to act on are read again at every
+          // tick, outside the budget, so none starves the others (decision 6 and the operator's
+          // ninth, 2026-10-20; increment 2's review MEDIUM-1).
+          const standing = due.filter(
+            (item) => this.refusals.has(item.run.runId) || this.unsettled.has(item.run.runId),
+          );
+          const outside = pace();
+          for (const item of standing) await read(item, outside);
           // About 50 ms of walking a tick, paced within each walk; at least one directory a tick
           // (decision 5). What is not reached waits for the next tick.
           const budget = pace();

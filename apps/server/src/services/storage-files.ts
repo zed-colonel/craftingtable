@@ -80,7 +80,8 @@ export function requireFree(root: StorageRootIdentity, minimumBytes: number): vo
 /**
  * Gives the event loop back during a long walk (R-H8 decision 5): after each `sliceMs` of a
  * walk's time it waits `pauseMs` before the next entry, so one large directory never holds the
- * daemon's main thread for long. `workMs` is the walking time so far, its pauses left out.
+ * daemon's main thread for long. `workMs` is the walking time so far, its pauses left out. Once
+ * `hurry` holds (the daemon is stopping) it pauses no more.
  */
 export class WalkPacer {
   private resumedAt = performance.now();
@@ -88,13 +89,14 @@ export class WalkPacer {
   constructor(
     private readonly sliceMs: number,
     private readonly pauseMs: number,
+    private readonly hurry: () => boolean = () => false,
   ) {}
   get workMs(): number {
     return this.worked + performance.now() - this.resumedAt;
   }
   async step(): Promise<void> {
     const ran = performance.now() - this.resumedAt;
-    if (ran < this.sliceMs) return;
+    if (ran < this.sliceMs || this.hurry()) return;
     this.worked += ran;
     await new Promise((resolve) => setTimeout(resolve, this.pauseMs));
     this.resumedAt = performance.now();

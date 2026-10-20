@@ -173,6 +173,17 @@ itNeedsCargo(
     for (const entry of [A, B]) expect(storedRoadmap(state).entryHolds?.[entry.id]).toBeDefined();
     await tick();
     for (const entry of [A, B]) expect(storedRoadmap(state).entryHolds?.[entry.id]).toBeDefined();
+    // The scheduler's drain looks at the roadmap again once approvals have settled (R-B5 part 2).
+    const adoptedAt = Date.parse(
+      tx.execution.branchSettings.policy(ws, 'version-1' as never)?.adoptedAt ?? '',
+    );
+    expect(
+      (
+        state.context.services.roadmapService as unknown as {
+          kernel: { nextDue(): number | undefined };
+        }
+      ).kernel.nextDue(),
+    ).toBe(adoptedAt + 10 * 60_000);
     expect(reverifyRows()).toEqual([]);
 
     // A grantor who may no longer re-verify (now only a viewer) grants nothing, as a standing

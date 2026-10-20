@@ -588,6 +588,16 @@ it('a decision that cannot be reserved gives its place to the next, and waits be
   }, 'LOCAL-ADR-02 prepared although LOCAL-ADR-01 cannot be');
   for (let pass = 0; pass < 3; pass++) await f.state.context.services.roadmapService.tick();
   expect(refused).toBe(1);
+  // The scheduler's drain looks at the roadmap again when the decision may be tried (R-B5
+  // part 2): ten minutes after the refusal, not on every pass.
+  const kernel = (
+    f.state.context.services.roadmapService as unknown as {
+      kernel: { nextDue(): number | undefined };
+    }
+  ).kernel;
+  const due = kernel.nextDue() ?? 0;
+  expect(due).toBeGreaterThan(Date.now() + 9 * 60_000);
+  expect(due).toBeLessThanOrEqual(Date.now() + 10 * 60_000);
 });
 
 it('skips a decision accepted without a preparation on this binding (R-C3b review)', async () => {

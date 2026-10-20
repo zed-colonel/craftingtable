@@ -61,11 +61,20 @@ export class ControllerKernel {
   readonly causes = new Map<MarkCause, number>();
   /** When the sweep last marked everything (wall-clock milliseconds), for the figures. */
   lastSweepAt: number | undefined;
+  /** Kernels this one's sweep marks too: one timer for every drain (R-B5 part 2, NIT-5). */
+  private readonly followers: ControllerKernel[] = [];
 
+  /** `ownSweep`: false for a kernel another's sweep drives (`follow`). */
   constructor(
     private readonly clock: KernelClock,
     private readonly sweepMs = SWEEP_MS,
+    private readonly ownSweep = true,
   ) {}
+
+  /** Marks `other` at each of this kernel's sweeps, so the daemon wakes once per sweep. */
+  follow(other: ControllerKernel): void {
+    this.followers.push(other);
+  }
 
   /** Marks the given keys dirty, or every aggregate; wakes the controller if it waits. */
   mark(cause: MarkCause, keys?: Iterable<string>): void {
@@ -160,15 +169,22 @@ export class ControllerKernel {
   }
 
   private scheduleSweep(): void {
-    if (!this.running) return;
+    if (!this.running || !this.ownSweep) return;
     this.sweepTimer = this.clock.setTimeout(() => {
-      this.lastSweepAt = this.clock.now();
-      this.mark('sweep');
-      // Due times are wall-clock and the timer runs on the monotonic clock: a clock stepped
-      // forward, or a suspend, would leave the timer late; the sweep re-arms it from the wall clock.
-      this.rearm();
+      this.sweep();
+      for (const follower of this.followers) follower.sweep();
       this.scheduleSweep();
     }, this.sweepMs);
+  }
+
+  /** Marks every aggregate, and re-arms the due timer from the wall clock. */
+  private sweep(): void {
+    if (!this.running) return;
+    this.lastSweepAt = this.clock.now();
+    this.mark('sweep');
+    // Due times are wall-clock and the timer runs on the monotonic clock: a clock stepped
+    // forward, or a suspend, would leave the timer late; the sweep re-arms it from the wall clock.
+    this.rearm();
   }
 
   private rearm(): void {

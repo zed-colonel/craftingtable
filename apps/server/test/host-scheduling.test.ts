@@ -19,8 +19,11 @@ afterEach(async () => {
   for (const c of contexts.splice(0)) await c.cleanup();
 });
 async function fixture() {
+  // Commands and their refusals, not scheduling: the scheduler would act on a hand-written
+  // roadmap at the first write since R-B5's part 2, so the daemon is stepped.
   const c = await createTestContext({
     env: { CRAFTINGTABLE_VERIFICATION_CAPACITY: '2', CRAFTINGTABLE_DEVELOPMENT_CAPACITY: '4' },
+    workers: false,
   });
   contexts.push(c);
   await c.bootstrap();

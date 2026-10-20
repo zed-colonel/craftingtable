@@ -46,6 +46,24 @@ export class CycleLocks {
   /** A hold on the cycle ended: its integration refresh, transition or investigation (R-B5). */
   released(id: string): void {
     this.onRelease(id);
+    this.lockReleased(`cycle:${id}`);
+  }
+
+  /**
+   * Told of every hold's end by its key (`cycle:<id>` for a transition, a command or an
+   * investigation; `refresh:<id>` for an integration refresh), without marking the cycle
+   * (R-B5 part 2: the scheduler's waiters).
+   */
+  onLockRelease(listener: (key: string) => void): void {
+    this.listeners.push(listener);
+  }
+  private readonly listeners: ((key: string) => void)[] = [];
+  /**
+   * A hold ended. A refresh's end does not mark its cycle: a round's own refresh must not wake
+   * that round again (increment 3 review HIGH-1).
+   */
+  lockReleased(key: string): void {
+    for (const listener of this.listeners) listener(key);
   }
 
   /** Whether a command holds the cycle, so the controller leaves it (decision 15). */

@@ -405,16 +405,27 @@ export async function createServices(
     overrides.runLog,
   );
   workCycleService.attachPasses(controllerPasses);
-  // What wakes the cycle controller besides notifications (R-B5, decision 2): every committed
-  // write that is not only quiet, and the release of a worktree or of a repository's merge lane.
+  // What wakes the cycle controller and the scheduler besides notifications (R-B5, decision 2):
+  // every committed write that is not only quiet, and the release of a worktree or of a
+  // repository's merge lane (the scheduler: the roadmaps that met it busy, part 2).
+  let roadmaps: RoadmapService | undefined;
   storage.observeWrites(
     writeMarks(
-      () => workCycleService.wake('write'),
+      () => {
+        workCycleService.wake('write');
+        roadmaps?.wake('write');
+      },
       () => storage.inTransaction,
     ),
   );
-  worktreeMutations.onRelease = () => workCycleService.wake('release');
-  executionService.branches.onRelease = () => workCycleService.wake('release');
+  worktreeMutations.onRelease = () => {
+    workCycleService.wake('release');
+    roadmaps?.lockReleased('guard');
+  };
+  executionService.branches.onRelease = () => {
+    workCycleService.wake('release');
+    roadmaps?.lockReleased('lane');
+  };
   if (recovering) workCycleService.recoverInterrupted({ cleanStop });
   const roadmapService = new RoadmapService(
     storage,
@@ -427,7 +438,9 @@ export async function createServices(
     runtimeEvidenceService,
     agentRunService,
     gitOperations,
+    overrides.kernelClock,
   );
+  roadmaps = roadmapService;
   roadmapService.attachAttention(attention, controllerPasses);
   // A roadmap cycle's settings change takes its agents through an assignment (R-C17 part 4).
   workCycleService.attachEntryAgents((context, owner, selections) =>

@@ -797,6 +797,19 @@ export class WorkCycleService {
   private rounding = false;
   private readonly figure = new ControllerFigures();
 
+  /** `other`'s drain is swept with this one's: one timer for every drain (R-B5 part 2). */
+  followSweep(other: ControllerKernel): void {
+    this.kernel.follow(other);
+  }
+  /** Told of every cycle hold's end by its key, a refresh's included (the scheduler's waiters). */
+  onLockRelease(listener: (key: string) => void): void {
+    this.locks.onLockRelease(listener);
+  }
+  /** Whether a cycle's integration refresh is in flight. */
+  isRefreshing(cycleId: string): boolean {
+    return this.locks.refreshing.has(cycleId);
+  }
+
   /** The controller's figures for the owner-only diagnostics (R-B5, decision 9). */
   figures(): ControllerSummary {
     const now = this.now().getTime();

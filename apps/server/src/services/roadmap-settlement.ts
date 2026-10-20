@@ -57,7 +57,7 @@ export type PersistRoadmap = (
 export type SettlementObserver = (roadmapId: RoadmapId, step: WindDownStep) => void;
 
 /** How long a step may wait for cancelled sessions to end before it counts as failed. */
-const SESSION_WAIT_LIMIT_MS = 10 * 60_000;
+export const SESSION_WAIT_LIMIT_MS = 10 * 60_000;
 /** How often a step that keeps failing on the same cause refreshes its message (review N3). */
 const INCOMPLETE_REFRESH_MS = 5 * 60_000;
 const STOPPED_REASON = 'Roadmap stopped. Existing worktrees remain available for manual work.';

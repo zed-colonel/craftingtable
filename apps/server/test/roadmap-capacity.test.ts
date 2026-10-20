@@ -23,7 +23,9 @@ afterEach(async () => {
   for (const c of contexts.splice(0)) await c.cleanup();
 });
 async function fixture() {
-  const c = await createTestContext();
+  // A command's refusal, not scheduling: the scheduler would act on the hand-written roadmap
+  // at the first write since R-B5's part 2, so its daemon is stepped.
+  const c = await createTestContext({ workers: false });
   contexts.push(c);
   await c.bootstrap();
   const login = await c.login();

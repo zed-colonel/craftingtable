@@ -565,6 +565,8 @@ export async function ready(
     readonly workers?: boolean;
     /** Settings over the test daemon's, as `createTestContext` takes them. */
     readonly env?: Readonly<Record<string, string>>;
+    /** The controller kernels' clock (R-B5); give `now` from the same clock. */
+    readonly kernelClock?: import('../src/services/kernel/controller-kernel.js').KernelClock;
   } = {},
 ): Promise<Ready> {
   const backend = options.backend === undefined ? new ScriptedBackend() : options.backend;
@@ -577,6 +579,7 @@ export async function ready(
     agentBackends: options.backends ?? new Map(backend === null ? [] : [[backend.kind, backend]]),
     workers: options.workers ?? false,
     ...(options.env === undefined ? {} : { env: options.env }),
+    ...(options.kernelClock === undefined ? {} : { kernelClock: options.kernelClock }),
   });
   contexts.push(context);
   if (options.workers) freeRunning.add(context);
@@ -1169,12 +1172,15 @@ export async function roadmapFixture(
     undeclared?: boolean;
     /** The daemon's clock, for a test that moves time on (a scheduled retry). */
     now?: () => Date;
+    /** The controller kernels' clock (R-B5): with `now` from the same clock, no sweep comes. */
+    kernelClock?: import('../src/services/kernel/controller-kernel.js').KernelClock;
   } = {},
 ) {
   const backend = new CycleBackend(outputs);
   const state = await ready({
     backend,
     ...(options.now ? { now: options.now } : {}),
+    ...(options.kernelClock ? { kernelClock: options.kernelClock } : {}),
     ...(options.alternateBackend
       ? {
           backends: new Map([

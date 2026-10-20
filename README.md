@@ -130,3 +130,7 @@ a browser shell, or a replacement for Git or GitHub, and nothing here is a runti
 dependency of the projects it supervises.
 
 > Do not finish CraftingTable before using CraftingTable.
+
+## License
+
+CraftingTable is released under the [MIT License](LICENSE).

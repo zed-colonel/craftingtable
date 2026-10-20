@@ -910,7 +910,8 @@ export class WorkCycleService {
     // One read snapshot for every cycle (R-B5 decision 21): their attention reads the same plans,
     // bindings and scopes, which each derived again through a snapshot of its own (half the
     // daemon's busy time in transitions). A cycle whose attention is rewritten starts a fresh
-    // one, so no later cycle reads a record from before that write: the answers are the same.
+    // one, so no later cycle reads a record from before that write (defensive: no attention read
+    // reads what a rewrite writes today; increment 16 review).
     let reads = mapReadSnapshot(this.storage);
     for (const cycle of this.storage.execution.cycles.listActive()) {
       if (!ATTENTION_STATUSES.has(cycle.status)) continue;

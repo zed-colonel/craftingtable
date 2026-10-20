@@ -93,9 +93,9 @@ export class DaemonDrain {
   private request: DrainRequest | undefined;
   private watcher: ReturnType<typeof setInterval> | undefined;
   private fileWatch: FSWatcher | undefined;
-  /** The data directory watched, by its inode: one replaced is not the one watched. */
-  private watchedInode: number | undefined;
-  /** When the drain's own loop last looked at the request. */
+  /** The data directory watched, by device and inode: one replaced is not the one watched. */
+  private watchedDirectory: string | undefined;
+  /** When the drain's own loop last looked at the request (monotonic ms). */
   private lookedAt = 0;
   private stranded: { readonly listener: () => void; readonly afterMs: number } | undefined;
 
@@ -163,13 +163,13 @@ export class DaemonDrain {
     rmSync(join(this.dataDir, DRAIN_STATUS_FILE), { force: true });
     let interval = fallbackMs;
     try {
-      this.watchedInode = statSync(this.dataDir).ino;
+      this.watchedDirectory = this.directoryIdentity();
       this.fileWatch = watch(this.dataDir, { persistent: false }, (_event, name) => {
         try {
           // The data directory itself removed or replaced: the watch is lost (Linux reports it
           // as an event, not an error), so the second's poll takes over (increment 13 review
           // LOW-2).
-          if (!existsSync(this.dataDir) || statSync(this.dataDir).ino !== this.watchedInode)
+          if (!existsSync(this.dataDir) || this.directoryIdentity() !== this.watchedDirectory)
             this.watchLost();
           else if (name === null || name === DRAIN_REQUEST_FILE) this.poll();
         } catch {
@@ -180,8 +180,22 @@ export class DaemonDrain {
     } catch {
       interval = 1000;
     }
-    this.watcher = setInterval(() => this.poll(), interval);
+    this.watcher = setInterval(() => this.safePoll(), interval);
     this.watcher.unref();
+  }
+
+  private directoryIdentity(): string {
+    const { dev, ino } = statSync(this.dataDir);
+    return `${dev}:${ino}`;
+  }
+
+  /** A look that fails (a status write that could not land) is the next one's to repeat. */
+  private safePoll(): void {
+    try {
+      this.poll();
+    } catch {
+      // The next look repeats it.
+    }
   }
 
   stopWatching(): void {
@@ -196,7 +210,7 @@ export class DaemonDrain {
     this.fileWatch?.close();
     this.fileWatch = undefined;
     clearInterval(this.watcher);
-    this.watcher = setInterval(() => this.poll(), 1000);
+    this.watcher = setInterval(() => this.safePoll(), 1000);
     this.watcher.unref();
   }
 
@@ -206,14 +220,22 @@ export class DaemonDrain {
     let text: string | undefined;
     try {
       text = readFileSync(path, 'utf8');
-    } catch {
-      // Absent, or withdrawn between a look and its read: no request.
+    } catch (error) {
+      // Absent, or withdrawn between a look and its read: no request. Any other failure is not
+      // a withdrawal: the look fails, and the next repeats it (increment 16 review LOW-2).
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
     const request = text === undefined ? undefined : parseRequest(text);
     if (this.request === undefined) {
       if (request === undefined || this.completion !== undefined) return;
       this.request = request;
-      this.writeStatus('draining');
+      try {
+        this.writeStatus('draining');
+      } catch (error) {
+        // Not started: the next look starts it (increment 16 review LOW-3).
+        this.request = undefined;
+        throw error;
+      }
       this.begin(
         request.mode === 'when-idle'
           ? 'until-idle'
@@ -267,13 +289,9 @@ export class DaemonDrain {
       // status (the live turns) kept current, and a withdrawal seen (increment 13 review LOW-1);
       // a look that fails is the next one's to repeat, never the drain's end (increment 15 review
       // LOW-1).
-      if (this.request !== undefined && this.now().getTime() - this.lookedAt >= 1000) {
-        this.lookedAt = this.now().getTime();
-        try {
-          this.poll();
-        } catch {
-          // The next look repeats it.
-        }
+      if (this.request !== undefined && performance.now() - this.lookedAt >= 1000) {
+        this.lookedAt = performance.now();
+        this.safePoll();
       }
     }
     this.interrupting = true;

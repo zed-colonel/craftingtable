@@ -1,4 +1,4 @@
-import { InvariantError, type WorkCycle } from '@craftingtable/domain';
+import { cycleAttention, InvariantError, type WorkCycle } from '@craftingtable/domain';
 import { daemonDiagnosticsResponseSchema } from '@craftingtable/contracts';
 import { afterEach, expect, it } from 'vitest';
 import {
@@ -9,6 +9,7 @@ import {
   secondWorktree,
   storedCycle,
 } from './cycle-test-support.js';
+import { mapReadSnapshot } from '../src/services/map-read-snapshot.js';
 import { cleanupExecutionFixtures, startCycle, waitUntil } from './execution-test-support.js';
 
 /**
@@ -336,4 +337,84 @@ it('declares every stopped cycle’s attention through one shared read snapshot,
   expect(reads[0]).toBeDefined();
   expect(reads[1]).not.toBe(reads[0]);
   expect(reads[2]).toBe(reads[1]);
+});
+
+it('shares the reads of every stopped cycle’s attention through the real writer (R-B5 decision 21, increment 16 review LOW-1)', async () => {
+  const f = await createCycleFixture({ independent: true });
+  const second = await secondWorktree(f);
+  const writer = (
+    f.services.workCycleService as unknown as {
+      writer: {
+        change(cycle: WorkCycle, changes: unknown, action: string): WorkCycle;
+        refreshAttention(cycle: WorkCycle, reads?: unknown): WorkCycle;
+      };
+    }
+  ).writer;
+  // Two stopped cycles, as the writer stops them.
+  const cycles = [
+    await startCycle(f, f.worktreeId),
+    await startCycle({ ...f, workItemId: item2 }, second),
+  ]
+    .map((cycle) =>
+      writer.change(
+        cycle,
+        { status: 'needs-attention', attention: cycleAttention('step-incomplete') },
+        'advance',
+      ),
+    )
+    // With no recorded owner each looks for its roadmap among the workspace's: a read both share.
+    .map(({ owner: _owner, ...cycle }) => cycle as WorkCycle);
+  const storage = f.context.storage;
+  // Every underlying call of a read the snapshots memoize, by its arguments.
+  const calls = new Map<string, number>();
+  const repos: [string, object, string[]][] = [
+    ['roadmaps', storage.roadmaps, ['list', 'find', 'history', 'definition']],
+    ['worktrees', storage.execution.worktrees, ['find', 'listActive', 'listForWorkItem']],
+    ['cycles', storage.execution.cycles, ['find', 'listForWorkspace', 'activeForWorktree']],
+    ['runs', storage.execution.runs, ['find', 'listForWorktree']],
+    ['branchSettings', storage.execution.branchSettings, ['find', 'policy']],
+    ['repositories', storage.execution.sourceRepositories, ['find']],
+    ['workItems', storage.planning.workItems, ['find']],
+    ['imports', storage.imports, ['definition', 'bindings', 'adoptions']],
+  ];
+  const restore: (() => void)[] = [];
+  for (const [name, repo, methods] of repos)
+    for (const method of methods) {
+      const target = repo as Record<string, (...args: unknown[]) => unknown>;
+      const original = target[method];
+      if (typeof original !== 'function') continue;
+      target[method] = (...args: unknown[]) => {
+        const key = `${name}.${method}:${JSON.stringify(args)}`;
+        calls.set(key, (calls.get(key) ?? 0) + 1);
+        return original.apply(repo, args);
+      };
+      restore.push(() => {
+        target[method] = original;
+      });
+    }
+  // No attention is written (a write starts a fresh snapshot): only the reads are compared.
+  const transaction = storage.transaction;
+  storage.transaction = (() => {
+    throw new Error('no writes in this test');
+  }) as never;
+  const listActive = storage.execution.cycles.listActive;
+  const repeated = () => Math.max(0, ...calls.values());
+  try {
+    // A snapshot per cycle, as before: the two cycles repeat some reads.
+    for (const cycle of cycles) writer.refreshAttention(cycle, mapReadSnapshot(storage));
+    expect(repeated()).toBeGreaterThan(1);
+    // The declaration's one snapshot: no read is repeated.
+    calls.clear();
+    storage.execution.cycles.listActive = () => cycles;
+    (f.services.workCycleService as unknown as { declareAttention(): void }).declareAttention();
+    expect(calls.size).toBeGreaterThan(0);
+    expect(repeated()).toBe(1);
+    // What lets the attention's own snapshot be the shared one.
+    const shared = mapReadSnapshot(storage);
+    expect(mapReadSnapshot(shared)).toBe(shared);
+  } finally {
+    storage.execution.cycles.listActive = listActive;
+    storage.transaction = transaction;
+    for (const undo of restore) undo();
+  }
 });

@@ -283,3 +283,26 @@ it('does not lose a commit made between an empty query and the wait, with a long
   controller.abort();
   expect(next.value).toMatchObject({ event: { payload: { name: 'Committed in race window' } } });
 });
+
+it("coalesces the journal's activity notifications to one per macrotask, and notifies again in the next (increment 15)", async () => {
+  const context = await createTestContext({ workers: false });
+  contexts.push(context);
+  const journal = (
+    context.services as unknown as {
+      agentRunService: { journal: { activitySoon(): void; notifier: unknown } };
+    }
+  ).agentRunService.journal;
+  let activity = 0;
+  journal.notifier = {
+    notify: (kind?: string) => {
+      if (kind === 'activity') activity += 1;
+    },
+  };
+  journal.activitySoon();
+  journal.activitySoon();
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(activity).toBe(1);
+  journal.activitySoon();
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(activity).toBe(2);
+});

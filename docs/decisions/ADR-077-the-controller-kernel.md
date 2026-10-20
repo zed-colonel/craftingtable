@@ -47,10 +47,24 @@ cycles need a look, and when; the controller decides and acts as before (`decide
 
 ## Consequences
 
-- An idle cycle controller does nothing between sweeps (the roadmap scheduler's loop, the
-  notifications' and the storage service's timers remain until R-B5's part 2); a slow launch no
-  longer delays another cycle's deadline (R-B5's done-when).
+- An idle cycle controller does nothing between sweeps; a slow launch no longer delays another
+  cycle's deadline (R-B5's done-when).
 - A change that nothing writes, notifies or releases is found by the sweep, up to 30 s later,
   where the one-second loop found it within a second.
-- Parts 2 and 3 of R-B5 (bounded backoff, batched agent events, the streams' fallback) build on
-  the same kernel.
+
+## Parts 2 and 3 (2026-10-20)
+
+- **The other drains.** The roadmap scheduler and notification delivery run as drains on the same
+  kernel (`follow`): each has its own marks, due times and figures (the diagnostics'
+  `controller.drains`) and shares the cycles' 30 s sweep; a scheduler round that waits on a lock
+  waits for that lock's release by key. A deploy's drain request is seen through a watch of the
+  data directory, polled every 10 s should the watch miss.
+- **The streams.** An event stream waits on its own workspace's or run's channel and on its
+  session's: a write observer notifies a committed event's key, and a logout, a revocation or a
+  password change its session's; it checks again every 30 s, or at its session's limit.
+- **The journal.** Agent events stay one transaction each (R-B5 decision 6 B: on the live drive a
+  commit costs under a millisecond and output mostly arrives one event per task, so a batch would
+  hold about one); the run's status transaction after an event is opened only when the run waits,
+  and the activity notifications are coalesced per task.
+- **Consequence.** Idle, every drain looks only at its sweep; the remaining idle CPU is the
+  runtime's and the storage service's timers. During transitions no second stalls 100 ms or more.

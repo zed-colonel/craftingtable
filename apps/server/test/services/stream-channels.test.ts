@@ -91,6 +91,11 @@ it("notifies a committed event's workspace or run, once per commit; nothing for 
   expect(notified).toHaveLength(1);
   await Promise.resolve();
   expect(notified.at(-1)).toEqual(['workspace:w2']);
+  // A rollback ending before an outside write's task does not drop that write's key.
+  channels.written('workspace-event' as Kind, { workspaceId: 'w3' } as never);
+  channels.ended(false, 0);
+  await Promise.resolve();
+  expect(notified.at(-1)).toEqual(['workspace:w3']);
 });
 
 it('ends an open stream at once when its session is logged out, with a fallback of ten minutes', async () => {
@@ -244,9 +249,17 @@ it('drops the oldest half of the keys past 10,000, keeping the newest', async ()
   const notifier = new WorkspaceEventNotifier();
   const signal = new AbortController().signal;
   const start = notifier.keySequence;
-  for (let i = 0; i < 10_001; i++) notifier.notifyKeys([`run:${i}`]);
-  // The newest key is kept: a wait from before it returns at once.
-  await notifier.waitForKeys({ keys: ['run:10000'], after: start, timeoutMs: 60_000, signal });
+  notifier.notifyKeys(['run:again']);
+  for (let i = 0; i < 9_999; i++) notifier.notifyKeys([`run:${i}`]);
+  // Notified again, a key is as new as its last notification.
+  notifier.notifyKeys(['run:again']);
+  notifier.notifyKeys(['run:10000']);
+  // The newer half is kept: a wait from before it returns at once.
+  for (const key of ['run:10000', 'run:again', 'run:6000']) {
+    const asked = Date.now();
+    await notifier.waitForKeys({ keys: [key], after: start, timeoutMs: 2_000, signal });
+    expect(Date.now() - asked, key).toBeLessThan(1_000);
+  }
   // The oldest was dropped: a wait for it from the start waits for its timeout.
   const started = Date.now();
   await notifier.waitForKeys({ keys: ['run:0'], after: start, timeoutMs: 40, signal });
@@ -263,7 +276,9 @@ it('ends an open stream when its session passes its idle limit, with nothing not
   const auth = context.services.authService;
   // The session is a moment from its idle limit: the stream's wait ends then, not at its fallback.
   const { session } = auth.authenticate(raw, false);
-  const idleLimit = auth.sessionUsableUntil(session) - Date.parse(session.lastSeenAt);
+  const idleLimit = (auth as unknown as { sessionIdleSeconds: number }).sessionIdleSeconds * 1000;
+  // The idle limit is the nearer one: it, not the absolute expiry, ends the stream.
+  expect(auth.sessionUsableUntil(session)).toBe(Date.parse(session.lastSeenAt) + idleLimit);
   time = Date.parse(session.lastSeenAt) + idleLimit - 150;
   const service = new WorkspaceEventStreamService(
     context.storage,

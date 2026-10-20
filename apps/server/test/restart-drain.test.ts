@@ -1,4 +1,13 @@
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_COMPLETION_POLICY, asRoadmapId } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
@@ -25,7 +34,11 @@ import {
   startCycle,
   stepDaemon,
 } from './execution-test-support.js';
-import { DRAIN_REQUEST_FILE, DRAIN_STATUS_FILE } from '../src/services/daemon-drain.js';
+import {
+  DaemonDrain,
+  DRAIN_REQUEST_FILE,
+  DRAIN_STATUS_FILE,
+} from '../src/services/daemon-drain.js';
 import { FastTestPasswordHasher } from './test-support.js';
 
 /**
@@ -547,5 +560,45 @@ it("sees a deploy's drain request and its withdrawal through the watch, not a po
     expect(drain.isDraining()).toBe(false);
   } finally {
     drain.stopWatching();
+  }
+});
+
+it('falls back to the one-second poll when its data directory is replaced (increment 16 review LOW-4)', async () => {
+  const base = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'drain-watch-'));
+  const dataDir = join(base, 'data');
+  mkdirSync(dataDir);
+  const drain = new DaemonDrain(
+    { transaction() {} } as never,
+    {
+      noteServiceStop() {},
+      beginDrain() {},
+      cancelDrain() {},
+      busyRunCount: () => 1,
+      interruptForRestart: async () => 0,
+    } as never,
+    { shutdown: async () => {} } as never,
+    { holdAdmissions() {}, shutdown: async () => {} } as never,
+    dataDir,
+    60_000,
+  );
+  // The fallback poll is an hour off: only the lost watch's one-second poll can see the request.
+  drain.startWatching(3_600_000);
+  try {
+    renameSync(dataDir, join(base, 'data.old'));
+    mkdirSync(dataDir);
+    writeFileSync(
+      join(dataDir, DRAIN_REQUEST_FILE),
+      JSON.stringify({ id: 'r', mode: 'when-idle' }),
+    );
+    for (let turn = 0; turn < 300 && !existsSync(join(dataDir, DRAIN_STATUS_FILE)); turn++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(existsSync(join(dataDir, DRAIN_STATUS_FILE))).toBe(true);
+    rmSync(join(dataDir, DRAIN_REQUEST_FILE));
+    for (let turn = 0; turn < 300 && drain.isDraining(); turn++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(drain.isDraining()).toBe(false);
+  } finally {
+    drain.stopWatching();
+    rmSync(base, { recursive: true, force: true });
   }
 });

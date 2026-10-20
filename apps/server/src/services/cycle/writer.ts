@@ -622,9 +622,9 @@ export class CycleWriter {
   /**
    * Brings a stopped cycle's declared attention up to date: whether automation claims it,
    * and whether a merge is blocked by unmet requirements (NOTIF-02). A policy that cannot
-   * be evaluated keeps the declared attention; reconcile reports real errors.
+   * be evaluated keeps the declared attention; reconcile reports real errors. `reads`: a read
+   * snapshot the caller shares across many cycles (R-B5 decision 21).
    */
-  /** `reads`: a read snapshot the caller shares across many cycles (R-B5 decision 21). */
   refreshAttention(cycle: WorkCycle, reads: StorageRepositories = this.storage): WorkCycle {
     try {
       const current = currentCycleAttention(reads, cycle);

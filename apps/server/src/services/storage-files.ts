@@ -173,10 +173,16 @@ async function latestModification(path: string, device: number): Promise<number>
   }
   return latest;
 }
+/**
+ * What cleanup may remove from a run's directory: its expired tool-result bodies and scratch,
+ * else the build caches in its scratch. `builds: false` leaves the caches unsearched, for a
+ * caller that could not remove them (R-H8 decision 3): their walk, and its refusals, are skipped.
+ */
 export async function cleanupCandidates(
   run: { path: string; runId: string; device: number; retainedSince: string },
   retentionDays: 0 | 30,
   now: Date,
+  options: { readonly builds?: boolean } = {},
 ): Promise<BuildCache[]> {
   if (!existsSync(run.path)) return [];
   checkRoot({ path: run.path, device: run.device });
@@ -225,5 +231,5 @@ export async function cleanupCandidates(
         },
       ];
   }
-  return [...expiredFiles, ...(await cargoCaches(run))];
+  return [...expiredFiles, ...(options.builds === false ? [] : await cargoCaches(run))];
 }

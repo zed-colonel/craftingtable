@@ -623,3 +623,79 @@ it('follows what changes after a tick: a write, an eligibility, the policy (R-H8
   expect(await tick(f.service)).toBeUndefined();
   expect(existsSync(kept)).toBe(false);
 });
+
+it("hands cleanup only what it may remove, so the operator's scan and last cleanup stand (R-H8 decision 3)", async () => {
+  const f = await tickFixture();
+  // An interrupted run, merged inside retention: eligible, never build-eligible; its cache stays.
+  const interrupted = f.addRun({
+    status: 'interrupted',
+    tree: 'merged',
+    exited: false,
+    retained: 10,
+  });
+  const cache = f.cargo(interrupted, 'target', 10);
+  const scan = (await f.service.scan(f.auth, f.workspaceId)).scan;
+  expect(scan?.cacheCount).toBe(1);
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(cache)).toBe(true);
+  // The tick removed nothing and handed nothing on: the scan is still the operator's to use, and
+  // no "last cleanup" of nothing replaced the real one.
+  const status = f.service.get(f.auth, f.workspaceId);
+  expect(status.scan?.id).toBe(scan?.id);
+  expect(status.lastCleanup).toBeNull();
+  // The operator's Clean of that scan skips the cache as before: the run is not build-eligible.
+  await f.service.clean(f.auth, f.workspaceId, scan?.id ?? '');
+  expect(existsSync(cache)).toBe(true);
+});
+
+it('refuses only the directories it would act on; the scan still warns of the rest (R-H8 decision 4)', async () => {
+  const f = await tickFixture();
+  // An interrupted run inside retention: the tick acts on nothing in it, so its scratch past the
+  // inventory's limit is no refusal of the tick's.
+  const interrupted = f.addRun({
+    status: 'interrupted',
+    tree: 'merged',
+    exited: false,
+    retained: 10,
+  });
+  f.cargo(interrupted, 'target', 10);
+  for (let index = 0; index <= 10_000; index++)
+    mkdirSync(join(interrupted.scratch, 'wide', String(index)), { recursive: true });
+  // A build-eligible run with the same scratch is still refused.
+  const ended = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  const endedCache = f.cargo(ended, 'target', 1);
+  for (let index = 0; index <= 10_000; index++)
+    mkdirSync(join(ended.scratch, 'wide', String(index)), { recursive: true });
+  expect(refused(await tick(f.service), { interrupted, ended })).toEqual(['ended']);
+  expect(existsSync(endedCache)).toBe(true);
+  const scan = (await f.service.scan(f.auth, f.workspaceId)).scan;
+  expect(refused(scan?.warnings.join(' '), { interrupted, ended })).toEqual([
+    'interrupted',
+    'ended',
+  ]);
+  // With automatic cache cleanup off, the tick acts on no cache, so neither is refused.
+  const status = f.service.get(f.auth, f.workspaceId);
+  f.service.save(f.auth, f.workspaceId, {
+    expectedVersion: status.version,
+    policy: { ...status.policy, autoCleanBuildCaches: false },
+  });
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+});
+
+it("removes a candidate only as the kind it was found as (R-H8 decision 8, the design review's M-1)", async () => {
+  const f = await tickFixture();
+  // Merged 40 days ago, interrupted (never build-eligible), its scratch itself a Cargo target
+  // and as old: the scan nominates the scratch as expired.
+  const run = f.addRun({ status: 'interrupted', tree: 'merged', exited: false, retained: 40 });
+  mkdirSync(run.scratch);
+  f.cargo(run, '', 40);
+  const scan = (await f.service.scan(f.auth, f.workspaceId)).scan;
+  expect(scan).toMatchObject({ expiredScratchCount: 1, cacheCount: 0 });
+  // Then written to: no longer expired, it is found only as a build cache, which this run may
+  // not have removed. The scan's stale nomination must not remove it under the other kind.
+  writeFileSync(join(run.scratch, 'recent.log'), 'written after the scan');
+  await f.service.clean(f.auth, f.workspaceId, scan?.id ?? '');
+  expect(existsSync(join(run.scratch, 'recent.log'))).toBe(true);
+});

@@ -654,6 +654,9 @@ export class StorageService {
           )
         ).find(
           (cache) =>
+            // The same kind too: a scratch that is itself a Cargo target is found as both, and
+            // each kind has its own authority (R-H8 decision 8).
+            cache.kind === candidate.kind &&
             cache.path === candidate.path &&
             cache.inode === candidate.inode &&
             cache.device === candidate.device,
@@ -944,30 +947,24 @@ export class StorageService {
           this.settings.policy.autoCleanBuildCaches ||
           this.settings.policy.scratchRetentionDays
         ) {
+          const { autoCleanBuildCaches, scratchRetentionDays } = this.settings.policy;
           const candidates: BuildCache[] = [];
-          for (const run of this.storage.maintenance
-            .directories()
-            .filter((value) => value.eligible || value.buildEligible)) {
+          // Only what this tick may act on (R-H8 decisions 3 and 4): expired files of an eligible
+          // run, and build caches of a build-eligible one with automatic cleanup on. A directory
+          // with neither is not read, so it is neither handed on nor refused.
+          for (const run of this.storage.maintenance.directories()) {
+            const retention = run.eligible ? scratchRetentionDays : 0;
+            const builds = autoCleanBuildCaches && run.buildEligible;
+            if (!retention && !builds) continue;
             try {
-              candidates.push(
-                ...(await cleanupCandidates(
-                  run,
-                  run.eligible ? this.settings.policy.scratchRetentionDays : 0,
-                  this.now(),
-                )),
-              );
+              candidates.push(...(await cleanupCandidates(run, retention, this.now(), { builds })));
             } catch {
               failures.push(`Could not inspect eligible scratch for run ${run.runId}; retained.`);
             }
           }
-          if (this.settings.policy.autoCleanBuildCaches)
-            candidates.push(...(await this.worktreeCacheCandidates()));
-          const eligible = candidates.filter(
-            (candidate) =>
-              candidate.kind === 'scratch' || this.settings.policy.autoCleanBuildCaches,
-          );
-          if (eligible.length) {
-            this.candidates = eligible;
+          if (autoCleanBuildCaches) candidates.push(...(await this.worktreeCacheCandidates()));
+          if (candidates.length) {
+            this.candidates = candidates;
             await this.cleanCaches();
           }
         }

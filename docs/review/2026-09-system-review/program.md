@@ -1247,6 +1247,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **R-B5 deployed, 2026-10-20.** Deployed at d39b549 (no migration). The live daemon's idle went from 3.6 % to 2.7 % of a core; about 2.5 points of what is left is the storage service's once-a-minute walk of the run directories (older than R-B5, invisible on a snapshot copy), a follow-up for the operator to place (R-B5's entry).
 
+**Placed by the operator, 2026-10-20.** Two small items go next, before R-B6, in one session: [R-I12](register.md#r-i12) (the restart-reaping hard-kill test that fails under gate load) and then [R-H8](register.md#r-h8) (the storage service's minute walk of every run directory). The order above is otherwise unchanged.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

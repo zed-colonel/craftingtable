@@ -143,10 +143,14 @@ describe('WorkspaceEventStreamService', () => {
             name: 'Recovered by poll',
             slug: 'recovered-by-poll',
           });
-          // Deliberately omit notifier.notify().
+          // Deliberately omit notifier.notify(); the write outside a transaction would wake the
+          // workspace's channel at the end of its task (R-B5 part 3), so that is dropped too.
         },
       },
     );
+    context.services.workspaceEventNotifier.notifyKeys = () => {
+      /* deliberately dropped */
+    };
     const controller = new AbortController();
     const iterator = service
       .stream({

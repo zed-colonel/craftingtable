@@ -189,8 +189,11 @@ export class RunSupervision {
         case 'assistant-message':
         case 'tool-call':
           // A message queued during the preceding turn can start after its result
-          // moved the run to waiting. Activity belongs to the new turn.
-          this.journal.transition(workspaceId, runId, ['waiting'], 'running', {});
+          // moved the run to waiting. Activity belongs to the new turn. Only a run that waits is
+          // moved: a read, not a transaction at every event (R-B5 decision 6 B, part 3 review
+          // HIGH-1); the transition checks again in its own.
+          if (this.storage.execution.runs.find(workspaceId, runId)?.status === 'waiting')
+            this.journal.transition(workspaceId, runId, ['waiting'], 'running', {});
           break;
         case 'turn-completed': {
           const run = this.storage.execution.runs.find(workspaceId, runId);

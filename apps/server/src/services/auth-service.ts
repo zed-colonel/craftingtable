@@ -63,6 +63,28 @@ export class AuthService {
     this.throttle = new LoginThrottle(now);
   }
 
+  /** Told of sessions revoked here, once committed: their streams end at once (R-B5 part 3). */
+  onSessionsRevoked: ((sessionIds: readonly string[]) => void) | undefined;
+
+  /**
+   * When the session stops being usable unless a request touches it: the earlier of its expiry
+   * and its idle limit (a stream re-authenticates then, R-B5 part 3).
+   */
+  sessionUsableUntil(session: StoredSession): number {
+    return Math.min(
+      Date.parse(session.expiresAt),
+      Date.parse(session.lastSeenAt) + this.sessionIdleSeconds * 1000,
+    );
+  }
+
+  /** How long a stream may wait before it must authenticate again: `fallbackMs` at most. */
+  streamWaitMs(session: StoredSession, fallbackMs: number): number {
+    return Math.max(
+      1,
+      Math.min(fallbackMs, this.sessionUsableUntil(session) - this.now().getTime()),
+    );
+  }
+
   /** Checks a password with the bounded verifier; a full queue refuses for a second. */
   private async verify(encodedHash: string, password: string): Promise<boolean> {
     try {
@@ -251,7 +273,8 @@ export class AuthService {
     }
     const passwordHash = await this.passwordHasher.hash(input.newPassword);
     const occurredAt = this.now().toISOString();
-    return this.storage.transaction((tx) => {
+    const revokedIds: string[] = [];
+    const changed = this.storage.transaction((tx) => {
       const current = tx.users.findById(context.user.id);
       const session = tx.sessions.findById(context.session.id);
       if (
@@ -279,6 +302,7 @@ export class AuthService {
           undefined
         ) {
           revokedSessionCount += 1;
+          revokedIds.push(session.id);
         }
       }
       tx.audit.append({
@@ -298,6 +322,8 @@ export class AuthService {
       });
       return { revokedSessionCount };
     });
+    if (revokedIds.length) this.onSessionsRevoked?.(revokedIds);
+    return changed;
   }
 
   /**
@@ -349,7 +375,7 @@ export class AuthService {
 
   logout(context: AuthContext, requestId?: string): void {
     const occurredAt = this.now().toISOString();
-    this.storage.transaction((tx) => {
+    const loggedOut = this.storage.transaction((tx) => {
       const revoked = tx.sessions.revoke({
         sessionId: context.session.id,
         occurredAt,
@@ -371,7 +397,9 @@ export class AuthService {
           resultingVersion: revoked.version,
         });
       }
+      return revoked !== undefined;
     });
+    if (loggedOut) this.onSessionsRevoked?.([context.session.id]);
   }
 
   revokeSession(context: AuthContext, targetSessionId: StoredSession['id'], requestId?: string) {
@@ -404,6 +432,7 @@ export class AuthService {
       }
       return result;
     });
+    if (revoked !== undefined) this.onSessionsRevoked?.([target.id]);
     return {
       revokedSessionId: target.id,
       currentSessionRevoked: target.id === context.session.id,

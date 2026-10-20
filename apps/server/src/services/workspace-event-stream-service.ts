@@ -14,7 +14,12 @@ export interface WorkspaceEventStreamHooks {
   readonly waitTimeoutMs?: number;
 }
 
-export const STREAM_REQUERY_INTERVAL_MS = 1000;
+/**
+ * How long a stream waits on its channels before it re-queries and re-authenticates by itself
+ * (R-B5 decision 12): a membership lost out of band is found then. A notification of its
+ * workspace's or run's events, or its session's revocation, wakes it at once.
+ */
+export const STREAM_FALLBACK_MS = 30_000;
 
 export class WorkspaceEventStreamService {
   constructor(
@@ -52,7 +57,8 @@ export class WorkspaceEventStreamService {
           this.presence?.opened(input.workspaceId, watching);
         }
 
-        const generation = this.notifier.generation;
+        // Taken before the query: a commit between it and the wait wakes the wait at once.
+        const after = this.notifier.keySequence;
         const events = this.storage.workspaceEvents.listAfter({
           workspaceId: input.workspaceId,
           after: cursor,
@@ -70,9 +76,13 @@ export class WorkspaceEventStreamService {
         }
 
         await this.hooks.afterEmptyQuery?.();
-        await this.notifier.waitForChangeOrTimeout({
-          generation,
-          timeoutMs: this.hooks.waitTimeoutMs ?? STREAM_REQUERY_INTERVAL_MS,
+        await this.notifier.waitForKeys({
+          keys: [`workspace:${input.workspaceId}`, `session:${context.session.id}`],
+          after,
+          timeoutMs: this.authService.streamWaitMs(
+            context.session,
+            this.hooks.waitTimeoutMs ?? STREAM_FALLBACK_MS,
+          ),
           signal: input.signal,
         });
       }

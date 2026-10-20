@@ -3,7 +3,7 @@ import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext, AuthService } from './auth-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import {
-  STREAM_REQUERY_INTERVAL_MS,
+  STREAM_FALLBACK_MS,
   type WorkspaceEventStreamHooks,
 } from './workspace-event-stream-service.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -47,7 +47,8 @@ export class RunEventStreamService {
       if (!this.workspaceService.isAuthorized(context, input.workspaceId)) {
         return;
       }
-      const generation = this.notifier.generation;
+      // Taken before the query: a commit between it and the wait wakes the wait at once.
+      const after = this.notifier.keySequence;
       const events = this.storage.execution.runEvents.listAfter({
         workspaceId: input.workspaceId,
         runId: input.runId,
@@ -65,9 +66,13 @@ export class RunEventStreamService {
         continue;
       }
       await this.hooks.afterEmptyQuery?.();
-      await this.notifier.waitForChangeOrTimeout({
-        generation,
-        timeoutMs: this.hooks.waitTimeoutMs ?? STREAM_REQUERY_INTERVAL_MS,
+      await this.notifier.waitForKeys({
+        keys: [`run:${input.runId}`, `session:${context.session.id}`],
+        after,
+        timeoutMs: this.authService.streamWaitMs(
+          context.session,
+          this.hooks.waitTimeoutMs ?? STREAM_FALLBACK_MS,
+        ),
         signal: input.signal,
       });
     }

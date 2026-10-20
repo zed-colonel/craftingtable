@@ -84,12 +84,25 @@ export class RunJournal {
         ...(event.raw === undefined ? {} : { raw: event.raw }),
       } as Parameters<typeof tx.execution.runEvents.append>[0]);
     });
-    this.notifier.notify(
-      ['session-started', 'turn-completed', 'run-finished'].includes(event.kind)
-        ? 'workflow'
-        : 'activity',
-    );
+    if (['session-started', 'turn-completed', 'run-finished'].includes(event.kind))
+      this.notifier.notify('workflow');
+    else this.activitySoon();
   }
+
+  /**
+   * One `activity` notification at the end of the macrotask, for every ordinary event appended in
+   * it (R-B5 decision 6 B): its readers (the scheduler's attention cache) need to know that
+   * something moved, not each event; the streams wake on the run's own channel per commit.
+   */
+  private activitySoon(): void {
+    if (this.activityQueued) return;
+    this.activityQueued = true;
+    setImmediate(() => {
+      this.activityQueued = false;
+      this.notifier.notify('activity');
+    });
+  }
+  private activityQueued = false;
 
   /**
    * A large tool result keeps only a preview in the journal; its body goes to the run's

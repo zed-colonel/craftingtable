@@ -91,6 +91,7 @@ export class DaemonDrain {
   private interrupting = false;
   private request: DrainRequest | undefined;
   private watcher: ReturnType<typeof setInterval> | undefined;
+  private fileWatch: FSWatcher | undefined;
   private stranded: { readonly listener: () => void; readonly afterMs: number } | undefined;
 
   constructor(
@@ -158,16 +159,17 @@ export class DaemonDrain {
     let interval = fallbackMs;
     try {
       this.fileWatch = watch(this.dataDir, { persistent: false }, (_event, name) => {
-        if (name === null || name === DRAIN_REQUEST_FILE) this.poll();
+        try {
+          // The data directory itself removed or replaced: the watch is lost (Linux reports it
+          // as an event, not an error), so the second's poll takes over (increment 13 review
+          // LOW-2).
+          if (!existsSync(this.dataDir)) this.watchLost();
+          else if (name === null || name === DRAIN_REQUEST_FILE) this.poll();
+        } catch {
+          // A failed look is the poll's to repeat.
+        }
       });
-      // A watch that fails later (its directory removed, a watcher limit) falls back to the poll.
-      this.fileWatch.on('error', () => {
-        this.fileWatch?.close();
-        this.fileWatch = undefined;
-        clearInterval(this.watcher);
-        this.watcher = setInterval(() => this.poll(), 1000);
-        this.watcher.unref();
-      });
+      this.fileWatch.on('error', () => this.watchLost());
     } catch {
       interval = 1000;
     }
@@ -181,7 +183,15 @@ export class DaemonDrain {
     clearInterval(this.watcher);
     this.watcher = undefined;
   }
-  private fileWatch: FSWatcher | undefined;
+
+  /** The watch is gone: polled every second, as before the watch. */
+  private watchLost(): void {
+    this.fileWatch?.close();
+    this.fileWatch = undefined;
+    clearInterval(this.watcher);
+    this.watcher = setInterval(() => this.poll(), 1000);
+    this.watcher.unref();
+  }
 
   /** One watcher pass; exposed so tests step it deterministically. */
   poll(): void {
@@ -240,6 +250,10 @@ export class DaemonDrain {
         return 0;
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      // A deploy's request is looked at again while it drains, as the one-second poll did: its
+      // status (the live turns) kept current, and a withdrawal seen at once (increment 13 review
+      // LOW-1).
+      if (this.request !== undefined) this.poll();
     }
     this.interrupting = true;
     await this.roadmaps.shutdown();

@@ -69,6 +69,7 @@ import { RepositoryChecksService } from './services/repository-checks-service.js
 import { RuntimeEvidenceService } from './services/runtime-evidence-service.js';
 import { StorageService } from './services/storage-service.js';
 import { daemonGitTrust, trustByGeneration, trustWrites } from './services/git-trust.js';
+import { streamChannels } from './services/stream-channels.js';
 import { WorkCycleService } from './services/work-cycle-service.js';
 import { WorkItemService } from './services/work-item-service.js';
 import { WorkspaceEventNotifier } from './services/workspace-event-notifier.js';
@@ -214,6 +215,8 @@ export async function createServices(
     now,
     config.sessionIdleSeconds,
   );
+  // A session revoked here ends its streams at once (R-B5 part 3).
+  authService.onSessionsRevoked = (ids) => notifier.notifyKeys(ids.map((id) => `session:${id}`));
   const workspaceService = new WorkspaceService(storage, now, notifier);
   const planImportService = new PlanImportService(storage, workspaceService, notifier, now);
   const workItemService = new WorkItemService(storage, workspaceService, notifier, now);
@@ -232,6 +235,13 @@ export async function createServices(
   // not at every command (R-B5, decision 13).
   const trust = trustByGeneration(() => daemonGitTrust(storage, config.execution, trustStorage));
   storage.observeWrites(trustWrites(trust.bump, () => storage.inTransaction));
+  // The event streams' channels (R-B5 part 3): a workspace's and a run's events, once committed.
+  storage.observeWrites(
+    streamChannels(
+      (keys) => notifier.notifyKeys(keys),
+      () => storage.inTransaction,
+    ),
+  );
   const gitTrust = (): GitTrust => trust.read();
   const unwatchedGit: GitOperations | undefined =
     overrides.gitOperations === undefined

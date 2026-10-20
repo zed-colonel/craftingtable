@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_COMPLETION_POLICY, asRoadmapId } from '@craftingtable/domain';
 import { createGitOperations } from '@craftingtable/git';
@@ -518,15 +518,28 @@ it("sees a deploy's drain request and its withdrawal through the watch, not a po
   const dataDir = f.context.config.dataDir;
   const status = () => JSON.parse(readFileSync(join(dataDir, DRAIN_STATUS_FILE), 'utf8'));
   // The fallback poll is an hour off: only the watch can see the request.
+  const polls = { count: 0 };
+  const poll = drain.poll.bind(drain);
+  drain.poll = () => {
+    polls.count += 1;
+    poll();
+  };
   drain.startWatching(3_600_000);
   try {
+    // As the deploy writes it: a partial file renamed into place (deploy-daemon.mjs).
     writeFileSync(
-      join(dataDir, DRAIN_REQUEST_FILE),
+      join(dataDir, `${DRAIN_REQUEST_FILE}.partial`),
       JSON.stringify({ id: 'watched', mode: 'when-idle' }),
     );
+    renameSync(join(dataDir, `${DRAIN_REQUEST_FILE}.partial`), join(dataDir, DRAIN_REQUEST_FILE));
     for (let turn = 0; turn < 200 && !existsSync(join(dataDir, DRAIN_STATUS_FILE)); turn++)
       await new Promise((resolve) => setTimeout(resolve, 10));
     expect(status()).toMatchObject({ requestId: 'watched', state: 'draining' });
+    // The daemon's own status writes name another file: they do not set off more polls, only
+    // the drain's own look every 250 ms does.
+    const counted = polls.count;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(polls.count - counted).toBeLessThanOrEqual(4);
     rmSync(join(dataDir, DRAIN_REQUEST_FILE));
     for (let turn = 0; turn < 200 && drain.isDraining(); turn++)
       await new Promise((resolve) => setTimeout(resolve, 10));

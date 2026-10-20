@@ -279,7 +279,12 @@ describe('planning event delivery', () => {
     const ready = await readyDaemon({ waitTimeoutMs: 150 });
     const notifier = ready.context.services.workspaceEventNotifier;
     const realNotify = notifier.notify.bind(notifier);
+    const realNotifyKeys = notifier.notifyKeys.bind(notifier);
     notifier.notify = () => {
+      /* deliberately dropped */
+    };
+    // The workspace's channel too (R-B5 part 3): only the fallback can deliver.
+    notifier.notifyKeys = () => {
       /* deliberately dropped */
     };
 
@@ -294,6 +299,7 @@ describe('planning event delivery', () => {
       expect((event.payload as { itemCount: number }).itemCount).toBe(14);
     } finally {
       notifier.notify = realNotify;
+      notifier.notifyKeys = realNotifyKeys;
       stream.close();
     }
   });

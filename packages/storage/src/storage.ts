@@ -144,8 +144,11 @@ class SqliteCraftingTableStorage implements CraftingTableStorage {
 
   /** Rows inserted, updated or deleted on this connection since it opened. */
   private changes(): number {
-    return (this.database.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
+    // Prepared once: it is asked twice in every outermost transaction (R-B5 part 3 review NIT-5).
+    this.totalChanges ??= this.database.prepare('SELECT total_changes() AS n');
+    return (this.totalChanges.get() as { n: number }).n;
   }
+  private totalChanges: Database.Statement | undefined;
 
   transaction<T>(operation: (tx: StorageRepositories) => T): T {
     // A nested call runs as a savepoint of the outer transaction, which owns the commit.

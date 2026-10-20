@@ -30,7 +30,7 @@ afterEach(async () => {
   await cleanupExecutionFixtures();
 });
 
-async function streaming(waitTimeoutMs: number) {
+async function streaming(waitTimeoutMs?: number) {
   const context = await createTestContext({ workers: false });
   contexts.push(context);
   const bootstrap = await context.services.bootstrapService.bootstrap(TEST_USERNAME, TEST_PASSWORD);
@@ -42,7 +42,7 @@ async function streaming(waitTimeoutMs: number) {
     context.services.workspaceService,
     context.services.workspaceEventNotifier,
     {
-      waitTimeoutMs,
+      ...(waitTimeoutMs === undefined ? {} : { waitTimeoutMs }),
       afterEmptyQuery: () => {
         queries += 1;
       },
@@ -65,6 +65,8 @@ async function streaming(waitTimeoutMs: number) {
   await settled(1);
   return {
     context,
+    workspaceId: bootstrap.workspace.id,
+    userId: bootstrap.user.id,
     queries: () => queries,
     settled,
     stop: async () => {
@@ -74,20 +76,36 @@ async function streaming(waitTimeoutMs: number) {
   };
 }
 
-it("re-queries an open stream at every notification, any workspace's, activity too (flips: its own channel)", async () => {
+it("re-queries an open stream at its own workspace's events, not at every notification (flipped by increment 14)", async () => {
+  // Before increment 14 every notification of any workspace, activity included, woke it.
   const stream = await streaming(60_000);
   expect(stream.queries()).toBe(1);
-  // No workspace is named: today every waiter wakes.
   stream.context.services.workspaceEventNotifier.notify('activity');
+  stream.context.services.workspaceEventNotifier.notify();
+  stream.context.services.workspaceEventNotifier.notifyKeys(['workspace:another']);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(stream.queries()).toBe(1);
+  // Its workspace's event, committed, wakes it.
+  stream.context.storage.transaction((tx) => {
+    tx.workspaceEvents.appendWorkspaceCreated({
+      id: asEventId(randomUUID()),
+      occurredAt: new Date().toISOString(),
+      workspaceId: stream.workspaceId as never,
+      actorUserId: stream.userId as never,
+      name: 'An event of its own',
+      slug: 'own-event',
+    });
+  });
   await stream.settled(2);
-  expect(stream.queries()).toBe(2);
+  expect(stream.queries()).toBeGreaterThanOrEqual(2);
   await stream.stop();
 });
 
-it('re-queries an open stream at least once a second with nothing notified (flips: every 30 s)', async () => {
-  const stream = await streaming(1000);
+it('re-queries an open stream every 30 s with nothing notified, not every second (flipped by increment 14)', async () => {
+  // Before increment 14, at least three times in 2.3 s.
+  const stream = await streaming();
   await new Promise((resolve) => setTimeout(resolve, 2_300));
-  expect(stream.queries()).toBeGreaterThanOrEqual(3);
+  expect(stream.queries()).toBe(1);
   await stream.stop();
 });
 
@@ -109,7 +127,17 @@ const toolTurn = {
   ],
 };
 
-it('writes each agent event in its own transaction, with a status transaction after every tool call and a notification each (flips: the status one only when the run waits)', async () => {
+/** A turn's result, then a message after it: the run waits, then the message moves it on. */
+const resultThenMore = {
+  resultText: '',
+  claudeStream: [
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'Working.' }] } },
+    { type: 'result', subtype: 'success', result: designDone.resultText },
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'One more thing.' }] } },
+  ],
+};
+
+it('writes each agent event in its own transaction, opening a status transaction only for a waiting run, with one notification per macrotask (flipped by increment 15)', async () => {
   const { state, worktree } = await cycleFixture([toolTurn]);
   const storage = state.context.storage;
   const journal = (
@@ -134,7 +162,8 @@ it('writes each agent event in its own transaction, with a status transaction af
   };
   const open = storage.transaction.bind(storage);
   storage.transaction = ((callback: never) => {
-    if (inTransition) statusTransactions += 1;
+    // Outermost only: a nested call is a savepoint of the same commit.
+    if (inTransition && !storage.inTransaction) statusTransactions += 1;
     return open(callback);
   }) as typeof storage.transaction;
   const notifier = state.context.services.workspaceEventNotifier;
@@ -152,11 +181,58 @@ it('writes each agent event in its own transaction, with a status transaction af
         .some((run) => run.status === 'finished' || run.status === 'waiting'),
     'the design turn ended',
   );
-  // Three tool calls: three status transactions, though the run was never waiting.
-  expect(statusCalls).toBe(3);
-  expect(statusTransactions).toBe(3);
-  // Each tool call and tool result notified on its own.
-  expect(activity).toBeGreaterThanOrEqual(6);
+  // Before increment 15: three status transactions though the run never waited, and an
+  // `activity` notification for each of the six events. Now: none, and one per macrotask.
+  expect(statusCalls).toBe(0);
+  expect(statusTransactions).toBe(0);
+  expect(activity).toBeGreaterThanOrEqual(1);
+  expect(activity).toBeLessThan(6);
+});
+
+it('moves a waiting run back to running at its next message, a status transaction for each (increment 15)', async () => {
+  // A result, then the agent goes on (as Claude does when background work outlives the result).
+  const { state, worktree } = await cycleFixture([resultThenMore]);
+  const storage = state.context.storage;
+  const journal = (
+    state.context.services.agentRunService as unknown as {
+      journal: { transition: (...args: unknown[]) => unknown };
+    }
+  ).journal;
+  const transition = journal.transition.bind(journal);
+  let inTransition = false;
+  let statusTransactions = 0;
+  let statusCalls = 0;
+  journal.transition = (...args: unknown[]) => {
+    const from = args[2] as readonly string[];
+    const perEvent = from.length === 1 && from[0] === 'waiting';
+    if (perEvent) statusCalls += 1;
+    inTransition = perEvent;
+    try {
+      return transition(...args);
+    } finally {
+      inTransition = false;
+    }
+  };
+  const open = storage.transaction.bind(storage);
+  storage.transaction = ((callback: never) => {
+    // Outermost only: a nested call is a savepoint of the same commit.
+    if (inTransition && !storage.inTransaction) statusTransactions += 1;
+    return open(callback);
+  }) as typeof storage.transaction;
+  const cycle = await startCycle(state, worktree.id);
+  // The message after the result moves the waiting run on: once.
+  await waitFor(() => statusCalls >= 1, 'the message after the result');
+  await waitFor(
+    () =>
+      storage.execution.runs
+        .listForWorktree(state.workspaceId, cycle.worktreeId)
+        .some((run) => run.status === 'running'),
+    'the run running again',
+  );
+  // One status transaction per message that found the run waiting (the scripted agent repeats
+  // its reply in the cycle's next turn, which waits and moves on again), and no other.
+  expect(statusCalls).toBeGreaterThanOrEqual(1);
+  expect(statusTransactions).toBe(statusCalls);
 });
 
 it('does not lose a commit made between an empty query and the wait, with a long fallback', async () => {
@@ -187,7 +263,7 @@ it('does not lose a commit made between an empty query and the wait, with a long
             slug: 'race-window-long',
           });
         });
-        context.services.workspaceEventNotifier.notify();
+        // No notification of its own since increment 14: the channel's, from the commit.
       },
     },
   );

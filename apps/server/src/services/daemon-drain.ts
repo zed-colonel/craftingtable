@@ -170,18 +170,18 @@ export class DaemonDrain {
     try {
       this.watchedDirectory = this.directoryIdentity();
       this.fileWatch = watch(this.dataDir, { persistent: false }, (_event, name) => {
+        // The data directory itself removed or replaced, or not to be looked at: the watch is
+        // lost (Linux reports it as an event, not an error), so the second's poll takes over
+        // (increment 13 review LOW-2). A look that fails is the fallback's or the next event's to
+        // repeat, the watch kept (increment 18 review NIT-1).
+        let lost: boolean;
         try {
-          // The data directory itself removed or replaced: the watch is lost (Linux reports it
-          // as an event, not an error), so the second's poll takes over (increment 13 review
-          // LOW-2).
-          if (!existsSync(this.dataDir) || this.directoryIdentity() !== this.watchedDirectory)
-            this.watchLost();
-          else if (name === null || name === DRAIN_REQUEST_FILE) this.poll();
+          lost = !existsSync(this.dataDir) || this.directoryIdentity() !== this.watchedDirectory;
         } catch {
-          // The directory could not be looked at, or the look failed: the second's poll repeats
-          // it (increment 17 review).
-          this.watchLost();
+          lost = true;
         }
+        if (lost) this.watchLost();
+        else if (name === null || name === DRAIN_REQUEST_FILE) this.safePoll();
       });
       this.fileWatch.on('error', () => this.watchLost());
     } catch {
@@ -214,6 +214,7 @@ export class DaemonDrain {
 
   /** The watch is gone: polled every second, as before the watch. */
   private watchLost(): void {
+    if (!this.watcher) return;
     this.fileWatch?.close();
     this.fileWatch = undefined;
     clearInterval(this.watcher);
@@ -255,17 +256,10 @@ export class DaemonDrain {
           // A withdrawn request's drain resolves too, having drained nothing: no restart is due
           // (R-B9 review M-3, 2026-10-13).
           if (this.request !== request) return;
-          // A status that cannot be written (a full disk) leaves the deploy without its answer,
-          // never the daemon without its process (increment 17 review LOW-6).
-          this.tryWriteStatus('drained', interrupted);
-          if (this.stranded) setTimeout(this.stranded.listener, this.stranded.afterMs).unref();
+          this.finish('drained', interrupted);
         },
         (error: unknown) =>
-          this.tryWriteStatus(
-            'failed',
-            undefined,
-            error instanceof Error ? error.message : 'failed',
-          ),
+          this.finish('failed', undefined, error instanceof Error ? error.message : 'failed'),
       );
       return;
     }
@@ -342,15 +336,23 @@ export class DaemonDrain {
     }
   }
 
-  private tryWriteStatus(
-    state: DrainStatus['state'],
-    interrupted?: number,
-    message?: string,
-  ): void {
-    try {
-      this.writeStatus(state, interrupted, message);
-    } catch {
-      // The deploy's wait reports it.
-    }
+  /**
+   * A deploy's drain ended: its answer written, retried each second while it cannot be (a full
+   * disk), never ending the daemon's process from a rejected promise; and, drained or failed,
+   * the daemon admits nothing more, so it restarts should no deploy restart it (increment 17
+   * review LOW-6, increment 18 review MEDIUM-1: a failed drain ended the process before).
+   */
+  private finish(state: 'drained' | 'failed', interrupted?: number, message?: string): void {
+    const request = this.request;
+    const write = () => {
+      if (this.request !== request) return;
+      try {
+        this.writeStatus(state, interrupted, message);
+      } catch {
+        setTimeout(write, 1000).unref();
+      }
+    };
+    write();
+    if (this.stranded) setTimeout(this.stranded.listener, this.stranded.afterMs).unref();
   }
 }

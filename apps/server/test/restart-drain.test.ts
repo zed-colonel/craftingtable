@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -564,7 +565,10 @@ it("sees a deploy's drain request and its withdrawal through the watch, not a po
 });
 
 /** A drain of its own over a scratch data directory, with one live turn that never ends. */
-function standaloneDrain(dataDir: string): DaemonDrain {
+function standaloneDrain(
+  dataDir: string,
+  runs: { busyRunCount?: () => number; interruptForRestart?: () => Promise<number> } = {},
+): DaemonDrain {
   return new DaemonDrain(
     { transaction() {} } as never,
     {
@@ -573,6 +577,7 @@ function standaloneDrain(dataDir: string): DaemonDrain {
       cancelDrain() {},
       busyRunCount: () => 1,
       interruptForRestart: async () => 0,
+      ...runs,
     } as never,
     { shutdown: async () => {} } as never,
     { holdAdmissions() {}, shutdown: async () => {} } as never,
@@ -621,6 +626,8 @@ it('keeps draining when the request cannot be read, and starts a request whose f
     writeFileSync(request, JSON.stringify({ id: 'r', mode: 'when-idle' }));
     expect(() => drain.poll()).toThrow();
     expect(drain.isDraining()).toBe(false);
+    // The write that failed left no partial file behind.
+    expect(readdirSync(dataDir).filter((name) => name.endsWith('.partial'))).toEqual([]);
     // Once it can be, the next look starts the drain.
     rmSync(join(dataDir, DRAIN_STATUS_FILE), { recursive: true });
     drain.poll();
@@ -638,5 +645,72 @@ it('keeps draining when the request cannot be read, and starts a request whose f
   } finally {
     drain.stopWatching();
     rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+it("retries a deploy's final status until it is written, and restarts a drained or failed daemon no deploy restarts (increment 18 review MEDIUM-1)", async () => {
+  for (const outcome of ['drained', 'failed'] as const) {
+    const dataDir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'drain-final-'));
+    let busy = 1;
+    const drain = standaloneDrain(dataDir, {
+      busyRunCount: () => busy,
+      interruptForRestart: async () => {
+        if (outcome === 'failed') throw new Error('interrupt failed');
+        return 0;
+      },
+    });
+    let stranded = 0;
+    drain.whenStranded(() => {
+      stranded += 1;
+    }, 50);
+    const status = join(dataDir, DRAIN_STATUS_FILE);
+    try {
+      writeFileSync(
+        join(dataDir, DRAIN_REQUEST_FILE),
+        JSON.stringify({ id: 'r', mode: 'when-idle' }),
+      );
+      drain.poll();
+      expect(JSON.parse(readFileSync(status, 'utf8')).state).toBe('draining');
+      // The final status cannot be written while a directory stands in its place.
+      rmSync(status);
+      mkdirSync(status);
+      writeFileSync(join(status, 'keep'), '');
+      busy = 0;
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(stranded, outcome).toBe(1);
+      rmSync(status, { recursive: true });
+      for (let turn = 0; turn < 300 && !existsSync(status); turn++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(JSON.parse(readFileSync(status, 'utf8')).state, outcome).toBe(outcome);
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  }
+});
+
+it("throws nothing out of the watch's timers when a look fails (increment 18 review LOW-1)", async () => {
+  const base = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'drain-timers-'));
+  const dataDir = join(base, 'data');
+  mkdirSync(dataDir);
+  const drain = standaloneDrain(dataDir);
+  let looks = 0;
+  drain.poll = () => {
+    looks += 1;
+    throw new Error('a look that fails');
+  };
+  drain.startWatching(20);
+  try {
+    // The fallback's timer, with nothing to watch.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(looks).toBeGreaterThanOrEqual(2);
+    // The lost watch's one-second timer.
+    renameSync(dataDir, join(base, 'data.old'));
+    mkdirSync(dataDir);
+    const counted = looks;
+    await new Promise((resolve) => setTimeout(resolve, 1_300));
+    expect(looks).toBeGreaterThan(counted);
+  } finally {
+    drain.stopWatching();
+    rmSync(base, { recursive: true, force: true });
   }
 });

@@ -58,6 +58,11 @@ interface DrainLog {
 }
 
 const POLL_MS = 250;
+/**
+ * The watch's fallback poll: inside the deploy's wait for an answer (`DRAIN_ACK_TIMEOUT_MS`,
+ * `scripts/deploy-daemon.mjs`), which its test holds.
+ */
+export const DRAIN_WATCH_FALLBACK_MS = 10_000;
 
 function parseRequest(text: string): DrainRequest | undefined {
   try {
@@ -157,7 +162,7 @@ export class DaemonDrain {
    * silence for a daemon without drains; a directory that cannot be watched is polled every
    * second, as before (R-B5 decision 22: the poll woke an idle daemon every second).
    */
-  startWatching(fallbackMs = 10_000): void {
+  startWatching(fallbackMs = DRAIN_WATCH_FALLBACK_MS): void {
     if (this.watcher) return;
     rmSync(join(this.dataDir, DRAIN_REQUEST_FILE), { force: true });
     rmSync(join(this.dataDir, DRAIN_STATUS_FILE), { force: true });
@@ -173,7 +178,9 @@ export class DaemonDrain {
             this.watchLost();
           else if (name === null || name === DRAIN_REQUEST_FILE) this.poll();
         } catch {
-          // A failed look is the poll's to repeat.
+          // The directory could not be looked at, or the look failed: the second's poll repeats
+          // it (increment 17 review).
+          this.watchLost();
         }
       });
       this.fileWatch.on('error', () => this.watchLost());
@@ -185,7 +192,7 @@ export class DaemonDrain {
   }
 
   private directoryIdentity(): string {
-    const { dev, ino } = statSync(this.dataDir);
+    const { dev, ino } = statSync(this.dataDir, { bigint: true });
     return `${dev}:${ino}`;
   }
 
@@ -248,11 +255,17 @@ export class DaemonDrain {
           // A withdrawn request's drain resolves too, having drained nothing: no restart is due
           // (R-B9 review M-3, 2026-10-13).
           if (this.request !== request) return;
-          this.writeStatus('drained', interrupted);
+          // A status that cannot be written (a full disk) leaves the deploy without its answer,
+          // never the daemon without its process (increment 17 review LOW-6).
+          this.tryWriteStatus('drained', interrupted);
           if (this.stranded) setTimeout(this.stranded.listener, this.stranded.afterMs).unref();
         },
         (error: unknown) =>
-          this.writeStatus('failed', undefined, error instanceof Error ? error.message : 'failed'),
+          this.tryWriteStatus(
+            'failed',
+            undefined,
+            error instanceof Error ? error.message : 'failed',
+          ),
       );
       return;
     }
@@ -320,7 +333,24 @@ export class DaemonDrain {
     };
     const path = join(this.dataDir, DRAIN_STATUS_FILE);
     const partial = `${path}.${randomUUID()}.partial`;
-    writeFileSync(partial, `${JSON.stringify(status)}\n`, { mode: 0o600 });
-    renameSync(partial, path);
+    try {
+      writeFileSync(partial, `${JSON.stringify(status)}\n`, { mode: 0o600 });
+      renameSync(partial, path);
+    } catch (error) {
+      rmSync(partial, { force: true });
+      throw error;
+    }
+  }
+
+  private tryWriteStatus(
+    state: DrainStatus['state'],
+    interrupted?: number,
+    message?: string,
+  ): void {
+    try {
+      this.writeStatus(state, interrupted, message);
+    } catch {
+      // The deploy's wait reports it.
+    }
   }
 }

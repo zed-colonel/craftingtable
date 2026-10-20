@@ -53,7 +53,7 @@ import { rootCertificates } from 'node:tls';
 
 const HEALTH_TIMEOUT_MS = 90_000;
 /** A daemon that predates drain support never answers; restart it the old way. */
-const DRAIN_ACK_TIMEOUT_MS = 15_000;
+export const DRAIN_ACK_TIMEOUT_MS = 15_000;
 
 function usage(message) {
   if (message) process.stderr.write(`${message}\n\n`);

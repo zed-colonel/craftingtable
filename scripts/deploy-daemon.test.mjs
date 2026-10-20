@@ -19,8 +19,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverMigrations, openDatabase, runMigrations } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DRAIN_WATCH_FALLBACK_MS } from '../apps/server/src/services/daemon-drain.ts';
 import {
   askHealth,
+  DRAIN_ACK_TIMEOUT_MS,
   dataDirectory,
   drainDaemon,
   environmentAssignments,
@@ -696,4 +698,9 @@ describe('unit stop settings (R-B9)', () => {
     expect(timeSpanSeconds('1min 30s')).toBe(90);
     expect(timeSpanSeconds('infinity')).toBe(Number.POSITIVE_INFINITY);
   });
+});
+
+it("answers a deploy's drain request inside its wait, should the daemon's watch miss it (R-B5 decision 22)", () => {
+  // The daemon's fallback poll, and a second for the drain to start and write its status.
+  expect(DRAIN_WATCH_FALLBACK_MS + 2_000).toBeLessThanOrEqual(DRAIN_ACK_TIMEOUT_MS);
 });

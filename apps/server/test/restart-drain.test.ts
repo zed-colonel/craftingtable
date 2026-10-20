@@ -563,11 +563,9 @@ it("sees a deploy's drain request and its withdrawal through the watch, not a po
   }
 });
 
-it('falls back to the one-second poll when its data directory is replaced (increment 16 review LOW-4)', async () => {
-  const base = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'drain-watch-'));
-  const dataDir = join(base, 'data');
-  mkdirSync(dataDir);
-  const drain = new DaemonDrain(
+/** A drain of its own over a scratch data directory, with one live turn that never ends. */
+function standaloneDrain(dataDir: string): DaemonDrain {
+  return new DaemonDrain(
     { transaction() {} } as never,
     {
       noteServiceStop() {},
@@ -581,6 +579,13 @@ it('falls back to the one-second poll when its data directory is replaced (incre
     dataDir,
     60_000,
   );
+}
+
+it('falls back to the one-second poll when its data directory is replaced (increment 16 review LOW-4)', async () => {
+  const base = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'drain-watch-'));
+  const dataDir = join(base, 'data');
+  mkdirSync(dataDir);
+  const drain = standaloneDrain(dataDir);
   // The fallback poll is an hour off: only the lost watch's one-second poll can see the request.
   drain.startWatching(3_600_000);
   try {
@@ -600,5 +605,38 @@ it('falls back to the one-second poll when its data directory is replaced (incre
   } finally {
     drain.stopWatching();
     rmSync(base, { recursive: true, force: true });
+  }
+});
+
+it('keeps draining when the request cannot be read, and starts a request whose first status could not be written (increment 17 review LOW-1)', async () => {
+  const dataDir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'drain-errors-'));
+  const request = join(dataDir, DRAIN_REQUEST_FILE);
+  const drain = standaloneDrain(dataDir);
+  // Its watch polls every 50 ms here: a look that fails throws nothing out of its timer.
+  drain.startWatching(50);
+  try {
+    // The status cannot be written (a directory in its place): the request is not taken.
+    mkdirSync(join(dataDir, DRAIN_STATUS_FILE));
+    writeFileSync(join(dataDir, DRAIN_STATUS_FILE, 'keep'), '');
+    writeFileSync(request, JSON.stringify({ id: 'r', mode: 'when-idle' }));
+    expect(() => drain.poll()).toThrow();
+    expect(drain.isDraining()).toBe(false);
+    // Once it can be, the next look starts the drain.
+    rmSync(join(dataDir, DRAIN_STATUS_FILE), { recursive: true });
+    drain.poll();
+    expect(drain.isDraining()).toBe(true);
+    // A read that fails other than for a missing file is not a withdrawal: the drain goes on.
+    rmSync(request);
+    mkdirSync(request);
+    await new Promise((resolve) => setTimeout(resolve, 1_300));
+    expect(drain.isDraining()).toBe(true);
+    // Withdrawn: the drain ends.
+    rmSync(request, { recursive: true });
+    for (let turn = 0; turn < 300 && drain.isDraining(); turn++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(drain.isDraining()).toBe(false);
+  } finally {
+    drain.stopWatching();
+    rmSync(dataDir, { recursive: true, force: true });
   }
 });

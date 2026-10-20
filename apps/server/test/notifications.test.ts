@@ -2648,3 +2648,63 @@ describe("delivery's due time (R-B5 part 2, increment 10)", () => {
     passes.unregister('busy-worker');
   });
 });
+
+describe('what marks delivery (R-B5 part 2, increment 10)', () => {
+  const causes = (f: Fixture) => f.service.kernel.causes;
+  const count = (f: Fixture, cause: string) => causes(f).get(cause as never) ?? 0;
+
+  it('marks it at a workflow notification, the settings saved and a test requested', async () => {
+    const f = await fixture();
+    const workflow = count(f, 'workflow');
+    f.context.services.workspaceEventNotifier.notify();
+    expect(count(f, 'workflow')).toBe(workflow + 1);
+    const writes = count(f, 'write');
+    f.service.save(f.auth, f.workspaceId, { preferences, expectedVersion: f.status().version });
+    expect(count(f, 'write')).toBe(writes + 1);
+    f.service.test(f.auth, f.workspaceId);
+    expect(count(f, 'write')).toBe(writes + 2);
+  });
+
+  it('marks it at a pass only while an item waits on the controllers quiescence', async () => {
+    const f = await fixture(undefined, { settleMs: 0, presenceGraceMs: 0, presenceWindowMs: 0 });
+    const passes = f.context.services.controllerPasses;
+    await f.service.tick();
+    // Nothing waits: a completed pass does not mark it.
+    const before = count(f, 'pass');
+    passes.completed('anyone', passes.started());
+    expect(count(f, 'pass')).toBe(before);
+    passes.register('busy-worker');
+    f.setCycle('needs-attention', { attention: cycleAttention('review-open-questions') });
+    f.send.mockClear();
+    await f.service.tick();
+    expect(f.send).not.toHaveBeenCalled();
+    passes.completed('busy-worker', passes.started());
+    expect(count(f, 'pass')).toBe(before + 1);
+    passes.unregister('busy-worker');
+  });
+});
+
+it("marks the daemon's delivery at an attention item's change, presence and a cycle hold's release (composition)", async () => {
+  const context = await createTestContext({ workers: false });
+  contexts.push(context);
+  const kernel = context.services.notificationService.kernel;
+  const count = (cause: string) => kernel.causes.get(cause as never) ?? 0;
+  const attention = count('attention');
+  (
+    context.services.attention as unknown as { onChange(workspaces: readonly string[]): void }
+  ).onChange([]);
+  expect(count('attention')).toBe(attention + 1);
+  const presence = count('presence');
+  context.services.operatorPresence.opened('ws' as never, 'user' as never);
+  context.services.operatorPresence.closed('ws' as never, 'user' as never);
+  expect(count('presence')).toBe(presence + 2);
+  const released = count('release');
+  const locks = (
+    context.services.workCycleService as unknown as {
+      locks: { holdForCommand(id: string): void; releaseCommand(id: string): void };
+    }
+  ).locks;
+  locks.holdForCommand('cycle-1');
+  locks.releaseCommand('cycle-1');
+  expect(count('release')).toBe(released + 1);
+});

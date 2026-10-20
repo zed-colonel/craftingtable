@@ -681,12 +681,14 @@ export class StorageService {
     const candidates = this.candidates;
     this.candidates = [];
     this.scanResult = null;
-    for (const candidate of candidates) {
-      // Whatever comes of it, the run's directory is read afresh at the next tick (R-H8).
-      if (candidate.runId) {
-        this.inspected.delete(candidate.runId);
-        this.unsettled.add(candidate.runId);
+    // Whatever comes of it, each run handed on is read afresh at the next tick, outside its
+    // budget (R-H8): all of them first, so a removal that throws leaves none unmarked.
+    for (const { runId } of candidates)
+      if (runId) {
+        this.inspected.delete(runId);
+        this.unsettled.add(runId);
       }
+    for (const candidate of candidates) {
       if (candidate.worktreeId) {
         if (await this.removeWorktreeCache(candidate, context, workspaceId)) {
           count++;
@@ -960,8 +962,12 @@ export class StorageService {
         // Only this worktree's directories (R-B5, decision 11): every run's end asks.
         for (const run of this.storage.maintenance
           .directories({ worktreeId })
-          .filter((r) => r.buildEligible))
+          .filter((r) => r.buildEligible)) {
+          // Read again at the next tick, outside its budget, whatever comes of this: a failure
+          // here then stands as the tick's refusal (R-H8 increment 2's re-check, LOW-C).
+          this.unsettled.add(run.runId);
           candidates.push(...(await cleanupCandidates(run, 0, this.now())));
+        }
         if (!candidates.length) return;
         this.candidates = candidates;
         await this.cleanCaches();

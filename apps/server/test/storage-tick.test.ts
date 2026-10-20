@@ -931,3 +931,34 @@ it("paces the tick's own walk (R-H8 decision 5, review LOW-4)", async () => {
   // The cache search visits the scratch and its 30 directories, each after a 20 ms pause.
   expect(performance.now() - started).toBeGreaterThanOrEqual(600);
 });
+
+it("reads at the next tick, outside the budget, a run the operator's Clean could not clean (increment 2 re-check LOW-A)", async () => {
+  const guard = new WorktreeMutationGuard();
+  const f = await tickFixture({ walkBudgetMs: 0 }, guard);
+  const first = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  const second = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  const held = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  // One directory a tick: all three read, nothing to act on.
+  for (let index = 0; index < 3; index++) {
+    expect(await tick(f.service)).toBeUndefined();
+    f.advance(1 / 1440);
+  }
+  // Caches the daemon does not know of; the first two directories become unread.
+  f.cargo(first, 'target', 1);
+  const heldCache = f.cargo(held, 'target', 1);
+  f.service.forgetInspections({ worktreeId: first.worktreeId });
+  f.service.forgetInspections({ worktreeId: second.worktreeId });
+  // The operator's Clean finds both caches; the held worktree's is skipped.
+  let release = () => {};
+  guard.hold(held.worktreeId, new Promise<void>((resolve) => (release = resolve)));
+  const scan = (await f.service.scan(f.auth, f.workspaceId)).scan;
+  expect(scan?.cacheCount).toBe(2);
+  await f.service.clean(f.auth, f.workspaceId, scan?.id ?? '');
+  expect(existsSync(heldCache)).toBe(true);
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // The next tick's budget goes on the unread second directory, yet the held run is read too.
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(heldCache)).toBe(false);
+});

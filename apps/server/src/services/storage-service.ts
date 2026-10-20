@@ -25,6 +25,7 @@ import {
 } from '@craftingtable/domain';
 import type {
   CraftingTableStorage,
+  RunDirectory,
   StorageRootIdentity,
   StoredStorageSettings,
 } from '@craftingtable/storage';
@@ -47,10 +48,12 @@ import {
   cleanupCandidates,
   directoryBytes,
   GiB,
+  inspectRunDirectory,
   overlaps,
   prepareRoot,
   requireFree,
   resolveRoot,
+  WalkPacer,
   within,
 } from './storage-files.js';
 import type { WorkspaceService } from './workspace-service.js';
@@ -83,6 +86,37 @@ export function initialStorageSettings(
   return { version: 1, policy, roots, mergeRoot: roots.worktreeRoot };
 }
 
+/**
+ * How the minute's maintenance paces its reading of run directories (R-H8 decisions 2 and 5):
+ * the walking time it spends per tick before leaving the rest to the next, the slice of a walk
+ * after which it pauses and for how long, and how long a directory's "nothing to act on" stands
+ * before it is read again whatever the daemon knows.
+ */
+export interface StorageTickPacing {
+  readonly walkBudgetMs: number;
+  readonly walkSliceMs: number;
+  readonly walkPauseMs: number;
+  readonly recheckMs: number;
+}
+export const STORAGE_TICK_PACING: StorageTickPacing = {
+  walkBudgetMs: 50,
+  walkSliceMs: 10,
+  walkPauseMs: 100,
+  recheckMs: 6 * 3_600_000,
+};
+
+/**
+ * What the tick last read in a run directory that held nothing to act on (R-H8): read under
+ * `key` (the retention and builds it was read for, its retention's start, path and device) at
+ * `readAt`, standing until `dueAt`.
+ */
+interface InspectedDirectory {
+  readonly key: string;
+  readonly worktreeId: WorktreeId;
+  readonly readAt: number;
+  readonly dueAt: number;
+}
+
 /** Host-owned placement and maintenance. Cleanup accepts controller previews, never browser paths. */
 export class StorageService {
   private settings: StoredStorageSettings;
@@ -93,6 +127,10 @@ export class StorageService {
   private lastError: string | null = null;
   private operation: Promise<unknown> | undefined;
   private readonly runCleanups = new Map<WorktreeId, Promise<void>>();
+  /** Run directories the tick read with nothing to act on, by run id (R-H8, in memory only). */
+  private readonly inspected = new Map<string, InspectedDirectory>();
+  /** The tick's standing refusals, by run id: reported until a walk of the run passes. */
+  private readonly refusals = new Map<string, string>();
   private stopping = false;
   private readonly alertGate = new StorageAlertGate();
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -110,6 +148,7 @@ export class StorageService {
     private readonly workspaces: WorkspaceService,
     private readonly now: () => Date = () => new Date(),
     private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
+    private readonly pacing: StorageTickPacing = STORAGE_TICK_PACING,
   ) {
     this.dataIdentity = {
       path: realpathSync(dirname(storage.databasePath)),
@@ -634,6 +673,8 @@ export class StorageService {
     this.candidates = [];
     this.scanResult = null;
     for (const candidate of candidates) {
+      // Whatever comes of it, the run's directory is read afresh next time (R-H8).
+      this.inspected.delete(candidate.runId);
       if (candidate.worktreeId) {
         if (await this.removeWorktreeCache(candidate, context, workspaceId)) {
           count++;
@@ -895,6 +936,7 @@ export class StorageService {
   }
   /** Runs after process-group exit; automation waits before reserving the next step. */
   cleanupAfterRun(worktreeId: WorktreeId): Promise<void> {
+    this.forgetInspections({ worktreeId });
     const existing = this.runCleanups.get(worktreeId);
     if (existing) return existing;
     if (this.stopping || !this.settings.policy.autoCleanBuildCaches) return Promise.resolve();
@@ -921,6 +963,20 @@ export class StorageService {
       });
     this.runCleanups.set(worktreeId, pending);
     return pending;
+  }
+  /**
+   * Drops what the tick last read in a run's directory, or in its worktree's, so the next tick
+   * reads it again: the daemon is about to change it or just did (R-H8). Called at a run's
+   * end-of-run cleanup, at a launch on the worktree (a resumed run writes its predecessor's
+   * directory), and when a run's checks, which write its scratch, have stopped.
+   */
+  forgetInspections(scope: {
+    readonly runId?: AgentRunId;
+    readonly worktreeId?: WorktreeId;
+  }): void {
+    for (const [runId, inspected] of this.inspected)
+      if (runId === scope.runId || inspected.worktreeId === scope.worktreeId)
+        this.inspected.delete(runId);
   }
   startWorker(): void {
     this.stopping = false;
@@ -951,19 +1007,86 @@ export class StorageService {
           this.settings.policy.scratchRetentionDays
         ) {
           const { autoCleanBuildCaches, scratchRetentionDays } = this.settings.policy;
+          const now = this.now();
+          const at = now.getTime();
           const candidates: BuildCache[] = [];
           // Only what this tick may act on (R-H8 decisions 3 and 4): expired files of an eligible
           // run, and build caches of a build-eligible one with automatic cleanup on. A directory
           // with neither is not read, so it is neither handed on nor refused.
+          const listed = new Set<string>();
+          const due: {
+            readonly run: RunDirectory;
+            readonly retention: 0 | 30;
+            readonly builds: boolean;
+            readonly key: string;
+            readonly rank: number;
+          }[] = [];
           for (const run of this.storage.maintenance.directories()) {
             const retention = run.eligible ? scratchRetentionDays : 0;
             const builds = autoCleanBuildCaches && run.buildEligible;
             if (!retention && !builds) continue;
+            listed.add(run.runId);
+            const key = JSON.stringify([
+              retention,
+              builds,
+              run.retainedSince,
+              run.path,
+              run.device,
+            ]);
+            // A directory read with nothing to act on stands until its due time, unless it was
+            // read for another retention or builds, in another place, or later than now (R-H8).
+            const inspected = this.inspected.get(run.runId);
+            if (inspected?.key === key && inspected.readAt <= at && at < inspected.dueAt) continue;
+            // Never-read directories before due ones, each by its due time (the review's L-4).
+            const rank = this.inspected.get(run.runId)?.dueAt ?? Number.MIN_SAFE_INTEGER;
+            due.push({ run, retention, builds, key, rank });
+          }
+          for (const runId of this.inspected.keys())
+            if (!listed.has(runId)) this.inspected.delete(runId);
+          for (const runId of this.refusals.keys())
+            if (!listed.has(runId)) this.refusals.delete(runId);
+          due.sort((a, b) => a.rank - b.rank);
+          const read = async (
+            { run, retention, builds, key }: (typeof due)[number],
+            pacer: WalkPacer,
+          ) => {
             try {
-              candidates.push(...(await cleanupCandidates(run, retention, this.now(), { builds })));
+              const found = await inspectRunDirectory(run, retention, now, { builds, pacer });
+              this.refusals.delete(run.runId);
+              // A directory with something to act on is read again at every tick until it has
+              // nothing (the design review's M-2): a removal skipped or failed is retried.
+              if (found.candidates.length) {
+                this.inspected.delete(run.runId);
+                candidates.push(...found.candidates);
+              } else
+                this.inspected.set(run.runId, {
+                  key,
+                  worktreeId: run.worktreeId,
+                  readAt: at,
+                  dueAt: Math.min(found.dueAt, at + this.pacing.recheckMs),
+                });
             } catch {
-              failures.push(`Could not inspect eligible scratch for run ${run.runId}; retained.`);
+              const refusal = `Could not inspect eligible scratch for run ${run.runId}; retained.`;
+              this.inspected.delete(run.runId);
+              this.refusals.set(run.runId, refusal);
+              failures.push(refusal);
             }
+          };
+          const pace = () => new WalkPacer(this.pacing.walkSliceMs, this.pacing.walkPauseMs);
+          // Standing refusals are read again at every tick, outside the budget, so one costly
+          // refusal starves no other directory (decision 6; the operator, 2026-10-20).
+          const standing = due.filter((item) => this.refusals.has(item.run.runId));
+          const refusing = pace();
+          for (const item of standing) await read(item, refusing);
+          // About 50 ms of walking a tick, paced within each walk; at least one directory a tick
+          // (decision 5). What is not reached waits for the next tick.
+          const budget = pace();
+          let walked = 0;
+          for (const item of due) {
+            if (standing.includes(item)) continue;
+            if (walked > 0 && budget.workMs >= this.pacing.walkBudgetMs) break;
+            walked++;
+            await read(item, budget);
           }
           if (autoCleanBuildCaches) candidates.push(...(await this.worktreeCacheCandidates()));
           if (candidates.length) {

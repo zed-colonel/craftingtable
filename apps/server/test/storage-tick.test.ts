@@ -25,7 +25,12 @@ import {
 } from '@craftingtable/domain';
 import { openDatabase } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
-import { StorageService } from '../src/services/storage-service.js';
+import { directoryBytes, WalkPacer } from '../src/services/storage-files.js';
+import {
+  STORAGE_TICK_PACING,
+  StorageService,
+  type StorageTickPacing,
+} from '../src/services/storage-service.js';
 import { createTestContext, type TestContext } from './test-support.js';
 
 /**
@@ -78,8 +83,12 @@ function age(path: string, at: number) {
 type Status = 'finished' | 'failed' | 'interrupted';
 type Tree = 'active' | 'merged' | 'removed-unmerged';
 
-/** A daemon's storage, its own clock, and run directories of every kind the tick meets. */
-async function tickFixture() {
+/**
+ * A daemon's storage, its own clock, and run directories of every kind the tick meets. The
+ * tick's walking budget is unbounded and its walks unpaused unless a test sets them (R-H8
+ * decision 5), so what one tick reads never depends on the machine's speed.
+ */
+async function tickFixture(pacing: Partial<StorageTickPacing> = {}) {
   let instant = Date.now();
   const context = await createTestContext();
   contexts.push(context);
@@ -97,6 +106,8 @@ async function tickFixture() {
     context.config,
     context.services.workspaceService,
     () => new Date(instant),
+    undefined,
+    { ...STORAGE_TICK_PACING, walkBudgetMs: Infinity, walkSliceMs: Infinity, ...pacing },
   );
   const projectId = asProjectId('project'),
     bundleId = asPlanBundleId('bundle'),
@@ -598,9 +609,14 @@ it('follows what changes after a tick: a write, an eligibility, the policy (R-H8
   expect(await tick(f.service)).toBeUndefined();
   expect(existsSync(merged.scratch)).toBe(false);
 
-  // A cache built into an ended run's scratch after a tick goes at the next one.
+  // A cache built into an ended run's scratch after a tick, by nothing the daemon knows of, goes
+  // at the re-check, 6 hours after the directory was last read (R-H8 decision 2); until then
+  // the tick does not read it. (Before R-H8 it went at the next tick.)
   const cache = makeCargo(join(rebuilt.scratch, 'target'));
   f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(cache)).toBe(true);
+  f.advance(6 / 24);
   expect(await tick(f.service)).toBeUndefined();
   expect(existsSync(cache)).toBe(false);
 
@@ -734,4 +750,127 @@ it('expires scratch and bodies with automatic cache cleanup off (R-H8 increment 
   expect(await tick(f.service)).toBeUndefined();
   expect([existsSync(expired.scratch), existsSync(bodies)]).toEqual([false, false]);
   expect([existsSync(recent.scratch), existsSync(cache)]).toEqual([true, true]);
+});
+
+it('reads a directory again at its due time, not before (R-H8 decision 1)', async () => {
+  const f = await tickFixture();
+  // Merged 29.9 days ago, its scratch 40 days old: due when its retention runs out, in 2.4 hours
+  // (inside the 6-hour re-check).
+  const retained = f.addRun({ status: 'finished', tree: 'merged', exited: true, retained: 29.9 });
+  f.scratchFile(retained, 40);
+  // Merged 40 days ago, its scratch last written 29.97 days ago: due in about 43 minutes.
+  const written = f.addRun({ status: 'finished', tree: 'merged', exited: true, retained: 40 });
+  f.scratchFile(written, 29.97);
+  expect(await tick(f.service)).toBeUndefined();
+  // Caches built into both after that read go unseen until each is due.
+  const first = f.cargo(retained, 'target', 40);
+  const second = f.cargo(written, 'target', 29.97);
+  f.advance(0.02);
+  expect(await tick(f.service)).toBeUndefined();
+  expect([existsSync(first), existsSync(second)]).toEqual([true, true]);
+  f.advance(0.02);
+  expect(await tick(f.service)).toBeUndefined();
+  expect([existsSync(first), existsSync(written.scratch)]).toEqual([true, false]);
+  f.advance(0.07);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(retained.scratch)).toBe(false);
+});
+
+it('reads a directory again when the daemon touches it, its worktree or the policy it was read under (R-H8)', async () => {
+  const f = await tickFixture();
+  const run = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  f.scratchFile(run, 1);
+  expect(await tick(f.service)).toBeUndefined();
+  const planted = () => makeCargo(join(run.scratch, 'target'));
+  const minute = async () => {
+    f.advance(1 / 1440);
+    expect(await tick(f.service)).toBeUndefined();
+  };
+  // Nothing the daemon knows of: unseen.
+  let cache = planted();
+  await minute();
+  expect(existsSync(cache)).toBe(true);
+  // A settings change that changes no result (the backups kept) changes nothing (review L-3).
+  const status = f.service.get(f.auth, f.workspaceId);
+  f.service.save(f.auth, f.workspaceId, {
+    expectedVersion: status.version,
+    policy: { ...status.policy, backupsToKeep: status.policy.backupsToKeep + 1 },
+  });
+  await minute();
+  expect(existsSync(cache)).toBe(true);
+  // Its worktree touched (a launch, an end-of-run cleanup): read at the next tick.
+  f.service.forgetInspections({ worktreeId: run.worktreeId });
+  await minute();
+  expect(existsSync(cache)).toBe(false);
+  // The run itself touched (its checks stopped).
+  await minute();
+  cache = planted();
+  await minute();
+  expect(existsSync(cache)).toBe(true);
+  f.service.forgetInspections({ runId: run.runId });
+  await minute();
+  expect(existsSync(cache)).toBe(false);
+  // Another run's worktree or run touched: not this one.
+  await minute();
+  cache = planted();
+  f.service.forgetInspections({ worktreeId: asWorktreeId('another-worktree') });
+  f.service.forgetInspections({ runId: asAgentRunId(randomUUID()) });
+  await minute();
+  expect(existsSync(cache)).toBe(true);
+  // A clock set back makes what was read "later" due (review L-2).
+  f.advance(-1);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(cache)).toBe(false);
+});
+
+it('walks about its budget a tick, at least one directory, never-read ones first (R-H8 decision 5)', async () => {
+  const f = await tickFixture({ walkBudgetMs: 0 });
+  const runs = [1, 2, 3].map(() => {
+    const run = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+    return f.cargo(run, 'target', 1);
+  });
+  const left = () => runs.filter(existsSync).length;
+  // One directory a tick; one just cleaned is read again at the next (review M-2).
+  for (const expected of [2, 2, 1, 1, 0]) {
+    expect(await tick(f.service)).toBeUndefined();
+    expect(left()).toBe(expected);
+    f.advance(1 / 1440);
+  }
+});
+
+it('reads a standing refusal again every tick, outside the budget (R-H8 decision 6, the operator 2026-10-20)', async () => {
+  const f = await tickFixture({ walkBudgetMs: 0 });
+  const wide = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  for (let index = 0; index <= 10_000; index++)
+    mkdirSync(join(wide.scratch, 'wide', String(index)), { recursive: true });
+  const caches = [1, 2].map(() => {
+    const run = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+    return f.cargo(run, 'target', 1);
+  });
+  const left = () => caches.filter(existsSync).length;
+  // The first tick reads only the first directory, and it is refused.
+  expect(refused(await tick(f.service), { wide })).toEqual(['wide']);
+  expect(left()).toBe(2);
+  // Each later tick reads it again, refused, and one other directory besides (a cleaned one
+  // again at the next).
+  for (const expected of [1, 1, 0]) {
+    f.advance(1 / 1440);
+    expect(refused(await tick(f.service), { wide })).toEqual(['wide']);
+    expect(left()).toBe(expected);
+  }
+  // Once the operator fixes it, the next tick clears the refusal.
+  rmSync(join(wide.scratch, 'wide'), { recursive: true });
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+});
+
+it('pauses a long walk after each slice of it (R-H8 decision 5)', async () => {
+  const f = await tickFixture();
+  const run = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  mkdirSync(run.scratch);
+  for (let index = 0; index < 30; index++) writeFileSync(join(run.scratch, String(index)), '');
+  const started = performance.now();
+  await directoryBytes(run.scratch, undefined, new WalkPacer(0, 20));
+  // 31 entries, each after a 20 ms pause: the walk gave the event loop back throughout.
+  expect(performance.now() - started).toBeGreaterThanOrEqual(600);
 });

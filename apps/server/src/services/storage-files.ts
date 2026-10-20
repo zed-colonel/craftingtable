@@ -77,15 +77,44 @@ export function requireFree(root: StorageRootIdentity, minimumBytes: number): vo
     );
   }
 }
+/**
+ * Gives the event loop back during a long walk (R-H8 decision 5): after each `sliceMs` of a
+ * walk's time it waits `pauseMs` before the next entry, so one large directory never holds the
+ * daemon's main thread for long. `workMs` is the walking time so far, its pauses left out.
+ */
+export class WalkPacer {
+  private resumedAt = performance.now();
+  private worked = 0;
+  constructor(
+    private readonly sliceMs: number,
+    private readonly pauseMs: number,
+  ) {}
+  get workMs(): number {
+    return this.worked + performance.now() - this.resumedAt;
+  }
+  async step(): Promise<void> {
+    const ran = performance.now() - this.resumedAt;
+    if (ran < this.sliceMs) return;
+    this.worked += ran;
+    await new Promise((resolve) => setTimeout(resolve, this.pauseMs));
+    this.resumedAt = performance.now();
+  }
+}
 /** Never follow links or cross filesystem boundaries during inventory. */
-export async function directoryBytes(path: string, device?: number): Promise<number> {
+export async function directoryBytes(
+  path: string,
+  device?: number,
+  pacer?: WalkPacer,
+): Promise<number> {
+  await pacer?.step();
   const entry = await lstat(path);
   if (entry.isSymbolicLink()) return 0;
   const expected = device ?? entry.dev;
   if (entry.dev !== expected) throw new Error(`Skipped a nested mount at ${path}`);
   if (!entry.isDirectory()) return entry.blocks * 512;
   let bytes = entry.blocks * 512;
-  for (const name of await readdir(path)) bytes += await directoryBytes(join(path, name), expected);
+  for (const name of await readdir(path))
+    bytes += await directoryBytes(join(path, name), expected, pacer);
   return bytes;
 }
 /**
@@ -104,11 +133,14 @@ export interface BuildCache {
   readonly inode: number;
   readonly kind: 'build' | 'scratch';
 }
-export async function cargoCaches(run: {
-  path: string;
-  runId: string;
-  device: number;
-}): Promise<BuildCache[]> {
+export async function cargoCaches(
+  run: {
+    path: string;
+    runId: string;
+    device: number;
+  },
+  pacer?: WalkPacer,
+): Promise<BuildCache[]> {
   if (!existsSync(run.path)) return [];
   checkRoot({ path: run.path, device: run.device });
   const scratch = join(run.path, 'scratch');
@@ -118,6 +150,7 @@ export async function cargoCaches(run: {
   let visited = 0;
   const visit = async (path: string, depth: number): Promise<void> => {
     if (++visited > 10000) throw new Error('Scratch cache inventory limit reached; retained.');
+    await pacer?.step();
     const entry = await lstat(path);
     if (!entry.isDirectory() || entry.isSymbolicLink() || entry.dev !== run.device) return;
     const tag = join(path, 'CACHEDIR.TAG');
@@ -153,7 +186,7 @@ export async function cargoCaches(run: {
         runId: run.runId,
         device: entry.dev,
         inode: entry.ino,
-        bytes: await directoryBytes(path, run.device),
+        bytes: await directoryBytes(path, run.device, pacer),
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -163,13 +196,18 @@ export async function cargoCaches(run: {
   return caches;
 }
 
-async function latestModification(path: string, device: number): Promise<number> {
+async function latestModification(
+  path: string,
+  device: number,
+  pacer?: WalkPacer,
+): Promise<number> {
+  await pacer?.step();
   const entry = await lstat(path);
   if (entry.dev !== device) throw new Error('Scratch contains a nested mount; retained.');
   let latest = entry.mtimeMs;
   if (entry.isDirectory() && !entry.isSymbolicLink()) {
     for (const name of await readdir(path))
-      latest = Math.max(latest, await latestModification(join(path, name), device));
+      latest = Math.max(latest, await latestModification(join(path, name), device, pacer));
   }
   return latest;
 }
@@ -184,22 +222,43 @@ export async function cleanupCandidates(
   now: Date,
   options: { readonly builds?: boolean } = {},
 ): Promise<BuildCache[]> {
-  if (!existsSync(run.path)) return [];
+  return (await inspectRunDirectory(run, retentionDays, now, options)).candidates;
+}
+/**
+ * `cleanupCandidates`, with the moment its answer can next change by the clock alone (R-H8):
+ * the run's retention running out, or an expired scratch's or bodies' latest modification
+ * aging past the retention. Infinity when only a change in the directory, the run's state or
+ * the policy can change it (retention 0 never expires). Meaningful when nothing was found.
+ */
+export async function inspectRunDirectory(
+  run: { path: string; runId: string; device: number; retainedSince: string },
+  retentionDays: 0 | 30,
+  now: Date,
+  options: { readonly builds?: boolean; readonly pacer?: WalkPacer } = {},
+): Promise<{ readonly candidates: BuildCache[]; readonly dueAt: number }> {
+  const { pacer } = options;
+  if (!existsSync(run.path)) return { candidates: [], dueAt: Infinity };
   checkRoot({ path: run.path, device: run.device });
-  const cutoff = now.getTime() - retentionDays * 86_400_000;
+  const retentionMs = retentionDays * 86_400_000;
+  const cutoff = now.getTime() - retentionMs;
   const expired = retentionDays > 0 && Date.parse(run.retainedSince) <= cutoff;
+  let dueAt =
+    retentionDays > 0 && !expired ? Date.parse(run.retainedSince) + retentionMs : Infinity;
   const plainDirectory = (path: string) =>
     existsSync(path) && !lstatSync(path).isSymbolicLink() && realpathSync(path) === path;
+  /** Whether an expired run's files have been quiet for the retention; if not, when they will. */
+  const quiet = async (path: string) => {
+    const latest = await latestModification(path, run.device, pacer);
+    if (latest <= cutoff) return true;
+    dueAt = Math.min(dueAt, latest + retentionMs);
+    return false;
+  };
   const expiredFiles: BuildCache[] = [];
   // Tool-result bodies moved out of the journal share the run's scratch retention (R-H2),
   // including its quiet period: bodies that journal compaction wrote into a long-retained
   // run stay for a full retention window before they expire.
   const bodies = join(run.path, TOOL_RESULTS_DIRECTORY);
-  if (
-    expired &&
-    plainDirectory(bodies) &&
-    (await latestModification(bodies, run.device)) <= cutoff
-  ) {
+  if (expired && plainDirectory(bodies) && (await quiet(bodies))) {
     const entry = await lstat(bodies);
     if (entry.isDirectory())
       expiredFiles.push({
@@ -208,28 +267,33 @@ export async function cleanupCandidates(
         runId: run.runId,
         device: entry.dev,
         inode: entry.ino,
-        bytes: await directoryBytes(bodies, run.device),
+        bytes: await directoryBytes(bodies, run.device, pacer),
       });
   }
   const scratch = join(run.path, 'scratch');
-  if (
-    expired &&
-    plainDirectory(scratch) &&
-    (await latestModification(scratch, run.device)) <= cutoff
-  ) {
+  if (expired && plainDirectory(scratch) && (await quiet(scratch))) {
     const entry = await lstat(scratch);
     if (entry.isDirectory())
-      return [
-        ...expiredFiles,
-        {
-          kind: 'scratch',
-          path: scratch,
-          runId: run.runId,
-          device: entry.dev,
-          inode: entry.ino,
-          bytes: await directoryBytes(scratch, run.device),
-        },
-      ];
+      return {
+        candidates: [
+          ...expiredFiles,
+          {
+            kind: 'scratch',
+            path: scratch,
+            runId: run.runId,
+            device: entry.dev,
+            inode: entry.ino,
+            bytes: await directoryBytes(scratch, run.device, pacer),
+          },
+        ],
+        dueAt,
+      };
   }
-  return [...expiredFiles, ...(options.builds === false ? [] : await cargoCaches(run))];
+  return {
+    candidates: [
+      ...expiredFiles,
+      ...(options.builds === false ? [] : await cargoCaches(run, pacer)),
+    ],
+    dueAt,
+  };
 }

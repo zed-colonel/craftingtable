@@ -3,7 +3,7 @@
  * operator's commands, and `finalize` with what it calls (the protected refs' check, the run's
  * temporary and agent directories).
  */
-import { moveRecords, unrecordedMoves } from '../ref-watch.js';
+
 import { randomUUID } from 'node:crypto';
 import type { NormalizedAgentEvent } from '@craftingtable/agents';
 import {
@@ -22,11 +22,12 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { removeAgentTree } from '../agent-tree.js';
-import { offloadToolResult, readToolResult } from '../tool-result-store.js';
 import type { AuthContext } from '../auth-service.js';
 import { NotFoundError } from '../errors.js';
+import { moveRecords, unrecordedMoves } from '../ref-watch.js';
 import type { RuntimeEvidenceService } from '../runtime-evidence-service.js';
 import type { StorageService } from '../storage-service.js';
+import { offloadToolResult, readToolResult } from '../tool-result-store.js';
 import type { WorkspaceEventNotifier } from '../workspace-event-notifier.js';
 import type { WorkspaceService } from '../workspace-service.js';
 import { LIVE_STATUSES, type RunLog, summarise } from './shared.js';
@@ -275,7 +276,11 @@ export class RunJournal {
     if (checks) {
       const stopping = checks
         .catch((error) => this.log.warn('Check cleanup failed', { runId, error: String(error) }))
-        .finally(() => this.state.cleanups.delete(stopping));
+        .finally(() => {
+          this.state.cleanups.delete(stopping);
+          // Its checks wrote its scratch until now: the storage tick reads it afresh (R-H8).
+          this.storageService.forgetInspections({ runId });
+        });
       this.state.cleanups.add(stopping);
     }
     if (changed) {

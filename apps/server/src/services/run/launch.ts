@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentBackend } from '@craftingtable/agents';
+import type { WorktreeId } from '@craftingtable/domain';
 import {
   AGENT_BACKEND_LABELS,
   type AgentBackendKind,
@@ -17,17 +18,19 @@ import {
   asAgentRunId,
   asAuditEventId,
   asEventId,
+  InvariantError,
   ownsIntegrationResolution,
   type SessionId,
+  type StepAttempt,
+  truncateUtf8Bytes,
   type UserId,
   type WorkCycle,
   type WorkItemId,
   type WorkspaceId,
-  truncateUtf8Bytes,
-  type StepAttempt,
 } from '@craftingtable/domain';
-import type { CraftingTableStorage } from '@craftingtable/storage';
+import type { CraftingTableStorage, RunLaunchReservation } from '@craftingtable/storage';
 import type { ExecutionConfig } from '../../config.js';
+import { removeAgentTree } from '../agent-tree.js';
 import { activeEditor } from '../authority-policy.js';
 import type { BaselinePreparationService } from '../baseline-preparation.js';
 import type { BranchService } from '../branch-service.js';
@@ -38,30 +41,24 @@ import {
   NotFoundError,
   TypedRefusalError,
 } from '../errors.js';
-import { reviewCapture } from '../review-capture.js';
 import { requireNotRetired, requireTreeScope, resolveScope } from '../execution-scope.js';
 import { reservePhase } from '../phase-resources.js';
 import { sessionResumeSource } from '../restart-resume.js';
+import { reviewCapture } from '../review-capture.js';
 import type { RuntimeEvidenceService } from '../runtime-evidence-service.js';
 import type { StorageService } from '../storage-service.js';
 import type { WorktreeMutationGuard } from '../worktree-mutation-guard.js';
-import type { InvestigationLaunch, StartRunInput } from './shared.js';
+import type { BriefLaunch } from './context/brief-input.js';
 import { briefFor, buildsWithCargo } from './context/brief-input.js';
 import { materializeRunFiles } from './context/materialize.js';
-
-import type { RunState } from './state.js';
-import type { RunProfileCatalog } from './profiles.js';
 import type { RunPreconditions } from './preconditions.js';
-import type { RunSandbox } from './sandbox.js';
 import type { RunProcesses } from './processes.js';
-import type { RunSpawner } from './spawn.js';
-import type { ControlledRun, RunLog } from './shared.js';
+import type { RunProfileCatalog } from './profiles.js';
 import { deviceOf, removeReservation, removeReservedDirectory } from './reservation.js';
-import { removeAgentTree } from '../agent-tree.js';
-import { InvariantError } from '@craftingtable/domain';
-import type { RunLaunchReservation } from '@craftingtable/storage';
-import type { WorktreeId } from '@craftingtable/domain';
-import type { BriefLaunch } from './context/brief-input.js';
+import type { RunSandbox } from './sandbox.js';
+import type { ControlledRun, InvestigationLaunch, RunLog, StartRunInput } from './shared.js';
+import type { RunSpawner } from './spawn.js';
+import type { RunState } from './state.js';
 
 /** A parent run's findings are reproduced in the brief up to this size. */
 const PARENT_MESSAGE_LIMIT_BYTES = 256 * 1024;
@@ -224,6 +221,9 @@ export class RunLauncher {
     withdrawn: () => void,
   ): Promise<AgentRun> {
     await this.storageService.waitForRunCleanup(input.worktreeId);
+    // A run may write its worktree's earlier run directories (a resumed run, its predecessor's):
+    // the storage tick reads them afresh (R-H8).
+    this.storageService.forgetInspections({ worktreeId: input.worktreeId });
     withdrawn();
     const { backend, prepared, resume } = this.authorize(
       workspaceId,

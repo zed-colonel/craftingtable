@@ -1,3 +1,4 @@
+import { createGitOperations } from '@craftingtable/git';
 import type { WriteObserver } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
 import { ManualClock } from './cycle-test-support.js';
@@ -35,6 +36,7 @@ it('looks at a running roadmap only on a mark, with nothing written (flipped by 
   await sleep(2_600);
   // No look without a mark (a stray write elsewhere in the daemon would be one), and none due.
   expect(advances.calls()).toBeLessThanOrEqual(drain.marks() - marks);
+  expect(advances.calls()).toBeLessThanOrEqual(2);
   expect(drain.nextDue()).toBeUndefined();
   const looked = advances.calls();
   service.wake('test');
@@ -58,6 +60,7 @@ it('tries a swallowed failure again at the next mark, not on every pass (flipped
   await sleep(2_600);
   // Tried again only when something marks the roadmap: no due time is armed for it.
   expect(failed).toBeLessThanOrEqual(drain.marks() - marks);
+  expect(failed).toBeLessThanOrEqual(2);
   expect(drain.nextDue()).toBeUndefined();
   const tried = failed;
   service.wake('test');
@@ -68,11 +71,21 @@ it('tries a swallowed failure again at the next mark, not on every pass (flipped
   expect(storedRoadmap(state).status).toBe('running');
 });
 
-it('wakes delivery every five seconds with nothing to deliver (flips: delivery runs only on marks)', async () => {
-  const { state } = await waitingRoadmap();
-  const rounds = counted(state.context.services.notificationService, 'deliverDue');
+it('runs delivery only on a mark or at its due time (flipped by increment 10)', async () => {
+  // Before increment 10 delivery ran every five seconds with nothing to deliver.
+  const { state, clock } = await waitingRoadmap();
+  const delivery = state.context.services.notificationService;
+  const rounds = counted(delivery, 'deliverDue');
+  const marks = () => [...delivery.kernel.causes.values()].reduce((sum, n) => sum + n, 0);
+  const before = marks();
   await sleep(5_600);
-  expect(rounds.calls()).toBeGreaterThanOrEqual(1);
+  expect(rounds.calls()).toBeLessThanOrEqual(marks() - before);
+  // The stopped cycle's item waits for its settle window: delivery looks again when it ends.
+  const due = delivery.kernel.nextDue();
+  expect(due).toBeGreaterThan(clock.now());
+  const looked = rounds.calls();
+  clock.advance((due ?? 0) - clock.now());
+  await waitUntil(() => rounds.calls() > looked, 'delivery at its due time');
 });
 
 it('completes no roadmap pass while admissions are held, and passes again at their release', async () => {
@@ -123,23 +136,33 @@ it('merges once a merge lane it met is released, with nothing written (a release
   const { state, start, repositoryPath } = await delegatedMerge();
   const execution = state.context.services.executionService;
   // The lane is taken as the scheduler first tries the merge, so the review is done and only
-  // the merge meets it: the merge is refused as busy.
+  // the merge meets it: the merge is refused as busy. It is taken outside the scheduler's round,
+  // as another operation's would be, or its release would count as the round's own (increment 9
+  // review M-2).
+  const ownRound = (
+    state.context.services.roadmapService as unknown as {
+      ownRound: { exit<T>(callback: () => T): T };
+    }
+  ).ownRound;
   let release: () => void = () => undefined;
   let held: Promise<void> | undefined;
   let attempts = 0;
   const merge = execution.mergeWorktree.bind(execution);
   execution.mergeWorktree = (...args: Parameters<typeof merge>) => {
     attempts += 1;
-    held ??= execution.branches.duringMerge(
-      repositoryPath,
-      () =>
-        new Promise<void>((resolve) => {
-          release = resolve;
-        }),
+    held ??= ownRound.exit(() =>
+      execution.branches.duringMerge(
+        repositoryPath,
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      ),
     );
     return merge(...args);
   };
   const advances = counted(state.context.services.roadmapService, 'advance');
+  const drain = drainOf(state);
   try {
     await start();
     await waitUntil(() => attempts >= 1, 'the delegated merge was tried');
@@ -152,8 +175,10 @@ it('merges once a merge lane it met is released, with nothing written (a release
   } finally {
     release();
   }
+  const released = drain.cause('release');
   await held;
-  // No sweep comes on this clock: only the release's mark can bring the merge.
+  // No sweep comes on this clock: the release's mark brings the merge.
+  expect(drain.cause('release')).toBe(released + 1);
   await waitUntil(() => storedRoadmap(state).status === 'completed', 'merged once the lane freed');
 });
 
@@ -204,4 +229,47 @@ it('merges once a merge lane its first look met in the refresh is released (the 
   await held;
   await waitUntil(() => storedRoadmap(state).status === 'completed', 'merged once the lane freed');
   expect(merges).toBe(1);
+});
+
+it("tries a merge refused as target-moved again a second on, not at its own refusal's writes", async () => {
+  // Its reservation and refusal are waking writes: without its not-before time the three quick
+  // retries would run back to back (part 2 review MEDIUM-2).
+  const clock = new ManualClock();
+  const real = createGitOperations({ gitExecutable: 'git' });
+  let merges = 0;
+  const fixture = await roadmapFixture(undefined, {
+    workers: true,
+    now: clock.date,
+    kernelClock: clock,
+    gitOperations: {
+      ...real,
+      mergeBranch: async (input) => {
+        merges += 1;
+        if (merges === 1)
+          return {
+            ok: false,
+            failure: {
+              kind: 'target-moved',
+              message: 'The target moved while it was merged into.',
+            },
+          };
+        return real.mergeBranch(input);
+      },
+    },
+  });
+  const { state } = fixture;
+  await useIntegration(fixture);
+  await saveRoadmapRequest(state, {
+    ...roadmapInput(state, [state.workItemId]),
+    automation: { integrationMerge: 'automatic', integrationConflicts: 'manual' },
+  });
+  await roadmapControl(state, 'start');
+  await waitUntil(() => merges === 1, 'the merge refused as target-moved');
+  const refusedAt = clock.now();
+  await quiet(state);
+  expect(merges).toBe(1);
+  expect(drainOf(state).nextDue()).toBe(refusedAt + 1000);
+  clock.advance(1000);
+  await waitUntil(() => storedRoadmap(state).status === 'completed', 'merged a second on');
+  expect(merges).toBe(2);
 });

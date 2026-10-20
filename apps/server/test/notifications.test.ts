@@ -44,6 +44,7 @@ import { openDaemonStorage } from '../src/persisted-records.js';
 import { CredentialFile } from '../src/security/credential-file.js';
 import { ControllerPasses, OperatorPresence } from '../src/services/attention-gates.js';
 import {
+  QUIESCENCE_LIMIT_MS,
   NOTIFICATION_SETTLE_MS,
   NotificationService,
   type NotificationServiceOptions,
@@ -2568,5 +2569,82 @@ describe('attention items: review fixes (R-A4)', () => {
     await expect(cycles.tick()).rejects.toThrow('pass failed');
     pass.mockRestore();
     expect(passes.quietSince(opened)).toBe(true);
+  });
+});
+
+describe("delivery's due time (R-B5 part 2, increment 10)", () => {
+  /**
+   * Steps time one second at a time, a delivery round each, until it sends or `seconds` pass.
+   * Delivery on the kernel looks again only at its due time (or a mark), so the due time it armed
+   * after a round must never be later than the moment the next send became possible: a send at a
+   * time before the armed due would have been missed until then (or the sweep).
+   */
+  async function walk(f: Fixture, seconds: number): Promise<boolean> {
+    let armed: number | undefined;
+    for (let step = 0; step <= seconds; step += 1) {
+      const before = f.send.mock.calls.length;
+      await f.service.tick();
+      if (f.send.mock.calls.length > before) {
+        const at = f.now().getTime();
+        if (armed !== undefined)
+          expect(
+            armed,
+            `the due time armed before the send at ${new Date(at).toISOString()}`,
+          ).toBeLessThanOrEqual(at);
+        return true;
+      }
+      armed = f.service.kernel.nextDue();
+      f.advance(1 / 60);
+    }
+    return false;
+  }
+
+  it('is never later than the first moment an item may be sent, through every window', async () => {
+    // The settle window of a first push.
+    const settled = await fixture(undefined, { presenceGraceMs: 0, presenceWindowMs: 0 });
+    settled.setCycle('needs-attention', { reason: 'Open questions need the operator.' });
+    settled.send.mockClear();
+    expect(await walk(settled, NOTIFICATION_SETTLE_MS / 1000 + 5)).toBe(true);
+
+    // The presence grace while the operator watches, then a reminder held by the commanding
+    // window, a failure's backoff and a provider's cooldown.
+    const f = await fixture(undefined, { settleMs: 0 });
+    f.advance(10); // The settings save is no longer a recent command.
+    const presence = f.context.services.operatorPresence;
+    presence.opened(f.workspaceId, f.auth.user.id);
+    f.setCycle('needs-attention', { attention: cycleAttention('review-open-questions') });
+    f.send.mockClear();
+    expect(await walk(f, PRESENCE_GRACE_MS / 1000 + 5)).toBe(true);
+    presence.closed(f.workspaceId, f.auth.user.id);
+    f.advance(29);
+    f.service.save(f.auth, f.workspaceId, { preferences, expectedVersion: f.status().version });
+    expect(await walk(f, 7 * 60)).toBe(true);
+    expect(f.send.mock.calls.at(-1)?.[0].message).toMatch(/^Reminder:/);
+    f.setCycle('running');
+    f.setCycle('needs-attention', { attention: cycleAttention('review-open-questions-at-limit') });
+    f.advance(10);
+    f.send.mockResolvedValueOnce({ status: 'retry', reason: 'Temporary failure' });
+    expect(await walk(f, 5)).toBe(true);
+    expect(await walk(f, 60)).toBe(true);
+    f.setCycle('running');
+    f.setCycle('needs-attention', { attention: cycleAttention('review-open-questions') });
+    f.advance(10);
+    f.send.mockResolvedValueOnce({
+      status: 'retry',
+      reason: 'Quota',
+      retryAt: new Date(f.now().getTime() + 90_000).toISOString(),
+    });
+    expect(await walk(f, 5)).toBe(true);
+    expect(await walk(f, 120)).toBe(true);
+  });
+
+  it('looks again at the quiescence limit while a controller has not had its chance', async () => {
+    const f = await fixture(undefined, { settleMs: 0, presenceGraceMs: 0, presenceWindowMs: 0 });
+    const passes = f.context.services.controllerPasses;
+    passes.register('busy-worker');
+    f.setCycle('needs-attention', { attention: cycleAttention('review-open-questions') });
+    f.send.mockClear();
+    expect(await walk(f, QUIESCENCE_LIMIT_MS / 1000 + 5)).toBe(true);
+    passes.unregister('busy-worker');
   });
 });

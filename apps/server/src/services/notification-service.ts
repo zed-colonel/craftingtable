@@ -25,6 +25,13 @@ import {
   type PushoverCredentials,
 } from '../security/credential-file.js';
 import type { ControllerPasses, OperatorPresence } from './attention-gates.js';
+import {
+  ControllerKernel,
+  type KernelClock,
+  type MarkCause,
+  SWEEP_MS,
+  systemClock,
+} from './kernel/controller-kernel.js';
 import { inboxPath } from './attention-service.js';
 import type { AuthContext } from './auth-service.js';
 import { ExecutionRequestError } from './errors.js';
@@ -82,6 +89,8 @@ export interface NotificationServiceOptions {
   readonly settleMs?: number;
   readonly presenceGraceMs?: number;
   readonly presenceWindowMs?: number;
+  /** The delivery drain's clock (R-B5 part 2); the daemon's `now` and timers by default. */
+  readonly clock?: KernelClock;
 }
 
 type Claim =
@@ -120,6 +129,29 @@ export class NotificationService {
     this.bootedAt = now().getTime();
     this.presenceGraceMs = options.presenceGraceMs ?? PRESENCE_GRACE_MS;
     this.presenceWindowMs = options.presenceWindowMs ?? PRESENCE_WINDOW_MS;
+    // The delivery drain (R-B5 part 2): marked by every workflow notification, an attention
+    // item's change, presence, a cycle hold's release, the settings and a test, a pass while an
+    // item waits on quiescence, its own due time, and the cycle kernel's sweep.
+    this.kernel = new ControllerKernel(options.clock ?? systemClock(now), SWEEP_MS, false);
+    notifier.onWorkflow(() => this.kernel.mark('workflow'));
+    passes.onCompleted = () => {
+      if (this.waitsOnQuiet) this.kernel.mark('pass');
+    };
+  }
+  /** The delivery drain's kernel; swept by the cycle kernel's sweep. */
+  readonly kernel: ControllerKernel;
+  /** The last round left an item waiting on the controllers' quiescence. */
+  private waitsOnQuiet = false;
+  /** The earliest time this round met at which an item's or record's eligibility can change. */
+  private nextAt: number | undefined;
+  /** Marks delivery for its next round. */
+  wake(cause: MarkCause): void {
+    this.kernel.mark(cause);
+  }
+  /** `at` is when a refusal this round met may turn: kept if strictly after `now`. */
+  private soon(at: number, now: number): void {
+    if (Number.isFinite(at) && at > now && (this.nextAt === undefined || at < this.nextAt))
+      this.nextAt = at;
   }
 
   /**
@@ -287,6 +319,8 @@ export class NotificationService {
       );
     });
     this.notifier.notify('activity');
+    // Reminders and retries may be due at once (R-B5 part 2).
+    this.kernel.mark('write');
     return this.get(context, workspaceId);
   }
   test(context: AuthContext, workspaceId: WorkspaceId): NotificationStatus {
@@ -341,38 +375,65 @@ export class NotificationService {
       this.journal(tx, workspaceId, 'test', context);
     });
     this.notifier.notify('activity');
+    // An explicit test is due now (R-B5 part 2).
+    this.kernel.mark('write');
     return this.get(context, workspaceId);
   }
   startWorker(): void {
     if (this.worker !== undefined || this.abort.signal.aborted) return;
+    this.kernel.start();
     this.worker = this.loop();
   }
   async shutdown(): Promise<void> {
     this.abort.abort();
+    this.kernel.stop();
     await this.worker;
     await this.ticking;
   }
   tick(): Promise<void> {
     if (this.ticking !== undefined) return this.ticking;
-    this.ticking = this.deliverDue().finally(() => {
+    this.ticking = this.round().finally(() => {
       this.ticking = undefined;
     });
     return this.ticking;
   }
+  /**
+   * Delivery (R-B5 part 2): a round on a mark, then a wait for the next (a notification, an item's
+   * change, presence, a release, its due time, the sweep). A round in flight (a test's tick) ends
+   * before the marks are taken, so none is lost.
+   */
   private async loop(): Promise<void> {
+    this.kernel.mark('start');
     while (!this.abort.signal.aborted) {
-      const generation = this.notifier.workflowGeneration;
+      if (this.ticking) await this.ticking.catch(() => undefined);
+      if (this.kernel.take() === undefined) {
+        await this.kernel.marked(this.abort.signal);
+        continue;
+      }
       try {
         await this.tick();
       } catch {
         /* Durable leases remain recoverable after a storage failure. */
       }
-      await this.notifier.waitForChangeOrTimeout({
-        channel: 'workflow',
-        generation,
-        timeoutMs: 5000,
-        signal: this.abort.signal,
-      });
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  }
+  /**
+   * One delivery round, then its due time: the earliest moment after the claims' own `now` at
+   * which a refusal they met can turn (part 2 review MEDIUM-4); one already come by the round's
+   * end marks it once more.
+   */
+  private async round(): Promise<void> {
+    this.nextAt = undefined;
+    this.waitsOnQuiet = false;
+    try {
+      await this.deliverDue();
+    } finally {
+      const at = this.nextAt;
+      if (at !== undefined && at <= this.now().getTime()) {
+        this.kernel.dueAt('delivery', undefined);
+        this.kernel.mark('due');
+      } else this.kernel.dueAt('delivery', at);
     }
   }
   private authorized(tx: NotificationRepositories, settings: StoredNotificationSettings): boolean {
@@ -394,7 +455,11 @@ export class NotificationService {
     settings: StoredNotificationSettings,
     item: AttentionItem,
     now: number,
-    present: { readonly watching: boolean; readonly commanding: boolean },
+    present: {
+      readonly watching: boolean;
+      readonly commanding: boolean;
+      readonly commandingUntil: number;
+    },
   ): boolean {
     const { preferences } = settings;
     const { delivery } = item;
@@ -405,7 +470,10 @@ export class NotificationService {
       !tx.maintenance.ownsInstallation(settings.ownerUserId)
     )
       return false;
-    if (delivery.leaseUntil !== null && Date.parse(delivery.leaseUntil) > now) return false;
+    if (delivery.leaseUntil !== null && Date.parse(delivery.leaseUntil) > now) {
+      this.soon(Date.parse(delivery.leaseUntil), now);
+      return false;
+    }
     if (item.refs.cycleId && this.cycleTransitioning(item.refs.cycleId, item.workspaceId))
       return false;
     const first = delivery.firstSentAt === null;
@@ -415,12 +483,29 @@ export class NotificationService {
       first && delivery.failures === 0
         ? Math.max(Date.parse(delivery.nextAttemptAt), since) + this.settleMs
         : Date.parse(delivery.nextAttemptAt);
-    if (due > now) return false;
-    if (!first) return !present.commanding;
-    const age = now - since;
-    if (age < QUIESCENCE_LIMIT_MS && !this.passes.quietSince(this.attention.openedPass(item.id)))
+    if (due > now) {
+      this.soon(due, now);
       return false;
-    return !((present.watching || present.commanding) && age < this.presenceGraceMs);
+    }
+    if (!first) {
+      if (present.commanding) this.soon(present.commandingUntil, now);
+      return !present.commanding;
+    }
+    const age = now - since;
+    if (age < QUIESCENCE_LIMIT_MS && !this.passes.quietSince(this.attention.openedPass(item.id))) {
+      // A pass completing may make it quiet; the limit makes it pushable regardless.
+      this.waitsOnQuiet = true;
+      this.soon(since + QUIESCENCE_LIMIT_MS, now);
+      return false;
+    }
+    if ((present.watching || present.commanding) && age < this.presenceGraceMs) {
+      // The grace's end; or the commanding window's, which may end it sooner (presence closing
+      // marks delivery itself).
+      this.soon(since + this.presenceGraceMs, now);
+      if (present.commanding && !present.watching) this.soon(present.commandingUntil, now);
+      return false;
+    }
+    return true;
   }
   /**
    * Resolves pre-schema-32 outbox rows that no item took over. The projector folds each
@@ -428,7 +513,11 @@ export class NotificationService {
    * state that no longer exists.
    */
   private sweepLegacy(): void {
-    if (this.legacySwept || this.now().getTime() - this.bootedAt < LEGACY_SWEEP_AFTER_MS) return;
+    if (this.legacySwept) return;
+    if (this.now().getTime() - this.bootedAt < LEGACY_SWEEP_AFTER_MS) {
+      this.soon(this.bootedAt + LEGACY_SWEEP_AFTER_MS, this.now().getTime());
+      return;
+    }
     this.storage.transaction((tx) => {
       for (const settings of tx.notifications.listSettings())
         for (const record of tx.notifications.records(settings.workspaceId, true))
@@ -450,24 +539,32 @@ export class NotificationService {
         !settings ||
         !this.authorized(tx, settings) ||
         this.readCredentials(workspaceId).held === undefined ||
-        settings.blockedReason ||
-        (settings.retryAt !== null && settings.retryAt > this.now().toISOString())
+        settings.blockedReason
       )
         return undefined;
       const now = this.now();
       const at = now.toISOString();
+      // The provider's cooldown holds every alert of the workspace until it ends.
+      if (settings.retryAt !== null && settings.retryAt > at) {
+        this.soon(Date.parse(settings.retryAt), now.getTime());
+        return undefined;
+      }
       const lease = () => ({
         leaseToken: randomUUID(),
         leaseUntil: new Date(now.getTime() + 60_000).toISOString(),
       });
       // An explicit test goes first and alone.
-      const test = tx.notifications
+      const tests = tx.notifications
         .records(workspaceId, true)
+        .filter((row) => row.kind === 'test');
+      // A test not yet due, or leased, is looked at when that ends.
+      for (const row of tests) {
+        this.soon(Date.parse(row.nextAttemptAt), now.getTime());
+        if (row.leaseUntil !== null) this.soon(Date.parse(row.leaseUntil), now.getTime());
+      }
+      const test = tests
         .filter(
-          (row) =>
-            row.kind === 'test' &&
-            row.nextAttemptAt <= at &&
-            (row.leaseUntil === null || row.leaseUntil <= at),
+          (row) => row.nextAttemptAt <= at && (row.leaseUntil === null || row.leaseUntil <= at),
         )
         .sort((a, b) => a.nextAttemptAt.localeCompare(b.nextAttemptAt))[0];
       if (test) {
@@ -477,11 +574,12 @@ export class NotificationService {
       }
       if (!settings.preferences.enabled) return undefined;
       const lastCommand = tx.audit.lastUserAction(workspaceId, settings.ownerUserId);
+      const commandingUntil =
+        lastCommand === undefined ? 0 : Date.parse(lastCommand) + this.presenceWindowMs;
       const present = {
         watching: this.presence.watching(workspaceId, settings.ownerUserId),
-        commanding:
-          lastCommand !== undefined &&
-          now.getTime() - Date.parse(lastCommand) < this.presenceWindowMs,
+        commanding: lastCommand !== undefined && now.getTime() < commandingUntil,
+        commandingUntil,
       };
       const due = tx.attention
         .open(workspaceId)
@@ -499,7 +597,12 @@ export class NotificationService {
     this.sweepLegacy();
     for (const initial of this.storage.notifications.listSettings()) {
       if (this.abort.signal.aborted) return;
-      for (let count = 0; count < 20 && !this.abort.signal.aborted; count += 1) {
+      for (let count = 0; !this.abort.signal.aborted; count += 1) {
+        // At most 20 claims per workspace a round; more due are its next round's.
+        if (count === 20) {
+          this.kernel.mark('due');
+          break;
+        }
         const claim = this.claim(initial.workspaceId);
         if (claim === undefined) break;
         const settings = this.storage.notifications.settings(initial.workspaceId)!;

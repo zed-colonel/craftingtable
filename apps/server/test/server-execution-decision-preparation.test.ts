@@ -24,6 +24,7 @@ import {
   decisionBriefs,
 } from '../src/services/architecture-decision-inbox.js';
 import { RepositoryMutationBusyError } from '../src/services/branch-service.js';
+import { ConcurrentModificationError } from '../src/services/errors.js';
 import { milestoneSatisfied } from '../src/services/cross-project-service.js';
 
 /**
@@ -553,11 +554,23 @@ it('a busy repository leaves a standing preparation for the next pass, not faile
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
   // A slice merge holds the repository when the first preparation would create its worktree.
+  let refused = 0;
   vi.spyOn(
     f.state.context.services.executionService,
     'createDecisionWorktree',
-  ).mockRejectedValueOnce(new RepositoryMutationBusyError());
+  ).mockImplementationOnce(async () => {
+    refused += 1;
+    throw new RepositoryMutationBusyError();
+  });
   await grantAndStart(fixture);
+  await waitFor(() => refused === 1, 'the preparation met the busy repository');
+  // Not tried again while the lane is held (R-B5 increment 9 review HIGH-2): each try writes a
+  // reservation and removes it, which would wake the scheduler at once, and again.
+  const roadmaps = f.state.context.services.roadmapService;
+  for (let pass = 0; pass < 3; pass++) await roadmaps.tick();
+  expect(preparation(fixture, 'LOCAL-ADR-01')).toBeUndefined();
+  // The merge ends and releases the lane: the preparation goes on.
+  roadmaps.lockReleased('lane');
   await waitFor(() => {
     const p = preparation(fixture, 'LOCAL-ADR-01');
     return !!p && tx.execution.runs.find(ws, p.runId)?.status === 'finished';
@@ -1238,4 +1251,28 @@ it('a decision approved for some slices says which it is settled for and which s
   expect(item.message).not.toContain('Ready for independent evidence review');
   // Only the second slice still waits on it.
   expect(item.blocks).toBe(1);
+});
+
+it('tries a preparation refused by a lost race again a second on, not on every pass (R-B5 increment 9 review HIGH-2)', async () => {
+  const fixture = await decisionFixture();
+  const { f } = fixture;
+  const roadmaps = f.state.context.services.roadmapService as unknown as {
+    launchPreparation: (...args: unknown[]) => Promise<void>;
+    tick: () => Promise<void>;
+    kernel: { nextDue(): number | undefined };
+  };
+  let tries = 0;
+  vi.spyOn(roadmaps, 'launchPreparation').mockImplementation(async () => {
+    tries += 1;
+    throw new ConcurrentModificationError('A newer roadmap version');
+  });
+  await grantAndStart(fixture);
+  await waitFor(() => tries >= 1, 'a preparation tried');
+  const once = tries;
+  await roadmaps.tick();
+  await roadmaps.tick();
+  expect(tries).toBe(once);
+  const due = roadmaps.kernel.nextDue() ?? 0;
+  expect(due).toBeGreaterThan(Date.now());
+  expect(due).toBeLessThanOrEqual(Date.now() + 1000);
 });

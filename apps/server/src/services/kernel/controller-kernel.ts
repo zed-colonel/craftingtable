@@ -43,7 +43,12 @@ export type MarkCause =
   | 'due'
   | 'sweep'
   | 'lane'
-  | 'test';
+  | 'test'
+  // Delivery's (R-B5 part 2): an attention item changed, an operator's stream opened or closed,
+  // a controller pass completed while an item waited on quiescence.
+  | 'attention'
+  | 'presence'
+  | 'pass';
 
 /** The safety sweep's interval (decision 3). */
 export const SWEEP_MS = 30_000;
@@ -141,6 +146,15 @@ export class ControllerKernel {
   /** How many aggregates have a due time, for the figures. */
   dueCount(): number {
     return this.due.size;
+  }
+
+  /**
+   * Whether a look is due within `ms`: a retry about to come (a lost race's second) means the
+   * controller has not had its chance yet, for the pushes' quiescence (increment 9 review LOW-5).
+   */
+  dueWithin(ms: number): boolean {
+    const next = this.nextDue();
+    return next !== undefined && next - this.clock.now() <= ms;
   }
 
   /** The earliest due time, for the figures and the tests. */

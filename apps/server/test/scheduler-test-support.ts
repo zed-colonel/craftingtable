@@ -18,14 +18,30 @@ import {
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-type Passes = { readonly idle: ReadonlyMap<string, () => boolean> };
+type Drain = {
+  readonly kernel: { pending(): boolean };
+  /** The scheduler's round in flight, or the cycles' flag for one. */
+  readonly rounding?: Promise<void> | boolean;
+  readonly passing?: Promise<void>;
+  readonly job?: unknown;
+};
 
-/** Both controllers have nothing marked and no round in flight, three looks running. */
+/**
+ * Both controllers have nothing marked and no round (or slow job) in flight, three looks
+ * running. Their idle probes are not used: a controller with a retry due soon is not idle for the
+ * pushes' quiescence, but is quiet for a test.
+ */
 export async function quiet(state: Ready): Promise<void> {
-  const idle = (state.context.services.controllerPasses as unknown as Passes).idle;
+  const roadmaps = state.context.services.roadmapService as unknown as Drain;
+  const cycles = state.context.services.workCycleService as unknown as Drain;
+  const still = (drain: Drain) =>
+    !drain.kernel.pending() &&
+    !drain.rounding &&
+    drain.passing === undefined &&
+    drain.job === undefined;
   let calm = 0;
   await waitUntil(() => {
-    calm = idle.get('roadmaps')?.() !== false && idle.get('cycles')?.() !== false ? calm + 1 : 0;
+    calm = still(roadmaps) && still(cycles) ? calm + 1 : 0;
     return calm >= 3;
   }, 'the controllers are quiet');
 }

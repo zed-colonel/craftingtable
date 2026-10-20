@@ -550,6 +550,9 @@ function operatorActsNext(
   return !!needs?.byEntry.has(progress.entryId) || operatorOwnsAll(progress.blockers);
 }
 
+/** A look due this soon (a retry) keeps the scheduler from counting as idle (R-B5). */
+const RETRY_SOON_MS = 5_000;
+
 export class RoadmapService {
   private readonly abort = new AbortController();
   private task: Promise<void> | undefined;
@@ -1048,6 +1051,16 @@ export class RoadmapService {
       cp = roadmap.definition.crossProject,
       ws = roadmap.workspaceId;
     if (!grant?.enabled || !cp || !this.agents || !this.git) return;
+    // Held back by a busy lock until its release, or by a transient refusal for a second.
+    if (this.preparationsHeld.has(roadmap.id)) return;
+    const notBefore = this.preparationsNotBefore.get(roadmap.id);
+    if (notBefore !== undefined) {
+      if (notBefore > this.now().getTime()) {
+        this.lookAgain(roadmap.id, notBefore);
+        return;
+      }
+      this.preparationsNotBefore.delete(roadmap.id);
+    }
     const grantor = this.grantor(roadmap);
     if (!grantor) return;
     const d = this.storage.imports.definition(ws, cp.definitionId);
@@ -1112,6 +1125,17 @@ export class RoadmapService {
         // A busy repository or a draining daemon holds every decision alike: the next pass
         // resumes in order.
         if (retried(error) || error instanceof DaemonDrainingError) {
+          // Its reservation was written and removed, which marks every roadmap: tried again at
+          // the lock's release, or a second on, not at once (increment 9 review HIGH-2).
+          if (error instanceof RepositoryMutationBusyError)
+            this.preparationsHeld.set(roadmap.id, 'lane');
+          else if (error instanceof WorktreeMutationBusyError)
+            this.preparationsHeld.set(roadmap.id, 'guard');
+          else {
+            const at = this.now().getTime() + 1000;
+            this.preparationsNotBefore.set(roadmap.id, at);
+            this.lookAgain(roadmap.id, at);
+          }
           this.metRetried(roadmap.id, error);
           return;
         }
@@ -2602,7 +2626,11 @@ export class RoadmapService {
     // first pushes back, as its skipped ticks did (part 2 review MEDIUM-5).
     this.passes?.register(
       'roadmaps',
-      () => !this.kernel.pending() && this.rounding === undefined && !this.admissionsHeld,
+      () =>
+        !this.kernel.pending() &&
+        this.rounding === undefined &&
+        !this.admissionsHeld &&
+        !this.kernel.dueWithin(RETRY_SOON_MS),
     );
     this.kernel.start();
     this.task = this.loop();
@@ -2653,8 +2681,14 @@ export class RoadmapService {
    * release of another lock marks nothing, or two drains could wake each other without end.
    */
   lockReleased(key: string): void {
-    if (this.ownRound.getStore()) return;
+    // The round in flight's own release; one from a timer or callback that outlived its round is
+    // not (increment 9 review LOW-1).
+    const own = this.ownRound.getStore();
+    if (own !== undefined && own === this.roundToken) return;
     if (this.rounding) this.releasedMeanwhile.add(key);
+    // A decision preparation held back by this lock may be tried again (review HIGH-2).
+    for (const [roadmapId, held] of this.preparationsHeld)
+      if (held === key) this.preparationsHeld.delete(roadmapId);
     this.markWaiters(key);
   }
   private markWaiters(key: string): void {
@@ -2681,12 +2715,18 @@ export class RoadmapService {
   }
   /** The roadmap met the lock `key` busy: its release marks it (part 2 review HIGH-1). */
   private waitOnLock(roadmapId: string, key: string): void {
+    // Only a round's look waits; a read (the board's blockers) records nothing (review LOW-4).
+    if (this.ownRound.getStore() === undefined) return;
     const waiting = this.lockWaiters.get(key) ?? new Set<string>();
     waiting.add(roadmapId);
     this.lockWaiters.set(key, waiting);
   }
-  /** The roadmap needs a look of its own at `at` (the earliest asked in a round wins). */
+  /**
+   * The roadmap needs a look of its own at `at` (the earliest asked in a round wins); a time not
+   * ahead of now is no due time (increment 9 review HIGH-1: it would mark every round).
+   */
   private lookAgain(roadmapId: string, at: number): void {
+    if (at <= this.now().getTime()) return;
     const earlier = this.looks.get(roadmapId);
     if (earlier === undefined || at < earlier) this.looks.set(roadmapId, at);
   }
@@ -2715,10 +2755,13 @@ export class RoadmapService {
       done = resolve;
     });
     try {
-      await this.ownRound.run(true, () => this.roundBody(marked));
+      const token = {};
+      this.roundToken = token;
+      await this.ownRound.run(token, () => this.roundBody(marked));
     } finally {
       this.ticking = false;
       this.rounding = undefined;
+      this.roundToken = undefined;
       done();
     }
   }
@@ -2737,7 +2780,9 @@ export class RoadmapService {
         if (!includes(record.roadmapId)) continue;
         looked.add(record.roadmapId);
         await this.settlement.resume(record).catch(() => undefined);
-        // Still waiting for a cancelled session: looked at again when its limit comes.
+        // Still settling before its session limit: looked at again when the limit comes (a step
+        // waiting for a cancelled session fails then). Past it nothing is asked (`lookAgain`
+        // keeps only times ahead): a failed step waits for a mark (increment 9 review HIGH-1).
         if (
           this.storage.windDowns.find(record.workspaceId, record.roadmapId)?.status === 'settling'
         )
@@ -2816,7 +2861,17 @@ export class RoadmapService {
   /** The round in flight, the loop's or a tick's; the loop waits for it before taking marks. */
   private rounding: Promise<void> | undefined;
   /** Open while the drain's own round runs: its own lock releases mark nothing. */
-  private readonly ownRound = new AsyncLocalStorage<true>();
+  private readonly ownRound = new AsyncLocalStorage<object>();
+  /** The round in flight's token: a context carried past its round's end is not its own. */
+  private roundToken: object | undefined;
+  /**
+   * Roadmaps whose decision preparations met a lock busy, by the lock's key: none is tried
+   * again until it is released, since each try writes a reservation and removes it, waking
+   * every roadmap (increment 9 review HIGH-2).
+   */
+  private readonly preparationsHeld = new Map<string, string>();
+  /** When a roadmap's decision preparations may be tried after a transient refusal. */
+  private readonly preparationsNotBefore = new Map<string, number>();
   /** Roadmaps that met a lock busy, by the lock's key, marked at its release. */
   private readonly lockWaiters = new Map<string, Set<string>>();
   /** Locks released by something else during the round in flight. */
@@ -3354,16 +3409,18 @@ export class RoadmapService {
               return waiting('predecessor-merge-missing', reason, { entryId: entry.id });
             }
           }
-          if (pending?.status !== 'reserved' && (await this.refreshed(roadmap, cycle)))
-            return MOVED;
           // A merge refused as `target-moved` is tried again no sooner than a second on, as the
           // next pass came: its own reservation and refusal are waking writes, which would
-          // otherwise run the retries back to back (R-B5 part 2, review MEDIUM-2).
+          // otherwise run the retries back to back (R-B5 part 2, review MEDIUM-2);
+          // asked before the refresh, which the wait would otherwise run each look (increment 9
+          // review M-1).
           const notBefore = this.targetMovedNotBefore.get(attempt.worktreeId);
           if (notBefore !== undefined && notBefore > this.now().getTime()) {
             this.lookAgain(roadmap.id, notBefore);
             throw new MergeTargetMovedRetry('The merge is tried again shortly.');
           }
+          if (pending?.status !== 'reserved' && (await this.refreshed(roadmap, cycle)))
+            return MOVED;
           try {
             await this.execution.mergeWorktree(
               context,

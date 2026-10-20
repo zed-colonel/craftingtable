@@ -197,9 +197,12 @@ export async function createServices(
   // Attention items follow every write from here on, in the writing transaction (R-A4).
   const controllerPasses = new ControllerPasses();
   const operatorPresence = new OperatorPresence();
-  const attention = new AttentionProjector(storage, controllerPasses, now, () =>
-    notifier.notify('activity'),
-  );
+  // An item's change also marks delivery (R-B5 part 2): once it exists.
+  let delivery: NotificationService | undefined;
+  const attention = new AttentionProjector(storage, controllerPasses, now, () => {
+    notifier.notify('activity');
+    delivery?.wake('attention');
+  });
   storage.observeWrites(attention);
   const dummyPasswordHash = await passwordHasher.hash('craftingtable dummy password');
   const authService = new AuthService(
@@ -495,6 +498,30 @@ export async function createServices(
     })),
     toolchains: toolchainService.status(),
   });
+  // Delivery on the kernel (R-B5 part 2): swept with the controllers, marked by presence and by
+  // a cycle hold's release (a transition's end lets its item be pushed).
+  delivery = new NotificationService(
+    storage,
+    workspaceService,
+    notifier,
+    overrides.notificationTransport ?? new PushoverTransport(fetch, now),
+    config.publicOrigin,
+    attention,
+    controllerPasses,
+    operatorPresence,
+    now,
+    (id, workspaceId) => workCycleService.holdsReminders(workspaceId, id),
+    // The operator's credentials file, outside the database (R-G9).
+    {
+      credentials: new CredentialFile(config.configDir),
+      ...(overrides.kernelClock === undefined ? {} : { clock: overrides.kernelClock }),
+    },
+  );
+  workCycleService.followSweep(delivery.kernel);
+  operatorPresence.onChange = () => delivery?.wake('presence');
+  workCycleService.onLockRelease((key) => {
+    if (key.startsWith('cycle:')) delivery?.wake('release');
+  });
   return {
     crossProjectService,
     mapAmendmentService: new MapAmendmentService(
@@ -529,20 +556,7 @@ export async function createServices(
     ),
     roadmapService,
     repositoryCleanupService,
-    notificationService: new NotificationService(
-      storage,
-      workspaceService,
-      notifier,
-      overrides.notificationTransport ?? new PushoverTransport(fetch, now),
-      config.publicOrigin,
-      attention,
-      controllerPasses,
-      operatorPresence,
-      now,
-      (id, workspaceId) => workCycleService.holdsReminders(workspaceId, id),
-      // The operator's credentials file, outside the database (R-G9).
-      { credentials: new CredentialFile(config.configDir) },
-    ),
+    notificationService: delivery,
     attention,
     controllerPasses,
     operatorPresence,

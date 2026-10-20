@@ -5,7 +5,15 @@ import {
   RepositoryMutationBusyError,
 } from '../src/services/errors.js';
 import { PhaseGateError } from '../src/services/phase-resources.js';
-import { cleanupExecutionFixtures, storedRoadmap, waitUntil } from './execution-test-support.js';
+import { ManualClock } from './cycle-test-support.js';
+import {
+  cleanupExecutionFixtures,
+  roadmapControl,
+  roadmapFixture,
+  saveRoadmapRequest,
+  storedRoadmap,
+  waitUntil,
+} from './execution-test-support.js';
 import { counted, drainOf, quiet, sleep, waitingRoadmap } from './scheduler-test-support.js';
 
 /**
@@ -81,6 +89,7 @@ it('takes no due time for a gate that waits: its clearing write wakes the roadma
   await sleep(1_000);
   // No round without a mark: nothing polls it.
   expect(rounds.calls() - looked).toBeLessThanOrEqual(drain.marks() - marks);
+  expect(rounds.calls() - looked).toBeLessThanOrEqual(2);
   await timerFires();
 });
 
@@ -130,15 +139,17 @@ it('is not woken by the locks its own round takes and releases (review HIGH-1)',
     return advance(...args);
   };
   // Another roadmap waits on the lane: the own round's release does not wake it either.
-  (service as unknown as { waitOnLock(id: string, key: string): void }).waitOnLock(
-    'another-roadmap',
+  (service as unknown as { lockWaiters: Map<string, Set<string>> }).lockWaiters.set(
     'lane',
+    new Set(['another-roadmap']),
   );
   const released = drain.cause('release');
   service.wake('test');
   await waitUntil(() => rounds.calls() >= 1, 'a round');
   await quiet(state);
+  const settled = rounds.calls();
   await sleep(1_000);
+  expect(rounds.calls() - settled).toBeLessThanOrEqual(2);
   expect(drain.cause('release')).toBe(released);
   expect(drain.waiters('lane')).toEqual(['another-roadmap']);
   await timerFires();
@@ -197,4 +208,175 @@ it('runs no round and does not spin while admissions are held; their release loo
   expect(passes.quietSince(passes.current)).toBe(false);
   service.holdAdmissions(false);
   await waitUntil(() => rounds.calls() > before, 'the round at the release');
+});
+
+it('asks no due time for a wind-down past its session limit, and does not spin on it (review HIGH-1)', async () => {
+  const { state, clock } = await waitingRoadmap();
+  const service = state.context.services.roadmapService;
+  const drain = drainOf(state);
+  const rounds = counted(service, 'roundBody');
+  const roadmap = storedRoadmap(state);
+  // A wind-down still settling (its step failing, or waiting on a session that never ends), its
+  // request eleven minutes old.
+  const record = {
+    workspaceId: roadmap.workspaceId,
+    roadmapId: roadmap.id,
+    status: 'settling',
+    requestedAt: new Date(clock.now() - 11 * 60_000).toISOString(),
+  };
+  const windDowns = state.context.storage.windDowns as unknown as {
+    settling: () => unknown[];
+    find: () => unknown;
+  };
+  windDowns.settling = () => [record];
+  windDowns.find = () => record;
+  const settlement = (service as unknown as { settlement: { resume: () => Promise<void> } })
+    .settlement;
+  settlement.resume = async () => undefined;
+  service.wake('test');
+  await waitUntil(() => rounds.calls() >= 1, 'a round');
+  await quiet(state);
+  expect(drain.nextDue()).toBeUndefined();
+  const settled = rounds.calls();
+  await sleep(1_000);
+  expect(rounds.calls() - settled).toBeLessThanOrEqual(2);
+  // Before its limit, it is looked at when the limit comes.
+  record.requestedAt = new Date(clock.now() - 60_000).toISOString();
+  service.wake('test');
+  await waitUntil(() => rounds.calls() > settled, 'a round');
+  await quiet(state);
+  expect(drain.nextDue()).toBe(Date.parse(record.requestedAt) + 10 * 60_000 + 1);
+});
+
+it("is swept with the cycle controller's sweep, delivery too: one timer for every drain", async () => {
+  const { state, clock } = await waitingRoadmap();
+  const drain = drainOf(state);
+  const delivery = state.context.services.notificationService.kernel;
+  const swept = drain.cause('sweep');
+  const deliverySwept = delivery.causes.get('sweep') ?? 0;
+  clock.advance(30_000);
+  await waitUntil(() => drain.cause('sweep') === swept + 1, "the scheduler's sweep");
+  expect(delivery.causes.get('sweep') ?? 0).toBe(deliverySwept + 1);
+});
+
+it("looks again when a roadmap command's hold on it ends (endControl)", async () => {
+  const { state } = await waitingRoadmap();
+  const service = state.context.services.roadmapService as unknown as {
+    controlling: Set<string>;
+    endControl(id: string): void;
+  };
+  const drain = drainOf(state);
+  const id = storedRoadmap(state).id;
+  service.controlling.add(id);
+  const released = drain.cause('release');
+  service.endControl(id);
+  expect(drain.cause('release')).toBe(released + 1);
+});
+
+it('marks at the round end the roadmaps that met a lock after its release in that round (releasedMeanwhile)', async () => {
+  // The refresh answers after an await: a lock released during that await is released before the
+  // roadmap records its wait on it.
+  const fixture = await waitingRoadmap();
+  const { state } = fixture;
+  const service = state.context.services.roadmapService;
+  const rounds = counted(service, 'roundBody');
+  const target = service as unknown as Advance & {
+    waitOnLock(id: string, key: string): void;
+  };
+  const advance = target.advance.bind(service);
+  let gate: () => void = () => undefined;
+  let entered = false;
+  let once = true;
+  target.advance = async (...args: unknown[]) => {
+    if (once) {
+      once = false;
+      entered = true;
+      await new Promise<void>((resolve) => {
+        gate = resolve;
+      });
+      target.waitOnLock(storedRoadmap(state).id, 'lane');
+    }
+    return advance(...args);
+  };
+  service.wake('test');
+  await waitUntil(() => entered, 'the round is in its await');
+  const looked = rounds.calls();
+  // Released outside the round, while it awaits; the roadmap records its wait after.
+  service.lockReleased('lane');
+  gate();
+  await waitUntil(() => rounds.calls() > looked, 'the look the release owes it');
+});
+
+it('lets timers run between rounds that mark themselves (the macrotask between rounds)', async () => {
+  const fixture = await waitingRoadmap();
+  const { state } = fixture;
+  const service = state.context.services.roadmapService;
+  const target = service as unknown as Advance;
+  const advance = target.advance.bind(service);
+  let marking = true;
+  target.advance = async (...args: unknown[]) => {
+    if (marking) service.wake('test');
+    return advance(...args);
+  };
+  try {
+    service.wake('test');
+    await timerFires();
+  } finally {
+    marking = false;
+  }
+});
+
+it("takes no marks while a test's tick runs, so none is lost (the loop waits for it)", async () => {
+  const fixture = await waitingRoadmap();
+  const { state } = fixture;
+  const service = state.context.services.roadmapService;
+  const rounds = counted(service, 'roundBody');
+  const target = service as unknown as Advance;
+  const advance = target.advance.bind(service);
+  let gate: () => void = () => undefined;
+  let held = true;
+  target.advance = async (...args: unknown[]) => {
+    if (held) {
+      held = false;
+      await new Promise<void>((resolve) => {
+        gate = resolve;
+      });
+    }
+    return advance(...args);
+  };
+  const tick = service.tick();
+  await waitUntil(() => rounds.calls() === 1, "the test's tick is in flight");
+  service.wake('test');
+  await sleep(100);
+  gate();
+  await tick;
+  await waitUntil(() => rounds.calls() === 2, 'the mark taken after the tick');
+});
+
+it("waits on the merge lane an entry's blocker found busy, and starts it at the release", async () => {
+  // No attempt yet: the blocker asks whether the repository is busy before starting the entry.
+  const clock = new ManualClock();
+  const fixture = await roadmapFixture(undefined, {
+    workers: true,
+    now: clock.date,
+    kernelClock: clock,
+  });
+  const { state, repository } = fixture;
+  const branches = state.context.services.executionService.branches;
+  let release: () => void = () => undefined;
+  const held = branches.duringMerge(
+    repository.rootPath,
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  await saveRoadmapRequest(state);
+  await roadmapControl(state, 'start');
+  await quiet(state);
+  expect(storedRoadmap(state).attempts).toHaveLength(0);
+  expect(drainOf(state).waiters('lane')).toEqual([storedRoadmap(state).id]);
+  release();
+  await held;
+  await waitUntil(() => storedRoadmap(state).attempts.length === 1, 'the entry started');
 });

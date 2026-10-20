@@ -34,7 +34,10 @@ export class ControllerPasses {
   completed(worker: string, start: number): void {
     const previous = this.workers.get(worker);
     if (previous !== undefined && start > previous) this.workers.set(worker, start);
+    this.onCompleted?.();
   }
+  /** Told when a pass completes: delivery's look for items waiting on quiescence (R-B5). */
+  onCompleted: (() => void) | undefined;
   /** Whether every running worker has completed a pass that began after `opened`. */
   quietSince(opened: number): boolean {
     // A worker that waits for events and has nothing to look at has had its chance: no
@@ -51,15 +54,19 @@ export class ControllerPasses {
  */
 export class OperatorPresence {
   private readonly streams = new Map<string, number>();
+  /** Told when an operator starts or stops watching: delivery looks again (R-B5). */
+  onChange: (() => void) | undefined;
   opened(workspaceId: WorkspaceId, userId: UserId): void {
     const key = `${workspaceId}|${userId}`;
     this.streams.set(key, (this.streams.get(key) ?? 0) + 1);
+    this.onChange?.();
   }
   closed(workspaceId: WorkspaceId, userId: UserId): void {
     const key = `${workspaceId}|${userId}`;
     const left = (this.streams.get(key) ?? 0) - 1;
     if (left > 0) this.streams.set(key, left);
     else this.streams.delete(key);
+    this.onChange?.();
   }
   watching(workspaceId: WorkspaceId, userId: UserId): boolean {
     return this.streams.has(`${workspaceId}|${userId}`);

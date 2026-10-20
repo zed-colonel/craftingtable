@@ -316,10 +316,14 @@ export class WorkCycleService {
    * that would wake the round that ran it, again and again (increment 3 review HIGH-1).
    */
   refreshIntegration(cycle: WorkCycle, parent?: AgentRun, launching = false): Promise<boolean> {
+    // One that met the cycle's own refresh in flight ran nothing: marking the cycle for it would
+    // let the two drains wake each other (increment 9 review M-1).
+    const ran = !this.locks.refreshing.has(cycle.id);
     const answer = this.integration.refreshIntegration(cycle, parent, launching);
-    void Promise.resolve(answer)
-      .catch(() => undefined)
-      .then(() => this.kernel.mark('release', [cycle.id]));
+    if (ran)
+      void Promise.resolve(answer)
+        .catch(() => undefined)
+        .then(() => this.kernel.mark('release', [cycle.id]));
     return answer;
   }
   resolveIntegration(
@@ -749,7 +753,9 @@ export class WorkCycleService {
         !this.rounding &&
         this.passing === undefined &&
         this.job === undefined &&
-        this.laneWaiting.size === 0,
+        this.laneWaiting.size === 0 &&
+        // A retry about to come (increment 9 review LOW-5).
+        !this.kernel.dueWithin(5_000),
     );
     this.kernel.start();
     this.task = this.loop();

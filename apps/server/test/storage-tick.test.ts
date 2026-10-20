@@ -310,7 +310,7 @@ async function tick(service: StorageService): Promise<string | undefined> {
   }
 }
 
-/** Each run's refusal, in the order the tick met them. */
+/** The runs a message refuses, named in the order of `runs`. */
 function refused(message: string | undefined, runs: Record<string, { runId: AgentRunId }>) {
   return Object.entries(runs)
     .filter(([, run]) => message?.includes(`run ${run.runId}`))
@@ -698,4 +698,40 @@ it("removes a candidate only as the kind it was found as (R-H8 decision 8, the d
   writeFileSync(join(run.scratch, 'recent.log'), 'written after the scan');
   await f.service.clean(f.auth, f.workspaceId, scan?.id ?? '');
   expect(existsSync(join(run.scratch, 'recent.log'))).toBe(true);
+});
+
+it("removes an expired run's bodies though its scratch is past the cache inventory, and goes on (R-H8 increment 1 review)", async () => {
+  const f = await tickFixture();
+  // Interrupted and merged 40 days ago: its bodies expired, its scratch written yesterday and
+  // past the cache inventory, which the tick does not search in a run it may not clean.
+  const wide = f.addRun({ status: 'interrupted', tree: 'merged', exited: false, retained: 40 });
+  const bodies = f.bodies(wide, 40);
+  for (let index = 0; index <= 10_000; index++)
+    mkdirSync(join(wide.scratch, 'wide', String(index)), { recursive: true });
+  f.scratchFile(wide, 1);
+  // Another run's cache, handed on after it.
+  const ended = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  const cache = f.cargo(ended, 'target', 1);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(bodies)).toBe(false);
+  expect(existsSync(wide.scratch)).toBe(true);
+  expect(existsSync(cache)).toBe(false);
+});
+
+it('expires scratch and bodies with automatic cache cleanup off (R-H8 increment 1 review)', async () => {
+  const f = await tickFixture();
+  const status = f.service.get(f.auth, f.workspaceId);
+  f.service.save(f.auth, f.workspaceId, {
+    expectedVersion: status.version,
+    policy: { ...status.policy, autoCleanBuildCaches: false },
+  });
+  const expired = f.addRun({ status: 'finished', tree: 'merged', exited: true, retained: 40 });
+  f.scratchFile(expired, 40);
+  const bodies = f.bodies(expired, 40);
+  const recent = f.addRun({ status: 'finished', tree: 'merged', exited: true, retained: 40 });
+  f.scratchFile(recent, 1);
+  const cache = f.cargo(recent, 'target', 40);
+  expect(await tick(f.service)).toBeUndefined();
+  expect([existsSync(expired.scratch), existsSync(bodies)]).toEqual([false, false]);
+  expect([existsSync(recent.scratch), existsSync(cache)]).toEqual([true, true]);
 });

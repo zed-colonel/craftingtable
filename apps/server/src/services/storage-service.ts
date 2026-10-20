@@ -646,11 +646,14 @@ export class StorageService {
         .find((value) => (candidate.kind === 'build' ? value.buildEligible : value.eligible));
       if (!run) continue;
       const remove = async () => {
+        // Only what the candidate's kind needs (R-H8 increment 1 review): expiry never depends on
+        // the cache walk, so a cache walk the tick did not make cannot fail an expired file's removal.
         const fresh = (
           await cleanupCandidates(
             run,
             run.eligible ? this.settings.policy.scratchRetentionDays : 0,
             this.now(),
+            { builds: candidate.kind === 'build' },
           )
         ).find(
           (cache) =>

@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import { asEventId } from '@craftingtable/domain';
 import { afterEach, expect, it } from 'vitest';
 import { RunEventStreamService } from '../../src/services/run-event-stream-service.js';
 import { streamChannels } from '../../src/services/stream-channels.js';
@@ -129,17 +127,6 @@ it('ends an open stream at once when its session is logged out, with a fallback 
   context.services.authService.logout(context.services.authService.authenticate(raw, false));
   expect((await next).value).toEqual({ type: 'authentication-expired' });
   controller.abort();
-  // An event of the workspace after it changes nothing.
-  context.storage.transaction((tx) =>
-    tx.workspaceEvents.appendWorkspaceCreated({
-      id: asEventId(randomUUID()),
-      occurredAt: new Date().toISOString(),
-      workspaceId: bootstrap.workspace.id,
-      actorUserId: bootstrap.user.id,
-      name: 'After the logout',
-      slug: 'after-logout',
-    }),
-  );
 });
 
 it("waits no longer than its session stays usable without a request (the expiry's timeout)", async () => {
@@ -251,4 +238,98 @@ it("wakes an open run stream at its run's own channel", async () => {
   expect(queries).toBe(2);
   controller.abort();
   await pending.catch(() => undefined);
+});
+
+it('drops the oldest half of the keys past 10,000, keeping the newest', async () => {
+  const notifier = new WorkspaceEventNotifier();
+  const signal = new AbortController().signal;
+  const start = notifier.keySequence;
+  for (let i = 0; i < 10_001; i++) notifier.notifyKeys([`run:${i}`]);
+  // The newest key is kept: a wait from before it returns at once.
+  await notifier.waitForKeys({ keys: ['run:10000'], after: start, timeoutMs: 60_000, signal });
+  // The oldest was dropped: a wait for it from the start waits for its timeout.
+  const started = Date.now();
+  await notifier.waitForKeys({ keys: ['run:0'], after: start, timeoutMs: 40, signal });
+  expect(Date.now() - started).toBeGreaterThanOrEqual(35);
+});
+
+it('ends an open stream when its session passes its idle limit, with nothing notified', async () => {
+  let time = Date.now();
+  const context = await createTestContext({ workers: false, now: () => new Date(time) });
+  contexts.push(context);
+  const bootstrap = await context.services.bootstrapService.bootstrap(TEST_USERNAME, TEST_PASSWORD);
+  const login = await context.login();
+  const raw = login.cookie.split('=')[1] as string;
+  const auth = context.services.authService;
+  // The session is a moment from its idle limit: the stream's wait ends then, not at its fallback.
+  const { session } = auth.authenticate(raw, false);
+  const idleLimit = auth.sessionUsableUntil(session) - Date.parse(session.lastSeenAt);
+  time = Date.parse(session.lastSeenAt) + idleLimit - 150;
+  const service = new WorkspaceEventStreamService(
+    context.storage,
+    auth,
+    context.services.workspaceService,
+    context.services.workspaceEventNotifier,
+    { waitTimeoutMs: 600_000 },
+  );
+  const controller = new AbortController();
+  const next = service
+    .stream({
+      rawSessionToken: raw,
+      workspaceId: bootstrap.workspace.id,
+      after: 1_000_000,
+      signal: controller.signal,
+    })
+    [Symbol.asyncIterator]()
+    .next();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  // The clock passes the limit; only the stream's own timeout can find it.
+  time += 10_000;
+  expect((await next).value).toEqual({ type: 'authentication-expired' });
+  controller.abort();
+});
+
+it("ends an open run stream at its session's logout, and misses no event between its query and its wait", async () => {
+  const context = await createTestContext({ workers: false });
+  contexts.push(context);
+  const bootstrap = await context.services.bootstrapService.bootstrap(TEST_USERNAME, TEST_PASSWORD);
+  const login = await context.login();
+  const raw = login.cookie.split('=')[1] as string;
+  const notifier = context.services.workspaceEventNotifier;
+  let queried = 0;
+  let raced = false;
+  const service = new RunEventStreamService(
+    context.storage,
+    context.services.authService,
+    context.services.workspaceService,
+    notifier,
+    {
+      waitTimeoutMs: 600_000,
+      afterEmptyQuery: () => {
+        queried += 1;
+        // Notified between the query and the wait: the wait returns at once.
+        if (!raced) {
+          raced = true;
+          notifier.notifyKeys(['run:run-1']);
+        }
+      },
+    },
+  );
+  const controller = new AbortController();
+  const iterator = service
+    .stream({
+      rawSessionToken: raw,
+      workspaceId: bootstrap.workspace.id,
+      runId: 'run-1' as never,
+      after: 0,
+      signal: controller.signal,
+    })
+    [Symbol.asyncIterator]();
+  const next = iterator.next();
+  for (let turn = 0; turn < 100 && queried < 2; turn++)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(queried).toBe(2);
+  context.services.authService.logout(context.services.authService.authenticate(raw, false));
+  expect((await next).value).toEqual({ type: 'authentication-expired' });
+  controller.abort();
 });

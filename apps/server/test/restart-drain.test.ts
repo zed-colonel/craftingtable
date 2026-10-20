@@ -535,10 +535,11 @@ it("sees a deploy's drain request and its withdrawal through the watch, not a po
     for (let turn = 0; turn < 200 && !existsSync(join(dataDir, DRAIN_STATUS_FILE)); turn++)
       await new Promise((resolve) => setTimeout(resolve, 10));
     expect(status()).toMatchObject({ requestId: 'watched', state: 'draining' });
-    // The daemon's own status writes name another file: they do not set off more polls, only
-    // the drain's own look every 250 ms does.
+    // The daemon's own status writes name another file: they do not set off more polls; the
+    // drain's own loop looks once a second, keeping the status current (increment 15 review LOW-5).
     const counted = polls.count;
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await new Promise((resolve) => setTimeout(resolve, 2_300));
+    expect(polls.count - counted).toBeGreaterThanOrEqual(1);
     expect(polls.count - counted).toBeLessThanOrEqual(4);
     rmSync(join(dataDir, DRAIN_REQUEST_FILE));
     for (let turn = 0; turn < 200 && drain.isDraining(); turn++)

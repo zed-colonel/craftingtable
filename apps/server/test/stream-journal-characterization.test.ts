@@ -166,13 +166,16 @@ it('writes each agent event in its own transaction, opening a status transaction
     if (inTransition && !storage.inTransaction) statusTransactions += 1;
     return open(callback);
   }) as typeof storage.transaction;
-  const notifier = state.context.services.workspaceEventNotifier;
-  const notify = notifier.notify.bind(notifier);
+  // The journal's own notifications only (increment 15 review LOW-4).
+  const journalNotifier = (journal as unknown as { notifier: { notify(kind?: string): void } })
+    .notifier;
+  const notifier = Object.create(journalNotifier) as { notify(kind?: string): void };
   let activity = 0;
   notifier.notify = (kind = 'workflow') => {
     if (kind === 'activity') activity += 1;
-    notify(kind);
+    journalNotifier.notify(kind);
   };
+  (journal as unknown as { notifier: unknown }).notifier = notifier;
   const cycle = await startCycle(state, worktree.id);
   await waitFor(
     () =>

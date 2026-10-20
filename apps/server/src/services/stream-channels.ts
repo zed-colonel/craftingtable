@@ -11,13 +11,15 @@ export function streamChannels(
   notify: (keys: Iterable<string>) => void,
   inTransaction: () => boolean,
 ): WriteObserver {
+  // A transaction's keys, and those of writes outside any, kept apart: a rollback drops only the
+  // former (increment 15 review LOW-2).
   const keys = new Set<string>();
+  const outside = new Set<string>();
   let queued = false;
-  const flush = () => {
-    queued = false;
-    if (keys.size === 0) return;
-    const notified = [...keys];
-    keys.clear();
+  const flush = (from: Set<string>) => {
+    if (from.size === 0) return;
+    const notified = [...from];
+    from.clear();
     notify(notified);
   };
   return {
@@ -29,15 +31,22 @@ export function streamChannels(
             ? `run:${(record as { runId: string }).runId}`
             : undefined;
       if (key === undefined) return;
-      keys.add(key);
-      if (!inTransaction() && !queued) {
+      if (inTransaction()) {
+        keys.add(key);
+        return;
+      }
+      outside.add(key);
+      if (!queued) {
         queued = true;
-        queueMicrotask(flush);
+        queueMicrotask(() => {
+          queued = false;
+          flush(outside);
+        });
       }
     },
     beforeCommit() {},
     ended(committed) {
-      if (committed) flush();
+      if (committed) flush(keys);
       else keys.clear();
     },
   };

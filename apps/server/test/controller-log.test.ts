@@ -306,3 +306,34 @@ const kernelSweeps = (f: CycleFixture) =>
       kernel: { causes: ReadonlyMap<string, number> };
     }
   ).kernel.causes.get('sweep') ?? 0;
+
+it('declares every stopped cycle’s attention through one shared read snapshot, fresh after a write (R-B5 decision 21)', async () => {
+  const f = await createCycleFixture();
+  const service = f.services.workCycleService as unknown as {
+    declareAttention(): void;
+    writer: { refreshAttention(cycle: WorkCycle, reads?: unknown): WorkCycle };
+  };
+  const template = {
+    ...(await startCycle(f, f.worktreeId)),
+    status: 'needs-attention' as const,
+  };
+  const cycles = ['a', 'b', 'c'].map((id) => ({ ...template, id: id as never }));
+  const storage = f.context.storage.execution.cycles as unknown as { listActive(): WorkCycle[] };
+  const listActive = storage.listActive.bind(storage);
+  storage.listActive = () => cycles;
+  const reads: unknown[] = [];
+  service.writer.refreshAttention = (cycle, shared) => {
+    reads.push(shared);
+    // The first cycle's attention is rewritten: the next ones read afresh.
+    return cycle.id === ('a' as never) ? { ...cycle } : cycle;
+  };
+  try {
+    service.declareAttention();
+  } finally {
+    storage.listActive = listActive;
+  }
+  expect(reads).toHaveLength(3);
+  expect(reads[0]).toBeDefined();
+  expect(reads[1]).not.toBe(reads[0]);
+  expect(reads[2]).toBe(reads[1]);
+});

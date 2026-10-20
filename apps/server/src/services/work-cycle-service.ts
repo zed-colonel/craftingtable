@@ -907,8 +907,16 @@ export class WorkCycleService {
    */
   declareAttention(): void {
     this.attentionGeneration = this.notifier.workflowGeneration;
-    for (const cycle of this.storage.execution.cycles.listActive())
-      if (ATTENTION_STATUSES.has(cycle.status)) this.writer.refreshAttention(cycle);
+    // One read snapshot for every cycle (R-B5 decision 21): their attention reads the same plans,
+    // bindings and scopes, which each derived again through a snapshot of its own (half the
+    // daemon's busy time in transitions). A cycle whose attention is rewritten starts a fresh
+    // one, so no later cycle reads a record from before that write: the answers are the same.
+    let reads = mapReadSnapshot(this.storage);
+    for (const cycle of this.storage.execution.cycles.listActive()) {
+      if (!ATTENTION_STATUSES.has(cycle.status)) continue;
+      if (this.writer.refreshAttention(cycle, reads) !== cycle)
+        reads = mapReadSnapshot(this.storage);
+    }
   }
 
   private async pass(marked: Marked = 'all', lane?: { dispatched?: Promise<void> }): Promise<void> {

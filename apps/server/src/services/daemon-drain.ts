@@ -5,6 +5,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   watch,
   writeFileSync,
 } from 'node:fs';
@@ -92,6 +93,10 @@ export class DaemonDrain {
   private request: DrainRequest | undefined;
   private watcher: ReturnType<typeof setInterval> | undefined;
   private fileWatch: FSWatcher | undefined;
+  /** The data directory watched, by its inode: one replaced is not the one watched. */
+  private watchedInode: number | undefined;
+  /** When the drain's own loop last looked at the request. */
+  private lookedAt = 0;
   private stranded: { readonly listener: () => void; readonly afterMs: number } | undefined;
 
   constructor(
@@ -158,12 +163,14 @@ export class DaemonDrain {
     rmSync(join(this.dataDir, DRAIN_STATUS_FILE), { force: true });
     let interval = fallbackMs;
     try {
+      this.watchedInode = statSync(this.dataDir).ino;
       this.fileWatch = watch(this.dataDir, { persistent: false }, (_event, name) => {
         try {
           // The data directory itself removed or replaced: the watch is lost (Linux reports it
           // as an event, not an error), so the second's poll takes over (increment 13 review
           // LOW-2).
-          if (!existsSync(this.dataDir)) this.watchLost();
+          if (!existsSync(this.dataDir) || statSync(this.dataDir).ino !== this.watchedInode)
+            this.watchLost();
           else if (name === null || name === DRAIN_REQUEST_FILE) this.poll();
         } catch {
           // A failed look is the poll's to repeat.
@@ -196,7 +203,13 @@ export class DaemonDrain {
   /** One watcher pass; exposed so tests step it deterministically. */
   poll(): void {
     const path = join(this.dataDir, DRAIN_REQUEST_FILE);
-    const request = existsSync(path) ? parseRequest(readFileSync(path, 'utf8')) : undefined;
+    let text: string | undefined;
+    try {
+      text = readFileSync(path, 'utf8');
+    } catch {
+      // Absent, or withdrawn between a look and its read: no request.
+    }
+    const request = text === undefined ? undefined : parseRequest(text);
     if (this.request === undefined) {
       if (request === undefined || this.completion !== undefined) return;
       this.request = request;
@@ -250,10 +263,18 @@ export class DaemonDrain {
         return 0;
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-      // A deploy's request is looked at again while it drains, as the one-second poll did: its
-      // status (the live turns) kept current, and a withdrawal seen at once (increment 13 review
+      // A deploy's request is looked at again each second while it drains, as the poll did: its
+      // status (the live turns) kept current, and a withdrawal seen (increment 13 review LOW-1);
+      // a look that fails is the next one's to repeat, never the drain's end (increment 15 review
       // LOW-1).
-      if (this.request !== undefined) this.poll();
+      if (this.request !== undefined && this.now().getTime() - this.lookedAt >= 1000) {
+        this.lookedAt = this.now().getTime();
+        try {
+          this.poll();
+        } catch {
+          // The next look repeats it.
+        }
+      }
     }
     this.interrupting = true;
     await this.roadmaps.shutdown();

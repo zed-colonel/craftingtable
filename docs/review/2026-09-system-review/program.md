@@ -1259,6 +1259,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **R-H8 done and R-B6 deployed, 2026-10-21.** On the live daemon after R-H8's deploy (1cd9802), the storage tick's minute at rest is 33 to 61 ms of main-thread CPU with no second at 100 ms or more, against 1,500 ms before: its done-when is met ([R-H8](register.md#r-h8)). Its LOW-2 was seen live: the end-of-run cleanup of a removed worktree's 185 GiB build cache held the event loop for about 6 s, once. R-B6 deployed at 4534a88 (no migration). Next: the order's step 7, R-B7's scheduler half.
 
+**R-B7 scheduler half design pass (2026-10-21, at 054eaef; nothing built).** [R-B7](register.md#r-b7)'s entry holds it: today's four service files over about 1,200 lines (`roadmap-service.ts` 5,492, `runtime-evidence-service.ts` 3,415, `execution-service.ts` 2,222, `work-cycle-service.ts` 1,368), `RoadmapService`'s responsibilities and shared state, the last import pair, the roadmap's closures, the roadmap policy the cycle side computes for itself, the merge, the duplicated validators and the non-null assertions; the layout (`services/roadmap/`'s state, writer, selection, holds, preparations, recovery rounds, integration, admission, commands, views, attention and drain; `OwnerPolicy`; one `RoadmapActor`; `merge/gate.ts`, `merge/executor.ts`, `merge/receipt.ts`; `map-state.ts`); twelve increments under the replays and a characterization; and five decisions for the operator (the resume logic once, the editable precondition's answers, the slice requirement's unbound case, the non-null assertions outside this half, which part owns which large file).
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

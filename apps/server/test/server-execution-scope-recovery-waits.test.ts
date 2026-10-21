@@ -280,11 +280,10 @@ itNeedsCargo.each(['predecessor merge', 'blocker'] as const)(
     const owner = storedRoadmap(state).definition.entries.find((e) => e.id === ownerEntryId)!;
     const scheduler = state.context.services.roadmapService as unknown as {
       selection: { blocker: (...args: unknown[]) => unknown };
-      execution: { branches: { requirePredecessors: (...args: unknown[]) => Promise<void> } };
     };
     if (gate === 'predecessor merge') {
       // The owner slice's predecessor merge is absent when its repair worktree is created.
-      const branches = scheduler.execution.branches;
+      const branches = state.context.services.executionService.branches;
       const real = branches.requirePredecessors.bind(branches);
       vi.spyOn(branches, 'requirePredecessors').mockImplementation(async (...args: unknown[]) => {
         const scope = args[5] as ExecutionScope | undefined;
@@ -293,7 +292,7 @@ itNeedsCargo.each(['predecessor merge', 'blocker'] as const)(
             'predecessor-merge-missing',
             "Required predecessor AQ-00's merge is absent from the integration branch",
           );
-        return real(...args);
+        return real(...(args as Parameters<typeof real>));
       });
     } else {
       // The owner's blocker, asked as a round, needs the operator.

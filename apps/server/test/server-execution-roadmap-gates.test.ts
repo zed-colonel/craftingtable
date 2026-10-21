@@ -192,9 +192,9 @@ it('keeps the typed cause of a refusal on the hold it records', async () => {
   const { state } = await roadmapFixture();
   await saveRoadmapRequest(state);
   const scheduler = state.context.services.roadmapService as unknown as {
-    advance: () => Promise<void>;
+    admission: { advance: () => Promise<void> };
   };
-  const advance = vi.spyOn(scheduler, 'advance').mockImplementation(async () => {
+  const advance = vi.spyOn(scheduler.admission, 'advance').mockImplementation(async () => {
     throw new TypedRefusalError('worktree-state', 'The worktree is not on its managed branch');
   });
   await roadmapControl(state, 'start');
@@ -210,10 +210,10 @@ it('keeps the typed cause on a parallel entry’s hold, from a refusal or from i
   const { state, input } = await parallelFixture();
   expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
   const scheduler = state.context.services.roadmapService as unknown as {
-    advanceEntry: (...args: unknown[]) => Promise<unknown>;
+    admission: { advanceEntry: (...args: unknown[]) => Promise<unknown> };
     selection: { blocker: (...args: unknown[]) => unknown };
   };
-  const advance = vi.spyOn(scheduler, 'advanceEntry').mockImplementationOnce(async () => {
+  const advance = vi.spyOn(scheduler.admission, 'advanceEntry').mockImplementationOnce(async () => {
     throw new TypedRefusalError(
       'predecessor-merge-missing',
       "Required predecessor AQ-00's merge is absent from the integration branch",

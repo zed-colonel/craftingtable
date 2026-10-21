@@ -75,6 +75,16 @@ export async function waitingRoadmap(clock = new ManualClock()) {
 }
 
 /** Counts calls of one of the service's methods; the loop looks each up as it calls it. */
+/**
+ * One of the roadmap scheduler's modules (R-B7), for a seam a test sets or counts on it: a seam
+ * left on the facade would reach nothing.
+ */
+export function moduleOf(service: object, name: string): object {
+  const module = (service as Record<string, unknown>)[name];
+  if (typeof module !== 'object' || module === null) throw new Error(`No module ${name}`);
+  return module;
+}
+
 export function counted<T extends object>(
   service: T,
   method: string,

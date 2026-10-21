@@ -1267,6 +1267,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **Increments 2 and 3 (2026-10-21).** Increment 2 moved `crossProjectState` and the map's other pure functions into `map-state.ts` and the merge gate into `merge/gate.ts`, so the server has no import cycle (check:scope rule 10 lists none), and made the always-supplied dependencies of `RoadmapService` and `ExecutionService` required; the gate at a48ea92 is green and the replays unchanged. Increment 3 made one rule of each scheduler-side validator: the authority copies ask `authority-policy.ts`, the editable precondition is one rule in two steps with every site's refusal and every view's text kept, Resume is one rule (an item's Resume now leaves queued reviews, merged worktrees and reserved merges to the scheduler, decision 1 A), and the slice requirement is `sliceRequirementMet` (decision 3 A).
 
+**Increments 4 to 7 (2026-10-21).** `RoadmapService` (5,565 lines) is a 455-line facade over `services/roadmap/`: its state and write path, selection and holds, views and attention, preparations and recovery rounds, admission with its delegated integration, the commands, and the drain, each under 1,000 lines, moved by script and checked against the original text, with a module-wiring test.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

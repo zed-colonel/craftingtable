@@ -32,7 +32,6 @@ type Internals = {
   writer: { authority: (...args: unknown[]) => unknown };
   selection: { blocker: (...args: unknown[]) => unknown };
   holds: { assertRunnable: (...args: unknown[]) => void };
-  execution: { branches: { missingPredecessorMerge: (...args: unknown[]) => Promise<unknown> } };
 };
 const internals = (state: Ready) => state.context.services.roadmapService as unknown as Internals;
 const tick = (state: Ready) => state.context.services.roadmapService.tick();
@@ -203,13 +202,14 @@ it('keeps a hold whose fact cleared while a roadmap command began during its rea
     roadmapAttention('entry-preparation-failed', { cause: 'predecessor-merge-missing' }),
   );
   const scheduler = internals(state);
-  const branches = scheduler.execution.branches;
+  // The branches the scheduler's modules hold: composition's execution service's (R-B7).
+  const branches = state.context.services.executionService.branches;
   const real = branches.missingPredecessorMerge.bind(branches);
   let began = false;
   const spy = vi
     .spyOn(branches, 'missingPredecessorMerge')
     .mockImplementation(async (...args: unknown[]) => {
-      if (began || args[1] !== third.workItemId) return real(...args);
+      if (began || args[1] !== third.workItemId) return real(...(args as Parameters<typeof real>));
       // A Stop's start, or a Resume awaiting its cycle, takes the lock and writes no roadmap row.
       began = true;
       scheduler.state.controlling.add(roadmapId);
@@ -250,7 +250,7 @@ it('resumes a sequential stop for a predecessor’s merge once it is in, not whi
   const scheduler = internals(state);
   let began = false;
   const spy = vi
-    .spyOn(scheduler.execution.branches, 'missingPredecessorMerge')
+    .spyOn(state.context.services.executionService.branches, 'missingPredecessorMerge')
     .mockImplementation(async () => {
       if (!began) {
         began = true;
@@ -289,14 +289,14 @@ it('waits on a predecessor’s merge missing at the roadmap’s own merge instea
   ).toBe(200);
   // The predecessor's merge is in the branch when the attempt starts, and missing at its merge.
   let mergeMissing = true;
-  const branches = internals(state).execution.branches;
+  const branches = state.context.services.executionService.branches;
   const real = branches.missingPredecessorMerge.bind(branches);
   const spy = vi
     .spyOn(branches, 'missingPredecessorMerge')
     .mockImplementation(async (...args: unknown[]) =>
       mergeMissing && storedRoadmap(state).attempts.length > 0
         ? "Required predecessor AQ-00's merge is absent from the integration branch"
-        : real(...args),
+        : real(...(args as Parameters<typeof real>)),
     );
   const merge = vi.spyOn(state.context.services.executionService, 'mergeWorktree');
   await roadmapControl(state, 'start');

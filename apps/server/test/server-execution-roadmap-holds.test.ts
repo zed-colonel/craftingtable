@@ -24,7 +24,7 @@ import {
 afterEach(cleanupExecutionFixtures);
 
 type Internals = {
-  evaluateEntry: (...args: unknown[]) => Promise<unknown>;
+  admission: { evaluateEntry: (...args: unknown[]) => Promise<unknown> };
   selection: { blocker: (...args: unknown[]) => unknown };
 };
 const internals = (state: { context: { services: { roadmapService: unknown } } }) =>
@@ -38,9 +38,11 @@ const bindingChanged = () =>
 it('holds a parallel entry at a phase gate that does not wait with `phase-gate` and its blockers (decision 2)', async () => {
   const { state, input } = await parallelFixture();
   expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
-  const evaluate = vi.spyOn(internals(state), 'evaluateEntry').mockImplementationOnce(async () => {
-    throw bindingChanged();
-  });
+  const evaluate = vi
+    .spyOn(internals(state).admission, 'evaluateEntry')
+    .mockImplementationOnce(async () => {
+      throw bindingChanged();
+    });
   await roadmapControl(state, 'start');
   await waitFor(() => !!storedRoadmap(state).entryHolds?.[entryIds[0]!], 'phase gate hold');
   expect(storedRoadmap(state).entryHolds?.[entryIds[0]!]).toEqual({
@@ -58,9 +60,11 @@ it('holds a parallel entry at a phase gate that does not wait with `phase-gate` 
 it('stops a sequential roadmap at a phase gate with `phase-gate` and names the entry (decisions 2 and 3)', async () => {
   const { state } = await roadmapFixture();
   await saveRoadmapRequest(state);
-  const evaluate = vi.spyOn(internals(state), 'evaluateEntry').mockImplementationOnce(async () => {
-    throw bindingChanged();
-  });
+  const evaluate = vi
+    .spyOn(internals(state).admission, 'evaluateEntry')
+    .mockImplementationOnce(async () => {
+      throw bindingChanged();
+    });
   await roadmapControl(state, 'start');
   await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'scheduler stop');
   expect(storedRoadmap(state).attention).toEqual({

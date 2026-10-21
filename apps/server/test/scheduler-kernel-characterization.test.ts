@@ -12,7 +12,14 @@ import {
   useIntegration,
   waitUntil,
 } from './execution-test-support.js';
-import { counted, drainOf, quiet, sleep, waitingRoadmap } from './scheduler-test-support.js';
+import {
+  counted,
+  moduleOf,
+  drainOf,
+  quiet,
+  sleep,
+  waitingRoadmap,
+} from './scheduler-test-support.js';
 
 /**
  * What the roadmap scheduler's and delivery's timing are on a free-running daemon, where the
@@ -31,7 +38,7 @@ it('looks at a running roadmap only on a mark, with nothing written (flipped by 
   const { state } = await waitingRoadmap();
   const service = state.context.services.roadmapService;
   const drain = drainOf(state);
-  const advances = counted(service, 'advance');
+  const advances = counted(moduleOf(service, 'admission'), 'advance');
   const marks = drain.marks();
   await sleep(2_600);
   // No look without a mark (a stray write elsewhere in the daemon would be one), and none due.
@@ -163,7 +170,7 @@ it('merges once a merge lane it met is released, with nothing written (a release
     );
     return merge(...args);
   };
-  const advances = counted(state.context.services.roadmapService, 'advance');
+  const advances = counted(moduleOf(state.context.services.roadmapService, 'admission'), 'advance');
   const drain = drainOf(state);
   try {
     await start();
@@ -217,7 +224,7 @@ it('merges once a merge lane its first look met in the refresh is released (the 
     ended() {},
   };
   state.context.storage.observeWrites(observer);
-  const advances = counted(state.context.services.roadmapService, 'advance');
+  const advances = counted(moduleOf(state.context.services.roadmapService, 'admission'), 'advance');
   try {
     await start();
     await waitUntil(() => held !== undefined, 'the review reached its merge');

@@ -14,7 +14,14 @@ import {
   storedRoadmap,
   waitUntil,
 } from './execution-test-support.js';
-import { counted, drainOf, quiet, sleep, waitingRoadmap } from './scheduler-test-support.js';
+import {
+  counted,
+  moduleOf,
+  drainOf,
+  quiet,
+  sleep,
+  waitingRoadmap,
+} from './scheduler-test-support.js';
 
 /**
  * What wakes the roadmap scheduler now that it does not look every second (R-B5 part 2,
@@ -34,9 +41,9 @@ type Advance = { advance: (...args: unknown[]) => Promise<void> };
 async function failing(error: () => Error, when: () => boolean = () => true) {
   const fixture = await waitingRoadmap();
   const service = fixture.state.context.services.roadmapService;
-  const rounds = counted(service, 'roundBody');
-  const target = service as unknown as Advance;
-  const advance = target.advance.bind(service);
+  const rounds = counted(moduleOf(service, 'drain'), 'roundBody');
+  const target = moduleOf(service, 'admission') as Advance;
+  const advance = target.advance.bind(target);
   target.advance = async (...args: unknown[]) => {
     if (when()) throw error();
     return advance(...args);
@@ -130,10 +137,10 @@ it('is not woken by the locks its own round takes and releases (review HIGH-1)',
   const { state, repository } = fixture;
   const service = state.context.services.roadmapService;
   const drain = drainOf(state);
-  const rounds = counted(service, 'roundBody');
+  const rounds = counted(moduleOf(service, 'drain'), 'roundBody');
   const branches = state.context.services.executionService.branches;
-  const target = service as unknown as Advance;
-  const advance = target.advance.bind(service);
+  const target = moduleOf(service, 'admission') as Advance;
+  const advance = target.advance.bind(target);
   target.advance = async (...args: unknown[]) => {
     await branches.duringMerge(repository.rootPath, async () => undefined);
     return advance(...args);
@@ -159,7 +166,7 @@ it("looks again when its cycle's transition ends (a release, not a write)", asyn
   const { state } = fixture;
   const service = state.context.services.roadmapService;
   const drain = drainOf(state);
-  const rounds = counted(service, 'roundBody');
+  const rounds = counted(moduleOf(service, 'drain'), 'roundBody');
   const cycleId = storedRoadmap(state).attempts[0]?.cycleId as WorkCycleId;
   const locks = (
     state.context.services.workCycleService as unknown as {
@@ -190,7 +197,7 @@ it("looks again when its cycle's transition ends (a release, not a write)", asyn
 it('runs no round and does not spin while admissions are held; their release looks again (review MEDIUM-5)', async () => {
   const { state } = await waitingRoadmap();
   const service = state.context.services.roadmapService;
-  const rounds = counted(service, 'roundBody');
+  const rounds = counted(moduleOf(service, 'drain'), 'roundBody');
   service.holdAdmissions(true);
   await waitUntil(
     () =>
@@ -214,7 +221,7 @@ it('asks no due time for a wind-down past its session limit, and does not spin o
   const { state, clock } = await waitingRoadmap();
   const service = state.context.services.roadmapService;
   const drain = drainOf(state);
-  const rounds = counted(service, 'roundBody');
+  const rounds = counted(moduleOf(service, 'drain'), 'roundBody');
   const roadmap = storedRoadmap(state);
   // A wind-down still settling (its step failing, or waiting on a session that never ends), its
   // request eleven minutes old.
@@ -280,10 +287,11 @@ it('marks at the round end the roadmaps that met a lock after its release in tha
   const fixture = await waitingRoadmap();
   const { state } = fixture;
   const service = state.context.services.roadmapService;
-  const rounds = counted(service, 'roundBody');
-  const target = service as unknown as Advance & {
-    state: { waitOnLock(id: string, key: string): void };
-  };
+  const rounds = counted(moduleOf(service, 'drain'), 'roundBody');
+  const target = moduleOf(service, 'admission') as Advance;
+  const roadmapState = (
+    service as unknown as { state: { waitOnLock(id: string, key: string): void } }
+  ).state;
   // Its units write nothing, so only the release can bring another round.
   let gate: () => void = () => undefined;
   let entered = false;
@@ -295,7 +303,7 @@ it('marks at the round end the roadmaps that met a lock after its release in tha
       await new Promise<void>((resolve) => {
         gate = resolve;
       });
-      target.state.waitOnLock(storedRoadmap(state).id, 'lane');
+      roadmapState.waitOnLock(storedRoadmap(state).id, 'lane');
     }
   };
   const drain = drainOf(state);
@@ -317,8 +325,8 @@ it('lets timers run between rounds that mark themselves (the macrotask between r
   const fixture = await waitingRoadmap();
   const { state } = fixture;
   const service = state.context.services.roadmapService;
-  const target = service as unknown as Advance;
-  const advance = target.advance.bind(service);
+  const target = moduleOf(service, 'admission') as Advance;
+  const advance = target.advance.bind(target);
   let marking = true;
   target.advance = async (...args: unknown[]) => {
     if (marking) service.wake('test');
@@ -336,8 +344,8 @@ it("takes no marks while a test's tick runs, so none is lost (the loop waits for
   const fixture = await waitingRoadmap();
   const { state } = fixture;
   const service = state.context.services.roadmapService;
-  const rounds = counted(service, 'roundBody');
-  const target = service as unknown as Advance;
+  const rounds = counted(moduleOf(service, 'drain'), 'roundBody');
+  const target = moduleOf(service, 'admission') as Advance;
   // Its units write nothing, so only the mark made during the tick can bring another round.
   let gate: () => void = () => undefined;
   let held = true;
@@ -359,11 +367,9 @@ it("takes no marks while a test's tick runs, so none is lost (the loop waits for
     return marked;
   };
   const ran: unknown[] = [];
-  const body = (service as unknown as { roundBody(marked: unknown): Promise<void> }).roundBody;
-  (service as unknown as { roundBody(marked: unknown): Promise<void> }).roundBody = function (
-    this: unknown,
-    marked: unknown,
-  ) {
+  const drainModule = moduleOf(service, 'drain') as { roundBody(marked: unknown): Promise<void> };
+  const body = drainModule.roundBody;
+  drainModule.roundBody = function (this: unknown, marked: unknown) {
     ran.push(marked);
     return body.call(this, marked);
   };

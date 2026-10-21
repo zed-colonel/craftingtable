@@ -31,6 +31,7 @@ import {
 } from '@craftingtable/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cycleOwnership } from '../src/services/cycle-ownership.js';
+import { mapReadSnapshot } from '../src/services/map-read-snapshot.js';
 import { prioritizeRoadmapCycles } from '../src/services/cycle-priority.js';
 import { currentCycleAttention } from '../src/services/cycle/core/attention-policy.js';
 import {
@@ -884,5 +885,20 @@ const rows: readonly (readonly [string, OwnerState, Partial<typeof RUNNING>])[] 
 describe('each owner-policy reader over one table of owner states (R-B7 scheduler half)', () => {
   it.each(rows)('%s', async (_name, state, differs) =>
     expect(answers(await arrange(state))).toEqual({ ...RUNNING, ...differs }),
+  );
+});
+
+// The policy is memoized per cycle inside a read snapshot: two cycles of one roadmap read in one
+// snapshot each get their own answer (the R-B7 scheduler half's mutation round: a key without the
+// cycle survived every row, which read each cycle alone).
+it('answers each cycle its own policy within one read snapshot', async () => {
+  const { cycle, sibling } = await arrange({});
+  const storage = f.context.storage;
+  const alone = [ownerPolicy(storage, cycle)?.entryId, ownerPolicy(storage, sibling)?.entryId];
+  expect(alone[0]).toBeDefined();
+  expect(alone[0]).not.toBe(alone[1]);
+  const snapshot = mapReadSnapshot(storage);
+  expect([ownerPolicy(snapshot, cycle)?.entryId, ownerPolicy(snapshot, sibling)?.entryId]).toEqual(
+    alone,
   );
 });

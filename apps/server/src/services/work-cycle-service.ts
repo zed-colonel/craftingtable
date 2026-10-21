@@ -547,7 +547,7 @@ export class WorkCycleService {
       owner: CycleOwner;
       profiles: WorkCycle['profiles'];
       policy: WorkCycle['policy'];
-      actor: RoadmapActor;
+      actor: Required<RoadmapActor>;
     },
   ) {
     return this.recovery.delegateScopeRepair(context, workspaceId, id, input, delegation);

@@ -1194,11 +1194,11 @@ describe("the daemon's modules import one another without cycles (rule 10, R-B7)
 describe('the cycle core reaches no service and no file or process access (rule 11, R-B7)', () => {
   const core = 'apps/server/src/services/cycle/core';
   const reaches = (file, path, what) =>
-    `${file}: imports "${what}", and the cycle core reaches it by value imports (${path.join(' → ')}); keep file and process access out of the core's reach (R-B7)`;
+    `${file}: imports "${what}", and the cycle core or the merge gate reaches it by value imports (${path.join(' → ')}); keep file and process access out of the core's reach (R-B7)`;
   const service = (file, path) =>
-    `${file}: a service the cycle core reaches by value imports (${path.join(' → ')}); the core decides and the services act, so take what it needs from a module of its own (R-B7)`;
+    `${file}: a service the cycle core or the merge gate reaches by value imports (${path.join(' → ')}); the core decides and the services act, so take what it needs from a module of its own (R-B7)`;
   const coreFindings = (findings) =>
-    findings.filter((finding) => finding.includes('the cycle core reaches'));
+    findings.filter((finding) => finding.includes('the cycle core or the merge gate reaches'));
 
   it('finds file and process access and services the core reaches by value imports, with the path', () => {
     const { findings } = inspectWorkspace(
@@ -1387,7 +1387,15 @@ describe('the cycle side reads roadmap policy only through OwnerPolicy (rule 14,
           "import { roadmapCarriesRound } from './scope-recovery-policy.js';\nexport const pass = roadmapCarriesRound;\n",
         'apps/server/src/services/workflow-policy.ts':
           "import * as recovery from './scope-recovery-policy.js';\nexport const workflow = recovery;\n",
-        // A type, another export of the recovery policy, and a module outside the cycle side pass.
+        // Re-exports of it, by name and of the whole module (the review of increments 8-11, LOW-1).
+        'apps/server/src/services/cycle/effects/workflow.ts':
+          "export { roadmapCarriesRound } from '../../scope-recovery-policy.js';\n",
+        'apps/server/src/services/run/preconditions.ts':
+          "export * from '../scope-recovery-policy.js';\n",
+        // A type, another export of the recovery policy (imported or re-exported), and a module
+        // outside the cycle side pass.
+        'apps/server/src/services/cycle/effects/integration.ts':
+          "export { automatedScopeRecoveryWait } from '../../scope-recovery-policy.js';\n",
         'apps/server/src/services/cycle/commands/control.ts':
           "import type { Owner } from '../../cycle-ownership.js';\nimport { automatedScopeRecoveryWait } from '../../scope-recovery-policy.js';\nexport type Control = Owner;\nexport const wait = automatedScopeRecoveryWait;\n",
         'apps/server/src/services/agent-profile-policy.ts':
@@ -1403,6 +1411,8 @@ describe('the cycle side reads roadmap policy only through OwnerPolicy (rule 14,
       [
         reads('apps/server/src/services/cycle/core/facts.ts', ownership),
         reads('apps/server/src/services/run/launch.ts', delegation),
+        reads('apps/server/src/services/cycle/effects/workflow.ts', recovery),
+        reads('apps/server/src/services/run/preconditions.ts', recovery),
         reads('apps/server/src/services/work-cycle-service.ts', recovery),
         reads('apps/server/src/services/workflow-policy.ts', recovery),
       ].sort(),
@@ -1539,6 +1549,16 @@ it('passes on the real repository, having read and classified its modules', () =
   // Rule 11 starts from the cycle core's modules: a moved core would pass vacuously.
   expect(classes.get('apps/server/src/services/cycle/core/machine.ts')).toBe('production');
   expect(classes.get('apps/server/src/services/merge/gate.ts')).toBe('production');
+  // Rule 14's readers and its round-carry source exist, so a rename cannot empty the rule.
+  for (const file of [
+    'apps/server/src/services/work-cycle-service.ts',
+    'apps/server/src/services/agent-run-service.ts',
+    'apps/server/src/services/workflow-policy.ts',
+    'apps/server/src/services/scope-recovery-policy.ts',
+    'apps/server/src/services/cycle-ownership.ts',
+    'apps/server/src/services/roadmap-delegation-policy.ts',
+  ])
+    expect(classes.get(file), file).toBe('production');
   // Run by a package script, and imported by its own test.
   expect(classes.get('apps/server/src/db-verify.ts')).toBe('production');
   expect(classes.get('apps/web/src/test-setup.ts')).toBe('test');

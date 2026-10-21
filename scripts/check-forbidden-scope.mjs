@@ -1877,12 +1877,12 @@ function coreFindings(root, modules, production) {
   for (const file of [...from.keys()].sort()) {
     if (file.endsWith('-service.ts'))
       findings.push(
-        `${name(file)}: a service the cycle core reaches by value imports (${path(file)}); the core decides and the services act, so take what it needs from a module of its own (R-B7)`,
+        `${name(file)}: a service the cycle core or the merge gate reaches by value imports (${path(file)}); the core decides and the services act, so take what it needs from a module of its own (R-B7)`,
       );
     for (const ref of modules.get(file).references)
       if (!ref.typeOnly && CORE_FORBIDDEN.test(ref.specifier))
         findings.push(
-          `${name(file)}: imports "${ref.specifier}", and the cycle core reaches it by value imports (${path(file)}); keep file and process access out of the core's reach (R-B7)`,
+          `${name(file)}: imports "${ref.specifier}", and the cycle core or the merge gate reaches it by value imports (${path(file)}); keep file and process access out of the core's reach (R-B7)`,
         );
   }
   return findings;
@@ -2080,7 +2080,11 @@ function moduleFindings(root, module, production, vocabulary) {
       (OWNER_POLICY_SOURCES.has(targetPath) ||
         (targetPath === ROUND_CARRY.module &&
           (reference.namespace !== undefined ||
-            (reference.names ?? []).some(({ name }) => name === ROUND_CARRY.name))))
+            (reference.names ?? []).some(({ name }) => name === ROUND_CARRY.name) ||
+            // A re-export of it, or of the whole module (`export *`, which records no names).
+            (reference.reexports !== undefined &&
+              (reference.reexports.length === 0 ||
+                reference.reexports.includes(ROUND_CARRY.name))))))
     )
       findings.push(
         `${path}: imports the owning roadmap's policy from ${targetPath}; the cycle side asks the scheduler's answer, \`ownerPolicy\` (apps/server/src/services/roadmap/owner-policy.ts) (R-B7)`,

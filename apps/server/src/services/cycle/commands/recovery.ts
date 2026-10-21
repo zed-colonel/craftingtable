@@ -264,7 +264,7 @@ export class CycleRecovery {
       profiles: WorkCycle['profiles'];
       policy: WorkCycle['policy'];
       /** The roadmap's actor for the round (R-B7). */
-      actor: RoadmapActor;
+      actor: Required<RoadmapActor>;
     },
   ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -406,7 +406,7 @@ export class CycleRecovery {
             'delegate-scope-repair',
             context,
           );
-          delegation?.actor.attach?.();
+          delegation?.actor.attach();
           return repaired;
         });
       } finally {

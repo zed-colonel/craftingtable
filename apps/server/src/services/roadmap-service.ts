@@ -4685,7 +4685,7 @@ export class RoadmapService {
         .map((d) => ({
           kind: 'evidence' as const,
           code: 'decision-checkpoint-evidence' as const,
-          message: `${d.checkpointId} has a prepared brief awaiting your approval; ${entry.sourceId} starts once it is approved, so its design does not stop to ask. Pause the roadmap and approve it in Shared architecture decisions.`,
+          message: `${d.checkpointId} has a prepared brief awaiting your approval; ${entry.sourceId} starts once it is approved, so its design does not stop to ask. Approve it in Shared architecture decisions.`,
           refs: { checkpointId: d.checkpointId },
         }));
     } catch {

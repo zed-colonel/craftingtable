@@ -166,6 +166,26 @@ it('collects references, reviews an immutable proposal, and requires explicit ap
     outcome: 'accepted',
   });
 });
+it('holds a saved proposal’s approval while work it is an input of runs, and says which (R-B6, decision 6)', () => {
+  const waits = [
+    'Wait for the live run on ct/a to finish, or end the run: this decision is one of its inputs.',
+  ];
+  render(
+    <SharedDecisions
+      data={withRecord({ ...decisionRecord, waits })}
+      csrfToken="csrf"
+      disabled={false}
+      onChanged={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Review saved proposal' }));
+  expect(screen.getByText(`Approval waits: ${waits[0]}`)).toBeTruthy();
+  fireEvent.click(screen.getByRole('checkbox', { name: /I reviewed this exact decision/ }));
+  fireEvent.change(screen.getByLabelText('Approval rationale'), { target: { value: 'Fine.' } });
+  expect(
+    (screen.getByRole('button', { name: 'Approve decision' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});
 it('offers clarification for legacy reports without guessing their complete decision', () => {
   const legacy = {
     ...decisionInbox,
@@ -215,7 +235,7 @@ it('keeps edits across refresh and failure, and requires named limited scope', a
     retainedObligations: 'Keep transport for integration.',
   });
 });
-it('shows limited approval separately and keeps live scheduling blockers beside disabled approval', () => {
+it('shows limited approval separately and keeps the map’s blockers beside disabled approval', () => {
   const limited = {
     ...decisionRecord,
     proposal: {
@@ -242,11 +262,11 @@ it('shows limited approval separately and keeps live scheduling blockers beside 
   };
   const data = {
     ...withRecord(limited),
-    blockers: ['Pause roadmap scheduling before approving decisions.'],
+    blockers: ['Refresh the exact plan binding before approving decisions.'],
   };
   render(<SharedDecisions data={data} csrfToken="csrf" disabled={false} onChanged={vi.fn()} />);
   expect(screen.getByText('Accepted · limited to named slices')).toBeTruthy();
-  expect(screen.getByText(/Approval unavailable: Pause roadmap/)).toBeTruthy();
+  expect(screen.getByText(/Approval unavailable: Refresh the exact plan binding/)).toBeTruthy();
 });
 
 it('keeps investigation evidence accessible when its structured recommendation is invalid', () => {
@@ -323,7 +343,7 @@ it('approves several saved decisions in one pause, each reviewed, with one ratio
 it('offers no batch approval while scheduling runs (R-C3b)', () => {
   const blocked: ArchitectureDecisionInbox = {
     ...decisionInbox,
-    blockers: ['Pause roadmap scheduling before approving decisions.'],
+    blockers: ['Refresh the exact plan binding before approving decisions.'],
     decisions: [
       { ...decisionInbox.decisions[0]!, records: [decisionRecord] },
       {
@@ -339,7 +359,7 @@ it('offers no batch approval while scheduling runs (R-C3b)', () => {
     (within(batch).getByRole('checkbox', { name: /LOCAL-ADR-012/ }) as HTMLInputElement).disabled,
   ).toBe(true);
 });
-it('approves only the proposals ticked as reviewed, lists none with issues, and stops at a refusal (R-C3b review)', async () => {
+it('approves only the proposals ticked as reviewed, lists none with issues, and decides each on its own (R-C3b review, R-B6 decision 12)', async () => {
   const record = (id: string, proposal: string) => ({
     ...decisionRecord,
     id,
@@ -353,6 +373,8 @@ it('approves only the proposals ticked as reviewed, lists none with issues, and 
     checkpointId,
     records,
   });
+  const waiting =
+    'Wait for the live run on ct/a to finish, or end the run: this decision is one of its inputs.';
   const inbox: ArchitectureDecisionInbox = {
     ...decisionInbox,
     decisions: [
@@ -362,32 +384,50 @@ it('approves only the proposals ticked as reviewed, lists none with issues, and 
       card('LOCAL-ADR-015', [
         { ...record('00000000-0000-4000-8000-000000000014', 'Flawed.'), issues: ['Stale digest'] },
       ]),
+      card('LOCAL-ADR-016', [
+        { ...record('00000000-0000-4000-8000-000000000015', 'Busy.'), waits: [waiting] },
+      ]),
     ],
   };
   vi.mocked(request)
     .mockResolvedValueOnce(view(inbox))
-    .mockRejectedValueOnce(new Error('Pause roadmap scheduling before approving.'));
+    .mockRejectedValueOnce(new Error(waiting))
+    .mockResolvedValueOnce(view(inbox));
   const onChanged = vi.fn();
   render(<SharedDecisions data={inbox} csrfToken="csrf" disabled={false} onChanged={onChanged} />);
   const batch = screen.getByRole('region', { name: 'Approve saved decisions' });
   expect(within(batch).queryByRole('checkbox', { name: /LOCAL-ADR-015/ })).toBeNull();
-  fireEvent.click(within(batch).getByRole('checkbox', { name: /LOCAL-ADR-012/ }));
-  fireEvent.click(within(batch).getByRole('checkbox', { name: /LOCAL-ADR-014/ }));
+  // One whose inputs are in use waits, and says why.
+  const busy = within(batch).getByRole('checkbox', { name: /LOCAL-ADR-016/ }) as HTMLInputElement;
+  expect(busy.disabled).toBe(true);
+  expect(within(batch).getByText(`Waits: ${waiting}`)).toBeTruthy();
+  for (const id of ['012', '013', '014'])
+    fireEvent.click(within(batch).getByRole('checkbox', { name: new RegExp(`LOCAL-ADR-${id}`) }));
   fireEvent.change(within(batch).getByLabelText('Approval rationale for the batch'), {
     target: { value: 'Reviewed.' },
   });
   fireEvent.click(within(batch).getByRole('button', { name: 'Approve reviewed decisions' }));
-  await within(batch).findByText(/Approved LOCAL-ADR-012; stopped: Pause roadmap scheduling/);
+  await within(batch).findByText(
+    `Approved LOCAL-ADR-012, LOCAL-ADR-014. Not approved: LOCAL-ADR-013: ${waiting}`,
+  );
   const sent = vi
     .mocked(request)
     .mock.calls.filter(([url]) => String(url).endsWith('/decide'))
     .map(([, , init]) => JSON.parse(String((init as RequestInit).body)).submissionId);
-  // LOCAL-ADR-013 was not ticked; LOCAL-ADR-014 was refused, so nothing after it runs.
+  // Each ticked one is sent; the refusal stops none of the others.
   expect(sent).toEqual([
     '00000000-0000-4000-8000-000000000011',
+    '00000000-0000-4000-8000-000000000012',
     '00000000-0000-4000-8000-000000000013',
   ]);
-  expect(onChanged).toHaveBeenCalledTimes(1);
+  expect(onChanged).toHaveBeenCalledTimes(2);
+  // The refused one stays selected for another try; the approved ones leave the selection.
+  expect(
+    (within(batch).getByRole('checkbox', { name: /LOCAL-ADR-013/ }) as HTMLInputElement).checked,
+  ).toBe(true);
+  expect(
+    (within(batch).getByRole('checkbox', { name: /LOCAL-ADR-012/ }) as HTMLInputElement).checked,
+  ).toBe(false);
 });
 
 it('gives a decision a stopped slice waits on a card and a one-step brief before any exists (LIVE-18)', async () => {

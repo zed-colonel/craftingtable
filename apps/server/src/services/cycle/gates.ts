@@ -105,7 +105,7 @@ export class CycleGates {
     if (unsettled.length)
       throw new ExecutionRequestError(
         'conflict',
-        `${unsettled.join(', ')} ${unsettled.length === 1 ? 'is' : 'are'} not approved for this slice yet. Prepare and approve ${unsettled.length === 1 ? 'it' : 'them'} in Shared architecture decisions (approval needs the roadmap paused), then resume.`,
+        `${unsettled.join(', ')} ${unsettled.length === 1 ? 'is' : 'are'} not approved for this slice yet. Prepare and approve ${unsettled.length === 1 ? 'it' : 'them'} in Shared architecture decisions, then resume.`,
       );
   }
 

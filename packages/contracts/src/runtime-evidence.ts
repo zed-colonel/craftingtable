@@ -369,6 +369,11 @@ export const architectureDecisionInboxSchema = z.strictObject({
           proposal: architectureDecisionSchema,
           decision: evidenceDecisionSchema.optional(),
           issues: z.array(z.string()),
+          /**
+           * What approving an undecided proposal waits for: the work in flight on the trees whose
+           * decision packet it changes (R-B6, decision 6); empty when it can be approved now.
+           */
+          waits: z.array(z.string()).optional(),
           applicable: z.boolean(),
         }),
       ),

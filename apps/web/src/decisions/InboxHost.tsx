@@ -34,12 +34,7 @@ import { MergeApproval } from './merge/MergeApproval.js';
 import { PlanAcceptance } from './plan-acceptance/PlanAcceptance.js';
 import { DependencyRefresh } from './refresh/DependencyRefresh.js';
 import { type Decision, decisionsFor, type RoadmapItemPart } from './registry.js';
-import {
-  MapRuntime,
-  PauseForDecision,
-  RoadmapAmendments,
-  RoadmapRuntime,
-} from './roadmap-runtime.js';
+import { MapRuntime, RoadmapAmendments, RoadmapRuntime } from './roadmap-runtime.js';
 import { UpstreamTransitions } from './upstream/UpstreamTransitions.js';
 import { heldStop } from '@craftingtable/domain';
 
@@ -287,38 +282,26 @@ export function InboxHost({
             ? [item.checkpointId]
             : (view?.projection.unsettledDecisions ?? []);
         const owner = roadmapId ?? view?.cycle.owner?.roadmapId;
-        // Approval waits while the owning roadmap runs: its Pause sits beside the cards.
-        const pause = owner !== undefined && (
-          <PauseForDecision
-            workspaceId={workspaceId}
-            roadmapId={owner}
-            csrfToken={csrfToken}
-            canMutate={canMutate}
-          />
-        );
         const cards = (runtime: {
           definitionId: string;
           view: RuntimeEvidenceView;
           onSaved: (next: RuntimeEvidenceView) => void;
         }) =>
           checkpoints.length ? (
-            <>
-              {pause}
-              {checkpoints.map((checkpointId) => (
-                <ArchitectureDecision
-                  key={`${item.id}:${checkpointId}`}
-                  workspaceId={workspaceId}
-                  definitionId={runtime.definitionId}
-                  view={runtime.view}
-                  checkpointId={checkpointId}
-                  roadmapId={owner}
-                  csrfToken={csrfToken}
-                  disabled={!canMutate}
-                  onChanged={runtime.onSaved}
-                  alone
-                />
-              ))}
-            </>
+            checkpoints.map((checkpointId) => (
+              <ArchitectureDecision
+                key={`${item.id}:${checkpointId}`}
+                workspaceId={workspaceId}
+                definitionId={runtime.definitionId}
+                view={runtime.view}
+                checkpointId={checkpointId}
+                roadmapId={owner}
+                csrfToken={csrfToken}
+                disabled={!canMutate}
+                onChanged={runtime.onSaved}
+                alone
+              />
+            ))
           ) : (
             <p className="empty-state">No shared decision is unsettled now.</p>
           );

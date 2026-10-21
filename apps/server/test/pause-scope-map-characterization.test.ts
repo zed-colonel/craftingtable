@@ -19,19 +19,19 @@ import {
 } from './execution-test-support.js';
 
 /**
- * R-B6 characterization (step 2): the map-wide refusals, as they are before scoping. Approving a
- * shared architecture decision, a dependency refresh and a delegation grant each refuse while
- * the map's roadmap runs, and also while work is live: approval and refresh on the map's
- * worktrees, delegation anywhere in the workspace. Host capacity no longer waits for a pause
- * (increment 1, decision 9), nor delegation (increment 2, decision 2). The roadmap's status is
- * written by hand.
+ * R-B6 characterization (step 2): the map-wide refusals, as they were before scoping, and how each
+ * was scoped. A dependency refresh still refuses while the map's roadmap runs and while work on
+ * the map is live (decision 7). Host capacity (increment 1, decision 9), delegation (increment 2,
+ * decision 2) and approving a shared decision (increment 3, decision 6) no longer wait for a
+ * pause; approval waits only for the work in flight on the trees whose packet it changes. The
+ * roadmap's status is written by hand.
  */
 
 afterEach(cleanupExecutionFixtures);
 
 const DECISION = 'LOCAL-ADR-01';
 
-/** Every slice's merge waits on one shared architecture decision. */
+/** The first slice's merge waits on one shared architecture decision; the second's does not. */
 function withMergeDecision(source: ConcurrencySource): ConcurrencySource {
   return {
     ...source,
@@ -59,10 +59,16 @@ function withMergeDecision(source: ConcurrencySource): ConcurrencySource {
         requires: [],
       },
     ],
-    slices: source.slices.map((s) => ({
-      ...s,
-      merge_requires: [{ kind: 'checkpoint' as const, id: DECISION, state: 'passed' as const }],
-    })),
+    slices: source.slices.map((s, index) =>
+      index === 0
+        ? {
+            ...s,
+            merge_requires: [
+              { kind: 'checkpoint' as const, id: DECISION, state: 'passed' as const },
+            ],
+          }
+        : s,
+    ),
   };
 }
 
@@ -169,9 +175,9 @@ function decide(fx: Fixture, submissionId: string, outcome: 'accepted' | 'reject
   });
 }
 
-/** A run left live (waiting after its turn) in a worktree of the map's first slice. */
-async function liveRunOnTheMap(fx: Fixture) {
-  const tree = await scopeTree(fx.f, fx.f.scopes[0]!);
+/** A run left live (waiting after its turn) in a worktree of one of the map's slices. */
+async function liveRunOnTheMap(fx: Fixture, slice = 0) {
+  const tree = await scopeTree(fx.f, fx.f.scopes[slice]!);
   const started = await fx.f.state.context.app.inject({
     method: 'POST',
     url: `/api/workspaces/${fx.ws}/work-items/${fx.f.state.workItemId}/runs`,
@@ -203,32 +209,35 @@ async function endRun(fx: Fixture, runId: AgentRunId) {
 const inboxBlockers = ({ tx, ws, id }: Fixture) =>
   architectureDecisionInbox(tx, tx.imports.definition(ws, id)!).blockers;
 
-it('approving an architecture decision: refused while the map’s roadmap runs or a run on the map is live; a rejection is not', async () => {
+it('approving an architecture decision beside a running roadmap waits only for the work in flight on the trees it is an input of (R-B6, decision 6)', async () => {
   const fx = await fixture();
   const submission = await proposal(fx);
   setStatus(fx, 'running');
-  expect(inboxBlockers(fx)).toEqual(['Pause roadmap scheduling before approving decisions.']);
-  const refused = await decide(fx, submission.id, 'accepted');
-  expect(refused.statusCode, refused.body).toBe(409);
-  expect(refused.json().error.message).toBe(
-    'Pause roadmap scheduling before approving an architecture decision. Existing work and history are retained.',
-  );
-  expect(fx.tx.runtimeEvidence.decisions(fx.ws)).toEqual([]);
-  setStatus(fx, 'paused');
-  const { runId } = await liveRunOnTheMap(fx);
-  expect(inboxBlockers(fx)).toEqual([
-    'Wait for live runs on this map to finish before approving decisions.',
-  ]);
+  const waits = () =>
+    architectureDecisionInbox(fx.tx, fx.tx.imports.definition(fx.ws, fx.id)!)
+      .decisions.find((c) => c.checkpointId === DECISION)!
+      .records.find((r) => r.id === submission.id)!.waits;
+  expect(inboxBlockers(fx)).toEqual([]);
+  expect(waits()).toEqual([]);
+  // A live run on the second slice, which does not use the decision, holds nothing.
+  const unaffected = await liveRunOnTheMap(fx, 1);
+  expect(waits()).toEqual([]);
+  // A live run on the first slice, whose merge requires it, holds the approval.
+  const affected = await liveRunOnTheMap(fx, 0);
+  const message = `Wait for the live run on ${affected.tree.branchName} to finish, or end the run: this decision is one of its inputs.`;
+  expect(waits()).toEqual([message]);
+  expect(inboxBlockers(fx)).toEqual([]);
   const live = await decide(fx, submission.id, 'accepted');
   expect(live.statusCode, live.body).toBe(409);
-  expect(live.json().error.message).toBe(
-    'Wait for live runs on this map to finish before changing architecture decisions.',
-  );
-  await endRun(fx, runId);
-  expect(inboxBlockers(fx)).toEqual([]);
+  expect(live.json().error.message).toBe(message);
+  expect(fx.tx.runtimeEvidence.decisions(fx.ws)).toEqual([]);
+  await endRun(fx, affected.runId);
+  expect(waits()).toEqual([]);
   const accepted = await decide(fx, submission.id, 'accepted');
   expect(accepted.statusCode, accepted.body).toBe(200);
   expect(fx.tx.runtimeEvidence.decisions(fx.ws).map((d) => d.outcome)).toEqual(['accepted']);
+  expect(storedRoadmap(fx.f.state).status).toBe('running');
+  await endRun(fx, unaffected.runId);
 });
 
 it('rejecting an architecture decision proposal is allowed while the roadmap runs', async () => {

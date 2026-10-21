@@ -25,7 +25,10 @@ import { architectureDecisionInbox } from './architecture-decision-inbox.js';
 import {
   architectureDecisionIssues,
   architectureDecisionDigest,
+  decisionAffectedTrees,
+  decisionApprovalWaits,
   decisionBindingDigest,
+  decisionTreeWork,
   decisionReviewerRole,
   supportsArchitectureDecision,
 } from './architecture-decision-policy.js';
@@ -2014,27 +2017,16 @@ export class RuntimeEvidenceService {
     id: ConcurrencyDefinitionId,
     s: EvidenceSubmissionHead,
   ) {
-    const issues = architectureDecisionIssues(tx, this.definition(ws, id), s);
+    const d = this.definition(ws, id);
+    const issues = architectureDecisionIssues(tx, d, s);
     if (issues.length) conflict(issues.join('\n'));
-    // Approval changes run inputs and, for staging, scheduling. Require a stable operator checkpoint.
-    if (
-      tx.roadmaps
-        .list(ws)
-        .some((r) => r.definition.crossProject?.definitionId === id && r.status === 'running')
-    )
-      conflict(
-        'Pause roadmap scheduling before approving an architecture decision. Existing work and history are retained.',
-      );
-    if (
-      tx.execution.runs.listLive().some(
-        (r) =>
-          r.workspaceId === ws &&
-          // A preparation run only proposes: its proposal is checked against its exact binding when
-          // saved, and the operator reviews its text, so it does not hold approval (R-C3b, ADR-065).
-          tx.execution.worktrees.find(ws, r.worktreeId)?.executionScope?.definitionId === id,
-      )
-    )
-      conflict('Wait for live runs on this map to finish before changing architecture decisions.');
+    // Approval changes the packet of the scopes that use the decision: only their work in flight
+    // waits, and the roadmap may run (R-B6, decision 6). A preparation's worktree has no scope,
+    // so a preparation never holds approval (R-C3b, ADR-065).
+    const waits = decisionApprovalWaits(
+      decisionAffectedTrees(tx, d, s).map((tree) => decisionTreeWork(tx, tree)),
+    );
+    if (waits.length) conflict(waits.join(' '));
   }
   async generatePlanEvidence(
     context: AuthContext,

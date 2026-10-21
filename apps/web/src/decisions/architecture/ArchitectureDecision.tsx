@@ -550,6 +550,10 @@ function DecisionCard({
           <h4>Review the saved decision</h4>
           <DecisionText record={pending} />
           {pending.issues.length > 0 && <p role="alert">{pending.issues.join(' ')}</p>}
+          {/* Work in flight on the trees this decision is an input of (R-B6, decision 6). */}
+          {!!pending.waits?.length && (
+            <p className="warning-state">Approval waits: {pending.waits.join(' ')}</p>
+          )}
           <EvidenceDecision
             key={pending.id}
             workspaceId={workspaceId}
@@ -566,7 +570,7 @@ function DecisionCard({
               actions: 'Approve saved decision',
             }}
             attestation="I reviewed this exact decision and its scope as repository maintainer."
-            acceptBlocked={approvalBlocked || !!pending.issues.length}
+            acceptBlocked={approvalBlocked || !!pending.issues.length || !!pending.waits?.length}
             disabled={locked}
             onCancel={{ label: 'Close approval', run: () => setReviewing(false) }}
             onDecided={async (next) => {

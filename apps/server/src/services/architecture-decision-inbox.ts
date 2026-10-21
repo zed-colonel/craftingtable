@@ -20,6 +20,9 @@ import {
 import type { StorageRepositories } from '@craftingtable/storage';
 import {
   architectureDecisionIssues,
+  decisionAffectedTrees,
+  decisionApprovalWaits,
+  decisionTreeWork,
   supportsArchitectureDecision,
 } from './architecture-decision-policy.js';
 import { decisionSettlement } from './decision-settlement.js';
@@ -41,22 +44,17 @@ export function architectureDecisionInbox(
   const blockers: string[] = [];
   if (!binding || (scope && scope.bindingRevision !== revision))
     blockers.push('Refresh the exact plan binding before approving decisions.');
-  if (
-    tx.roadmaps
-      .list(ws)
-      .some((r) => r.definition.crossProject?.definitionId === d.id && r.status === 'running')
-  )
-    blockers.push('Pause roadmap scheduling before approving decisions.');
-  if (
-    tx.execution.runs.listLive().some(
-      (r) =>
-        r.workspaceId === ws &&
-        // A preparation run only proposes: its proposal is checked against its exact binding when
-        // saved, and the operator reviews its text, so it does not hold approval (R-C3b, ADR-065).
-        tx.execution.worktrees.find(ws, r.worktreeId)?.executionScope?.definitionId === d.id,
-    )
-  )
-    blockers.push('Wait for live runs on this map to finish before approving decisions.');
+  // What approving each undecided proposal waits for: its affected trees' work in flight (R-B6,
+  // decision 6), the same rule the approval itself asks. The trees' work is read once.
+  const work = new Map<string, ReturnType<typeof decisionTreeWork>>();
+  const waitsFor = (s: (typeof submissions)[number]) =>
+    decisionApprovalWaits(
+      decisionAffectedTrees(tx, d, s).map((tree) => {
+        const known = work.get(tree.id) ?? decisionTreeWork(tx, tree);
+        work.set(tree.id, known);
+        return known;
+      }),
+    );
 
   const checkpoints = d.source.checkpoints.filter((c) => supportsArchitectureDecision(d, c.id));
   const recommendations = decisionRecommendations(tx, d, binding, checkpoints);
@@ -91,6 +89,7 @@ export function architectureDecisionInbox(
       ({ submission: s, record }) => ({
         ...record,
         issues: architectureDecisionIssues(tx, d, s),
+        ...(record.decision ? {} : { waits: waitsFor(s) }),
         applicable:
           !scope ||
           (s.bindingRevision === scope.bindingRevision &&

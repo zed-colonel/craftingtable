@@ -4,8 +4,10 @@ import { About } from '../../components/About.js';
 import { EvidenceDecision } from '../evidence/EvidenceDecision.js';
 
 /**
- * Several saved proposals approved in one pause (R-C3b): each is reviewed on its own, one
- * rationale covers them, and each is approved through the same command as its card.
+ * Several saved proposals approved together (R-C3b): each is reviewed on its own, one rationale
+ * covers them, and each is approved through the same command as its card. Beside a running
+ * roadmap each is decided on its own (R-B6, decision 12): one refused, because work started on a
+ * tree it is an input of, stays selected with its reason while the rest are approved.
  */
 export function BatchApproval({
   data,
@@ -32,15 +34,16 @@ export function BatchApproval({
       <h3>Approve saved decisions</h3>
       <About label="About approving several decisions">
         <p>
-          Approve saved proposals together while scheduling is paused. Review each exact text first;
-          one rationale is recorded with each approval.
+          Approve saved proposals together. Review each exact text first; one rationale is recorded
+          with each approval. A proposal whose inputs are still in use by running work waits, and is
+          left selected if it is refused.
         </p>
       </About>
       {saved.map(({ card, record }) => (
         <label key={record.id} className="field">
           <input
             type="checkbox"
-            disabled={locked}
+            disabled={locked || !!record.waits?.length}
             checked={reviewed.has(record.id)}
             onChange={(e) => {
               const next = new Set(reviewed);
@@ -50,6 +53,7 @@ export function BatchApproval({
             }}
           />{' '}
           {`Reviewed ${card.checkpointId} (${record.proposal.coverage === 'full' ? 'full' : 'limited'}): ${record.proposal.proposal}`}
+          {!!record.waits?.length && <span className="hint"> Waits: {record.waits.join(' ')}</span>}
         </label>
       ))}
       <EvidenceDecision
@@ -64,14 +68,18 @@ export function BatchApproval({
           actions: 'Batch approval',
         }}
         disabled={locked}
+        each
         name={(id) => chosen.find(({ record }) => record.id === id)?.card.checkpointId ?? id}
         onDecided={async (next, _outcome, submissionId) => {
           const approved = chosen.find(({ record }) => record.id === submissionId);
           await onChanged(next);
-          if (submissionId === chosen.at(-1)?.record.id) {
-            setReviewed(new Set());
-            setMessage(`Approved ${chosen.map(({ card }) => card.checkpointId).join(', ')}.`);
-          } else if (approved) setMessage(`Approved ${approved.card.checkpointId}…`);
+          // An approved one leaves the selection; a refused one stays, with its reason.
+          setReviewed((current) => {
+            const left = new Set(current);
+            left.delete(submissionId);
+            return left;
+          });
+          if (approved) setMessage(`Approved ${approved.card.checkpointId}.`);
         }}
       />
       {message && <p role="status">{message}</p>}

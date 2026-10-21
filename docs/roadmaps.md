@@ -165,7 +165,8 @@ acceptance ([ADR-045](decisions/ADR-045-slice-execution-and-parent-acceptance.md
 shows what each waits on and what it unblocks. Shared architecture decisions are prepared and then
 approved by you ([ADR-059](decisions/ADR-059-shared-design-decisions.md),
 [ADR-065](decisions/ADR-065-future-delegation-and-decision-preparation.md)); preparing is never
-approval.
+approval. You approve while the roadmap runs: an approval waits only for a run, merge or review
+still at work on a slice the decision is an input of, and names it.
 
 **Amendments.** To change a running map's plans, import the revised plans without making them
 active, configure their branches, import and bind the revised map, then preview and propose the

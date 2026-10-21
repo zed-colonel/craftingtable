@@ -87,4 +87,7 @@ conflict resolution, re-check the entry's grant before they write and stand down
 as a pause made them; the next pass decides them under the new grant. A merge is re-checked until
 it is reserved; a reservation then completes as reserved, or goes to the operator. Grants stay
 append-only and audited; while the roadmap runs a grant is taken as sent, last writer winning.
-Approval keeps its rule above until scoped.
+
+Operator decisions 6 and 12. Approval no longer needs the roadmap paused: it waits only for the
+work in flight on the trees it is an input of (ADR-059, amended the same day), and proposals
+approved together are each decided on their own rather than in one pause.

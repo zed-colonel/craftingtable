@@ -6,6 +6,7 @@ import {
   mapCapabilities,
   type WorkspaceId,
   type ConcurrencyDefinitionId,
+  type Worktree,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { snapshotCalculation } from './map-read-snapshot.js';
@@ -153,28 +154,111 @@ export function scopeDecisionsKey(ws: WorkspaceId, scope: ExecutionScope): strin
     scope.kind === 'parent-acceptance',
   ]);
 }
+/** The slices a scope reads decisions for: its own, or a parent acceptance's every slice. */
+function scopeSlices(d: ConcurrencyDefinition, scope: ExecutionScope) {
+  const slice = d.source.slices.find((s) => s.id === scope.sourceId);
+  const parent = d.source.work_items.find((p) => p.id === (slice?.work_item ?? scope.sourceId));
+  return scope.kind === 'parent-acceptance'
+    ? d.source.slices.filter((s) => s.work_item === parent?.id)
+    : slice
+      ? [slice]
+      : [];
+}
+/** Whether a scope's decision packet holds this decision: one its slices require, or name. */
+function scopeUsesDecision(
+  slices: ReturnType<typeof scopeSlices>,
+  s: Pick<EvidenceSubmissionHead, 'subject' | 'architectureDecision'>,
+) {
+  return (
+    slices.some((slice) =>
+      [...slice.start_requires, ...slice.merge_requires, ...slice.verify_requires].some(
+        (r) => r.kind === 'checkpoint' && r.id === s.subject.sourceId,
+      ),
+    ) ||
+    !!s.architectureDecision?.consumers.some((c) => slices.some((slice) => slice.id === c.sliceId))
+  );
+}
 function decisionsForScope(tx: StorageRepositories, ws: WorkspaceId, scope: ExecutionScope) {
   const d = tx.imports.definition(ws, scope.definitionId);
   if (!d) return [];
-  const slice = d.source.slices.find((s) => s.id === scope.sourceId);
-  const parent = d.source.work_items.find((p) => p.id === (slice?.work_item ?? scope.sourceId));
-  const slices =
-    scope.kind === 'parent-acceptance'
-      ? d.source.slices.filter((s) => s.work_item === parent?.id)
-      : slice
-        ? [slice]
-        : [];
-  const checkpoints = new Set(
-    slices
-      .flatMap((s) => [...s.start_requires, ...s.merge_requires, ...s.verify_requires])
-      .filter((r) => r.kind === 'checkpoint')
-      .map((r) => r.id),
-  );
+  const slices = scopeSlices(d, scope);
   return approvedArchitectureDecisions(tx, ws, scope.definitionId, scope.bindingRevision).filter(
-    (s) =>
-      checkpoints.has(s.subject.sourceId) ||
-      s.architectureDecision?.consumers.some((c) => slices.some((slice) => slice.id === c.sliceId)),
+    (s) => scopeUsesDecision(slices, s),
   );
+}
+/**
+ * The active worktrees whose decision packet approving this proposal changes (R-B6, decision 6):
+ * those of a scope on its binding revision whose slices require its checkpoint, or that a clause
+ * decision names as a consumer, as `decisionsForScope` reads them.
+ */
+export function decisionAffectedTrees(
+  tx: StorageRepositories,
+  d: ConcurrencyDefinition,
+  s: EvidenceSubmissionHead,
+): readonly Worktree[] {
+  return tx.execution.worktrees
+    .listActive(d.workspaceId)
+    .filter(
+      (tree) =>
+        tree.executionScope?.definitionId === d.id &&
+        tree.executionScope.bindingRevision === s.bindingRevision &&
+        scopeUsesDecision(scopeSlices(d, tree.executionScope), s),
+    );
+}
+/** What a tree has in flight that read its decision packet and would finish against it. */
+export interface DecisionTreeWork {
+  readonly branchName: string;
+  readonly liveRun: boolean;
+  readonly launching: boolean;
+  readonly phaseReserved: boolean;
+  readonly mergeReserved: boolean;
+  readonly review?: 'reassessment' | 'security' | 'checkpoint';
+}
+export function decisionTreeWork(tx: StorageRepositories, tree: Worktree): DecisionTreeWork {
+  const ws = tree.workspaceId;
+  const cycle = tx.execution.cycles.activeForWorktree(ws, tree.id);
+  const liveRun = tx.execution.runs.liveForWorktree(ws, tree.id).length > 0;
+  // A review is at work while its cycle runs or its session is live; one left at a stop waits
+  // for the operator and reads the packet again when resumed (R-B6 increment 2 review HIGH-1).
+  const review =
+    cycle?.status === 'running' || liveRun ? cycle?.workflow?.activeReview?.kind : undefined;
+  return {
+    branchName: tree.branchName,
+    liveRun,
+    launching: tx.maintenance
+      .launchReservations()
+      .some((r) => r.workspaceId === ws && r.worktreeId === tree.id),
+    phaseReserved: tx.phaseScheduling.active().some((r) => r.worktreeId === tree.id),
+    mergeReserved: tx.execution.merges.latest(ws, tree.id)?.status === 'reserved',
+    ...(review ? { review } : {}),
+  };
+}
+/**
+ * What approving a decision waits for on its affected trees (R-B6, decision 6): each one's work in
+ * flight that read the packet it changes, which would otherwise finish against a stale one and be
+ * refused at its merge, receipt or launch. A run (or its launch), a reserved merge (merged without
+ * the digest checked again), a controller review (accepted after an await) and a phase
+ * reservation's holder. A cycle between steps waits for nothing: its next launch reads the new
+ * packet.
+ */
+export function decisionApprovalWaits(trees: readonly DecisionTreeWork[]): string[] {
+  return trees.flatMap((t) => {
+    const work = [
+      ...(t.liveRun ? ['the live run'] : []),
+      ...(t.launching ? ['the run being launched'] : []),
+      ...(t.review ? [`the ${t.review} review`] : []),
+      ...(t.mergeReserved ? ['the merge'] : []),
+      ...(t.phaseReserved && !t.liveRun && !t.launching && !t.mergeReserved
+        ? ['the work holding its phase reservation']
+        : []),
+    ];
+    if (!work.length) return [];
+    const things =
+      work.length === 1 ? work[0] : `${work.slice(0, -1).join(', ')} and ${work.at(-1)}`;
+    return [
+      `Wait for ${things} on ${t.branchName} to finish${t.liveRun ? ', or end the run' : ''}: this decision is one of its inputs.`,
+    ];
+  });
 }
 export function architectureDecisionDigest(
   tx: StorageRepositories,

@@ -28,7 +28,7 @@ function decide(
 /**
  * Accepts or rejects evidence submissions, with a rationale and, where the host asks for one,
  * the operator's attestation. Several submissions reviewed together are decided in turn with
- * one rationale; the first refusal stops the rest.
+ * one rationale; the first refusal stops the rest, unless each is decided on its own (`each`).
  */
 export function EvidenceDecision({
   workspaceId,
@@ -44,6 +44,7 @@ export function EvidenceDecision({
   onDecided,
   onCancel,
   name = (id) => id,
+  each = false,
 }: {
   workspaceId: string;
   definitionId: string;
@@ -72,6 +73,11 @@ export function EvidenceDecision({
   onCancel?: { readonly label: string; readonly run: () => void };
   /** How a submission is named when several are decided and one is refused. */
   name?: (submissionId: string) => string;
+  /**
+   * Several submissions are each decided on their own: one refused does not stop the rest, and
+   * each refusal is reported with its reason (R-B6, decision 12). Otherwise the first stops them.
+   */
+  each?: boolean;
 }) {
   const [rationale, setRationale] = useState('');
   const [attested, setAttested] = useState(false);
@@ -82,19 +88,35 @@ export function EvidenceDecision({
     setBusy(true);
     setError('');
     const decided: string[] = [];
+    const refused: string[] = [];
     try {
       for (const submissionId of submissionIds) {
-        const view = await decide(workspaceId, definitionId, csrfToken, {
-          submissionId,
-          outcome,
-          rationale,
-          ...(outcome === 'accepted' && checkpointReviewRoles ? { checkpointReviewRoles } : {}),
-        });
+        let view: Awaited<ReturnType<typeof decide>>;
+        try {
+          view = await decide(workspaceId, definitionId, csrfToken, {
+            submissionId,
+            outcome,
+            rationale,
+            ...(outcome === 'accepted' && checkpointReviewRoles ? { checkpointReviewRoles } : {}),
+          });
+        } catch (e) {
+          if (!each) throw e;
+          refused.push(
+            `${name(submissionId)}: ${e instanceof Error ? e.message : 'The decision was not recorded.'}`,
+          );
+          continue;
+        }
         decided.push(name(submissionId));
         await onDecided(view, outcome, submissionId);
       }
-      setRationale('');
-      setAttested(false);
+      if (refused.length)
+        setError(
+          `${decided.length ? `${outcome === 'accepted' ? 'Approved' : 'Rejected'} ${decided.join(', ')}. ` : ''}Not ${outcome === 'accepted' ? 'approved' : 'rejected'}: ${refused.join(' ')}`,
+        );
+      else {
+        setRationale('');
+        setAttested(false);
+      }
     } catch (e) {
       const reason = e instanceof Error ? e.message : 'The decision was not recorded.';
       setError(

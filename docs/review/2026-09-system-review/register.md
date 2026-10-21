@@ -49,6 +49,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C17](#r-c17) | P4 | M (four S parts) | built and deployed on `remediation/p4` (parts 1 to 3 2026-10-17 at 62bf204, their follow-ups 2026-10-18 at 5f42f45, part 4 2026-10-19 at 26de44b; not merged; see entry) | Step time limits: hung checks, cut-off handoffs and the operator's controls |
 | [R-C18](#r-c18) | P4 | S-M (two parts) | open (found live 2026-10-17; placement for the operator) | A second project's roadmap in the same workspace: the stop it forces and the item it strands |
 | [R-C19](#r-c19) | P4 | S | open (found live 2026-10-21; placement for the operator) | A plan ready to finalize says so in Needs you (added 2026-10-21) |
+| [R-C20](#r-c20) | P4 | S | open (found live 2026-10-21; placement for the operator) | A staged finding's missing category stops finalization instead of being repaired (added 2026-10-21) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -3679,6 +3680,20 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - A map roadmap's projects each get the item when their plan is ready, beside the History's readiness.
 - **Done when:** when the last item of a plan version completes, Needs you shows one item for it that opens the plan's Finalize integration section; it is gone once a finalization starts, and it never appears for a plan with an incomplete item or a finalization under way or done; a test per case and an e2e of the link.
 - **Priority:** small and not blocking: the finalization works once found. Take it beside R-C18 or the next work in the attention projector.
+
+### R-C20
+
+**A staged finding's missing category stops finalization instead of being repaired** · Phase P4 · Effort S · Status: open (found live 2026-10-21; recorded at the operator's request; placement for the operator)
+
+- **Found 2026-10-21,** in ActionQueue's AQ-PERF-1 finalization (b5c62289, cycle ec255fd6). Its first stage's review (run 817108b2, Claude Code) found a real regression, F-001 (major: the schema-10 snapshot encoder does not enforce the 1,000,000-row state-history bound its decoder enforces, so a publication can succeed and then stop the store from starting, with no WAL-only fallback), with six minor findings and three nits. It wrote each finding's category as a tag in its title ("[correctness] Schema-10 encoder …") and left the `category` field out of all ten. `assessStageReport` (`finalization-stage-policy.ts`) rejects such a report ("Every staged finding needs a category independent of severity. Split bundled concerns into separate IDs."), and every issue it raises is a `content` fault, so `formatFault` (`cycle/core/step-outcome.ts`) skips the automatic output repair a format fault gets and stops at once for the operator (`finalization-report-rejected`).
+- **What the operator saw.** No finding was adopted, so the stage's remediation, which is automatic for a valid report (its required findings go to the stage's implement agent, `decideStageOutcome` then `reviewRemediation`, up to its 3 rounds), had nothing to act on, and the stop offered only Resume with guidance (`finalizationActions`, `packages/domain/src/finalization-actions.ts`: no checkpoint findings, no stage selection). The operator looked for a way to send the regression to remediation and found none. The way on was Resume with guidance asking the reviewer to restate the report, which runs the stage's review again (about 25 minutes, checks included).
+- **Change:**
+  1. A finding with no category is a format fault: the report's structure, not missing work. The issue goes to the automatic output repair, which asks the reviewer's own session to restate the report with each category in its field; the other `assessStageReport` issues that need the reviewer's work (missing required checks, a met exit gate with gaps, obligation changes) stay content faults. This needs a fault per issue, or the missing-category issue checked apart.
+  2. The staged review brief names the field: `finalization-policy.ts`'s "Every finding must have category correctness, conformance, simplification or polish" says each finding object carries `"category"` with one of those values, and not a tag in its title.
+  3. The stop's text says what comes next: a rejected report is restated through Resume with guidance (or repaired automatically, once 1 is built), and the stage's remediation follows an accepted report.
+- **Not done:** reading a category from a title tag. The report's structure is the contract; repairing it in the reviewer's session keeps it so.
+- **Done when:** a staged review report whose findings lack `category` is repaired automatically in the reviewer's session, and on a valid repaired report the stage remediates its required findings with no operator step; a report still invalid after the repair limit stops as today, with the text in 3; a test per case.
+- **Priority:** small, and it hits every staged finalization whose reviewer tags titles instead of the field. Take it with R-C19.
 
 ### R-D1
 

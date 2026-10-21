@@ -39,8 +39,9 @@ export function RoadmapDelegation({
     [approved, setApproved] = useState(false),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState('');
-  const locked =
-    disabled || busy || !['draft', 'paused', 'needs-attention'].includes(roadmap.status);
+  // Changed at any status but ended (R-B6, decision 2): the daemon names the selected entries'
+  // reviews, refreshes or resolutions still at work, which a grant waits for.
+  const locked = disabled || busy || ['stopped', 'completed'].includes(roadmap.status);
   const seed = (next: string[]) => {
     setIds(next);
     setApproved(false);
@@ -72,7 +73,7 @@ export function RoadmapDelegation({
       );
       setApproved(false);
       setMessage(
-        'Delegation saved for future actions. Scheduling remains paused; the accepted plan is unchanged.',
+        'Delegation saved for future actions; the roadmap’s status and the accepted plan are unchanged.',
       );
       await onChanged();
     } catch (e) {
@@ -91,8 +92,9 @@ export function RoadmapDelegation({
       {open && (
         <>
           <p>
-            Pause scheduling and let agents finish. This replaces the selected entries’ future
-            delegation, including retries; no new plan-acceptance evidence is needed.
+            This replaces the selected entries’ future delegation, including retries; no new
+            plan-acceptance evidence is needed. It waits only for a selected entry’s controller
+            review, integration refresh or conflict resolution still at work.
           </p>
           <About label="About delegation changes">
             <p>

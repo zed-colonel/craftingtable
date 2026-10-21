@@ -1,10 +1,12 @@
 import {
   DEFAULT_ROADMAP_AUTOMATION,
+  ownsIntegrationResolution,
   type AgentRun,
   type Roadmap,
   type RoadmapAttempt,
   type RoadmapEntry,
   type RoadmapDefinition,
+  type WorkCycle,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 
@@ -67,4 +69,29 @@ export function historicalReviewerRoles(
     (a) => a.id === id && a.entryIds.includes(entry.id) && a.appliedAt <= run.createdAt,
   );
   return grant?.reviewerRoles ?? [];
+}
+
+/**
+ * What a delegation grant for these entries waits for (R-B6, decision 2): each named entry's
+ * delegated action in flight, which reads the grant across an await and would finish under one
+ * it did not start with. A controller review reads its reviewer roles at its start and again at
+ * its acceptance, after its run ended; an integration refresh its authority; a conflict
+ * resolution at work its profile and automation. A design, implementation or remediation step
+ * reads no grant, nor does a stop, and a conflict only detected waits for the grant. The
+ * scheduler's own merge and resolution start re-check the grant instead.
+ */
+export function delegationWaits(
+  entries: readonly { readonly sourceId: string; readonly cycles: readonly WorkCycle[] }[],
+  refreshing: (cycleId: string) => boolean,
+): string[] {
+  return entries.flatMap(({ sourceId, cycles }) =>
+    cycles.flatMap((cycle) => {
+      const review = cycle.workflow?.activeReview;
+      return [
+        ...(review ? [`${sourceId}'s ${review.kind} review`] : []),
+        ...(refreshing(cycle.id) ? [`${sourceId}'s integration refresh`] : []),
+        ...(ownsIntegrationResolution(cycle) ? [`${sourceId}'s conflict resolution`] : []),
+      ];
+    }),
+  );
 }

@@ -20,9 +20,9 @@ import {
 
 /**
  * R-B6: the roadmap commands that needed their roadmap paused (characterized in step 2). Since
- * increment 1 the agents, capacity, the standing grants and the queued settings are written while
- * the roadmap runs too (decisions 1, 3 to 5), each refused once the roadmap has ended or while its
- * wind-down settles; delegation still needs the pause until increment 2. A running roadmap's
+ * increment 1 the agents, capacity, the standing grants and the queued settings, and since
+ * increment 2 delegation, are written while the roadmap runs too (decisions 1 to 5), each refused
+ * once the roadmap has ended or while its wind-down settles. A running roadmap's
  * command checks what it changes, not the roadmap's version (decision 10). The roadmap's status
  * is written by hand so nothing else runs (no workers).
  */
@@ -97,15 +97,18 @@ const COMMANDS: readonly Command[] = [
   },
   {
     name: 'delegation (ADR-065 grant)',
-    send: (fx) =>
-      post(fx, 'delegation', {
-        entryIds: [fx.saved.definition.entries[0]!.id],
-        automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
-        reviewerRoles: ['repository-maintainer'],
-        rationale: 'Characterize the grant.',
-      }),
-    refusal: 'Pause scheduling before changing delegation.',
-    // Increment 2 scopes delegation to its named entries (decision 2).
+    send: (fx, view) =>
+      post(
+        fx,
+        'delegation',
+        {
+          entryIds: [fx.saved.definition.entries[0]!.id],
+          automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
+          reviewerRoles: ['repository-maintainer'],
+          rationale: 'Characterize the grant.',
+        },
+        view,
+      ),
     written: (r, before) =>
       (r.delegationAssignments?.length ?? 0) - (before.delegationAssignments?.length ?? 0),
     expected: 1,

@@ -23,7 +23,8 @@ import {
  * shared architecture decision, a dependency refresh and a delegation grant each refuse while
  * the map's roadmap runs, and also while work is live: approval and refresh on the map's
  * worktrees, delegation anywhere in the workspace. Host capacity no longer waits for a pause
- * (increment 1, decision 9). The roadmap's status is written by hand.
+ * (increment 1, decision 9), nor delegation (increment 2, decision 2). The roadmap's status is
+ * written by hand.
  */
 
 afterEach(cleanupExecutionFixtures);
@@ -267,9 +268,9 @@ it('a dependency refresh: its preview is blocked while the map’s roadmap runs 
   expect((await preview()).blockers).toEqual([current]);
 });
 
-it('delegation: refused on a paused roadmap while any run in the workspace is live', async () => {
+it('delegation: granted beside a running roadmap and a live run on the map that reads no grant (R-B6, decision 2)', async () => {
   const fx = await fixture();
-  setStatus(fx, 'paused');
+  setStatus(fx, 'running');
   const grant = () =>
     fx.f.state.context.app.inject({
       method: 'POST',
@@ -283,16 +284,13 @@ it('delegation: refused on a paused roadmap while any run in the workspace is li
         rationale: 'Characterize the grant.',
       },
     });
+  // Before R-B6 any live run in the workspace held a grant on a paused roadmap.
   const { runId } = await liveRunOnTheMap(fx);
-  const refused = await grant();
-  expect(refused.statusCode, refused.body).toBe(409);
-  expect(refused.json().error.message).toBe(
-    'Wait for running agents and cycles to finish before changing delegation.',
-  );
-  expect(storedRoadmap(fx.f.state).delegationAssignments ?? []).toEqual([]);
-  await endRun(fx, runId);
-  expect((await grant()).statusCode).toBe(200);
+  const granted = await grant();
+  expect(granted.statusCode, granted.body).toBe(200);
   expect(storedRoadmap(fx.f.state).delegationAssignments).toHaveLength(1);
+  expect(storedRoadmap(fx.f.state).status).toBe('running');
+  await endRun(fx, runId);
 });
 
 it('host capacity: saved while a roadmap runs (R-B6, decision 9)', async () => {

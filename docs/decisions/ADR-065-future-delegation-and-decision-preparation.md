@@ -4,7 +4,7 @@
 - **Date:** 2026-09-22
 - **Amended:** 2026-09-28 (R-C3b): preparation beside a running roadmap
 - **Amended:** 2026-10-12 (R-I7): a read-only Codex run gets a read-only permission profile with the sandboxed runs' denied reads, not Codex's legacy read-only sandbox
-- **Amended:** 2026-10-20 (R-B6): the standing preparation grant changes while the roadmap runs
+- **Amended:** 2026-10-20 (R-B6): the standing preparation grant and delegation grants change while the roadmap runs
 
 Started roadmap attempts retain immutable definitions. An explicit, authenticated grant may
 replace integration automation and reviewer responsibilities for named entries' future actions.
@@ -74,4 +74,14 @@ and the automatic re-verification grant, changes at any roadmap status but ended
 the roadmap's wind-down settles: each is read at its next use, a revoked grant still cancels
 nothing started, and an amendment still revokes it. While the roadmap runs a change is taken as
 the operator sent it, last writer winning, each audited; a stopped roadmap's is version-checked
-as before. Delegation grants and approval keep the rules above until scoped.
+as before.
+
+Operator decision 2. A delegation grant no longer needs the roadmap paused nor the workspace
+quiet. It waits only for its named entries' delegated actions in flight, each of which reads the
+grant across an await: a controller review (from its start to its acceptance, after its run
+ended), an integration refresh, and a conflict resolution at work. A conflict only detected does
+not hold it, so automatic resolution can be granted while a conflict waits. The scheduler's merge
+and conflict resolution re-check the entry's grant before each step and stand down when it
+changed, as a pause made them, and the next pass decides them under the new grant. Grants stay
+append-only and audited; while the roadmap runs a grant is taken as sent, last writer winning.
+Approval keeps its rule above until scoped.

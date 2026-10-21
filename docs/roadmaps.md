@@ -123,10 +123,12 @@ branch moved updates from it at an idle review boundary and is reviewed again, u
 roadmap's refresh limit per item (3 by default, at most 20). At the limit the cycle stops as
 `integration-refresh-limit`: update from integration by hand, then resume.
 
-**Change future delegation** (a map roadmap's setup, while it is a draft, paused or needing
-attention, and no agent run or cycle is running in the workspace) changes the
-merge policy and reviewer responsibilities for selected entries, started ones included, without
-resuming anything or reopening plan acceptance.
+**Change future delegation** (a map roadmap's setup, until the roadmap ends, while it runs too)
+changes the merge policy and reviewer responsibilities for selected entries, started ones
+included, without pausing or resuming anything or reopening plan acceptance. It waits only for a
+selected entry's controller review, integration refresh or conflict resolution still at work; a
+merge or resolution the scheduler has under way when it lands stands down and is decided again
+under the new grant.
 
 ## Cross-project maps
 

@@ -71,3 +71,37 @@ it('requires an explicit entry selection and confirmed grant, including already-
     rationale: 'Authorize checkpoint responsibilities and conflict resolution',
   });
 });
+it('is offered while the roadmap runs, not once it ended (R-B6, decision 2)', async () => {
+  const roadmap = (status: string) =>
+    ({
+      id: 'roadmap',
+      workspaceId: 'workspace',
+      version: 12,
+      status,
+      attempts: [],
+      definition: { entries: [{ id: 'entry', sourceId: 'WI-04', reviewerRoles: [] }] },
+    }) as unknown as Roadmap;
+  const view = { reviewerRoles: [], nodes: [] } as unknown as CrossProjectView;
+  for (const [status, locked] of [
+    ['running', false],
+    ['stopped', true],
+  ] as const) {
+    render(
+      <RoadmapDelegation
+        roadmap={roadmap(status)}
+        view={view}
+        backends={[]}
+        csrfToken="csrf"
+        disabled={false}
+        onChanged={vi.fn()}
+      />,
+    );
+    const details = screen.getByText('Delegation for queued and started work').closest('details')!;
+    details.open = true;
+    fireEvent(details, new Event('toggle'));
+    const select = await screen.findByRole('button', { name: 'Select all entries' });
+    expect(select.closest('fieldset')!.disabled).toBe(locked);
+    expect(screen.queryByText(/Pause scheduling/)).toBeNull();
+    cleanup();
+  }
+});

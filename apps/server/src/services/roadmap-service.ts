@@ -29,6 +29,7 @@ import {
 import {
   attemptDefinition,
   attemptDelegation,
+  delegationWaits,
   effectiveDelegation,
 } from './roadmap-delegation-policy.js';
 import { randomUUID } from 'node:crypto';
@@ -1209,24 +1210,33 @@ export class RoadmapService {
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const old = this.find(workspaceId, id);
-    if (old.version !== input.expectedVersion || this.controlling.has(id))
+    this.assertSettingsOpen(workspaceId, old);
+    if (this.settingsStale(old, input, 'grant') || this.controlling.has(id))
       conflict('Roadmap changed. Refresh before applying delegation.');
-    if (!['draft', 'paused', 'needs-attention'].includes(old.status))
-      conflict('Pause scheduling before changing delegation.');
     if (this.storage.amendments.pending(workspaceId, id))
       conflict('Decide the pending planning amendment first.');
-    if (
-      this.storage.execution.runs.listLive().some((r) => r.workspaceId === workspaceId) ||
-      this.storage.execution.cycles
-        .listForWorkspace(workspaceId)
-        .some((c) => c.status === 'running')
-    )
-      conflict('Wait for running agents and cycles to finish before changing delegation.');
     if (
       new Set(input.entryIds).size !== input.entryIds.length ||
       input.entryIds.some((id) => !old.definition.entries.some((e) => e.id === id))
     )
       conflict('Select current roadmap entries.');
+    // Only the named entries' delegated actions in flight hold a grant (R-B6, decision 2).
+    const waits = delegationWaits(
+      old.definition.entries
+        .filter((entry) => input.entryIds.includes(entry.id))
+        .map((entry) => ({
+          sourceId: entry.sourceId,
+          cycles: old.attempts.flatMap((attempt) => {
+            const cycle =
+              attempt.entryId === entry.id && attempt.status !== 'completed'
+                ? this.storage.execution.cycles.find(workspaceId, attempt.cycleId)
+                : undefined;
+            return cycle ? [cycle] : [];
+          }),
+        })),
+      (cycleId) => this.cycles.isRefreshing(cycleId),
+    );
+    if (waits.length) conflict(`Wait for ${waits.join(', ')} to finish.`);
     const map =
       old.definition.crossProject &&
       this.storage.imports.definition(workspaceId, old.definition.crossProject.definitionId);
@@ -3339,13 +3349,19 @@ export class RoadmapService {
           attemptDelegation(this.storage, roadmap, boundAttempt, entry.id) ??
           effectiveDelegation(roadmap, entry, roadmap.definition);
         const automation = delegation.automation;
+        // A grant that lands across the merge's or resolution's awaits stands it down, as a pause
+        // does: the next pass decides it under the new grant (R-B6, decision 2; review H-1).
+        const grantOf = (r: Roadmap) =>
+          r.delegationAssignments?.findLast((a) => a.entryIds.includes(entry.id))?.id;
+        const grant = grantOf(roadmap);
         const check = () => {
           const current = this.find(roadmap.workspaceId, roadmap.id);
           if (
             current.status !== 'running' ||
             current.entryHolds?.[entry.id] ||
             this.controlling.has(current.id) ||
-            this.abort.signal.aborted
+            this.abort.signal.aborted ||
+            grantOf(current) !== grant
           )
             throw new SupersededRoadmapOperation();
           this.authority(current);

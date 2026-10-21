@@ -78,11 +78,12 @@ it('names, at each site, the operation that holds the worktree there', () => {
   const expected: Record<string, readonly (readonly [string, WorktreeOperation])[]> = {
     'run/launch.ts': [['launchWithin', 'run-launch']],
     'execution-service.ts': [
-      ['recordScopeReceipt', 'scope-receipt'],
       ['removeWorktree', 'removal'],
       ['releaseDecisionWorktree', 'decision-release'],
-      ['mergeWorktree', 'merge'],
     ],
+    // The merge and the scope receipt, out of the execution service since R-B7's scheduler half.
+    'merge/receipt.ts': [['recordScopeReceipt', 'scope-receipt']],
+    'merge/executor.ts': [['mergeWorktree', 'merge']],
     'branch-service.ts': [['changeWorktree', 'update']],
     'storage-service.ts': [
       ['cleanCaches', 'cache-cleaning'],

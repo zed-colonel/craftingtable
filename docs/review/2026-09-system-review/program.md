@@ -1257,6 +1257,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **R-B6 done, 2026-10-21.** Gate green at 76a9ef1 (4,490 unit tests, 101 confined, e2e, scope); replays 64 of 73 unchanged and 9 only as expected, the five new ones the decision hold's text and the decision inbox's blockers and waits, as the design said (listed in the manifest). The mutation round (47 mutants, 38 caught; six thin tests pinned, one equivalent, two re-checks without a scenario, recorded) and the walkthrough captures before and after are in the entry. Done-when met: approving a shared decision and changing a future agent profile no longer need the roadmap paused; every inventoried command is scoped, and the dependency refresh, the environment's save and applying an amendment keep their pause by the operator's decision. CTRL-19 is resolved. Not merged or deployed; no migration; open pages need a reload. Next by the order above: R-B7's scheduler half.
 
+**R-H8 done and R-B6 deployed, 2026-10-21.** On the live daemon after R-H8's deploy (1cd9802), the storage tick's minute at rest is 33 to 61 ms of main-thread CPU with no second at 100 ms or more, against 1,500 ms before: its done-when is met ([R-H8](register.md#r-h8)). Its LOW-2 was seen live: the end-of-run cleanup of a removed worktree's 185 GiB build cache held the event loop for about 6 s, once. R-B6 deployed at 4534a88 (no migration). Next: the order's step 7, R-B7's scheduler half.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

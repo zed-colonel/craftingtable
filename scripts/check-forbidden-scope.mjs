@@ -87,7 +87,8 @@
  *    processes (`fs`, `fs/promises`, `child_process`), and none is a service (`*-service.ts`).
  *    The core decides; the services act. A finding names the path from the core. The packages are
  *    left alone (the core reaches `@craftingtable/agents`' pure digest), and the rule claims
- *    capabilities only: the core reads storage, through the transaction it is given.
+ *    capabilities only: the core reads storage, through the transaction it is given. The merge
+ *    gate (`apps/server/src/services/merge/gate.ts`) is held to the same rule (R-B7).
  * 12. Only the replay tool pins the host a replay runs as (R-B4b): no production module but
  *    `REPLAY_HOST_USERS` imports `apps/server/src/services/replay-host.ts`, by value, by type or
  *    through a re-export, and each of those takes only its own binding by name (the replay tool
@@ -242,8 +243,12 @@ export const PLANNING_FORBIDDEN_PATTERNS = [
   /^better-sqlite3$/,
   /^@craftingtable\/(storage|server|web|agents|git)$/,
 ];
-/** Where rule 11 starts: the cycle's decision core (R-B7). */
-const CORE_SOURCES = 'apps/server/src/services/cycle/core/';
+/** Where rule 11 starts: the cycle's decision core and the merge gate (R-B7). */
+const CORE_SOURCES = [
+  'apps/server/src/services/cycle/core/',
+  // The merge gate is pure too (R-B7's scheduler half): the merge executor acts on its answers.
+  'apps/server/src/services/merge/gate.ts',
+];
 /** What no module the cycle core reaches may import (rule 11): the file system and processes. */
 const CORE_FORBIDDEN = /^(?:node:)?(?:fs|fs\/promises|child_process)$/;
 
@@ -1846,7 +1851,9 @@ function cycleFindings(root, modules, production) {
 function coreFindings(root, modules, production) {
   const name = (file) => posix(relative(root, file));
   const starts = [...production]
-    .filter((file) => modules.has(file) && name(file).startsWith(CORE_SOURCES))
+    .filter(
+      (file) => modules.has(file) && CORE_SOURCES.some((start) => name(file).startsWith(start)),
+    )
     .sort();
   const from = new Map(starts.map((file) => [file, undefined]));
   const queue = [...starts];

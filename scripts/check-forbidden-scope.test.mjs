@@ -1538,6 +1538,7 @@ it('passes on the real repository, having read and classified its modules', () =
     expect(classes.get(path)).toBe('production');
   // Rule 11 starts from the cycle core's modules: a moved core would pass vacuously.
   expect(classes.get('apps/server/src/services/cycle/core/machine.ts')).toBe('production');
+  expect(classes.get('apps/server/src/services/merge/gate.ts')).toBe('production');
   // Run by a package script, and imported by its own test.
   expect(classes.get('apps/server/src/db-verify.ts')).toBe('production');
   expect(classes.get('apps/web/src/test-setup.ts')).toBe('test');

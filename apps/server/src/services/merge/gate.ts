@@ -1,12 +1,17 @@
 /**
- * The merge gate (R-B7; CTRL-13): whether a worktree's latest review lets it merge, and the
- * operator's text for each reason. Pure: it reads the records it is given, never Git or storage.
+ * The merge gate (R-B7; CTRL-13): whether a worktree's latest review lets it merge, the operator's
+ * text for each reason, and the merge's checks that read no Git themselves, each over what the
+ * merge executor has read (its records, the worktree's inspected head, the review's branches).
+ * Pure: it reads the records it is given, never Git or storage. The executor asks each where the
+ * merge asks it, so the refusals keep their order.
  */
 import {
   type AgentRun,
   type AgentRunId,
+  type Finalization,
   isInvestigationRun,
   isTerminalAgentRunStatus,
+  type WorkCycle,
   type Worktree,
 } from '@craftingtable/domain';
 
@@ -98,3 +103,63 @@ export const MERGE_GATE_MESSAGES: Readonly<Record<MergeGateReason, string>> = {
   'run-live': 'A run is still live in this worktree',
   'worktree-removed': 'The worktree has been removed',
 };
+
+/** A plan's promotion merges only with the operator's own final approval, never a roadmap's. */
+export function planPromotionUnapproved(
+  worktree: Pick<Worktree, 'planVersionId'>,
+  finalApproval: object | undefined,
+  withSession: boolean,
+  delegated: boolean,
+): boolean {
+  return !!worktree.planVersionId && (!finalApproval || !withSession || delegated);
+}
+
+/** The finalization is active on this worktree, and its cycle awaits the final review's merge. */
+export function finalReviewReady(
+  finalization: Pick<Finalization, 'status' | 'worktreeId'>,
+  worktreeId: Worktree['id'],
+  cycle: WorkCycle | undefined,
+): cycle is WorkCycle {
+  return (
+    finalization.status === 'active' &&
+    finalization.worktreeId === worktreeId &&
+    cycle?.polishPhase === 'final-review' &&
+    cycle.status === 'awaiting-merge'
+  );
+}
+
+/** No cycle runs on the worktree, or its cycle approved exactly this review and head. */
+export function automationApproved(
+  cycle: Pick<WorkCycle, 'status' | 'currentRunId' | 'reviewHeadSha'> | undefined,
+  reviewRunId: AgentRunId,
+  headSha: string,
+): boolean {
+  return (
+    !cycle ||
+    (cycle.status === 'awaiting-merge' &&
+      cycle.currentRunId === reviewRunId &&
+      cycle.reviewHeadSha === headSha)
+  );
+}
+
+/** A merge asked for another target than the one reviewed. */
+export function retargetRequired(
+  targetBranch: string | undefined,
+  reviewed: { readonly targetBranch: string },
+): boolean {
+  return targetBranch !== undefined && targetBranch !== reviewed.targetBranch;
+}
+
+/** The final candidate or its destination moved since the operator approved them. */
+export function finalCandidateMoved(
+  finalApproval:
+    | { readonly expectedHeadSha: string; readonly expectedTargetSha: string }
+    | undefined,
+  reviewed: { readonly headSha: string; readonly targetSha: string },
+): boolean {
+  return (
+    !!finalApproval &&
+    (reviewed.headSha !== finalApproval.expectedHeadSha ||
+      reviewed.targetSha !== finalApproval.expectedTargetSha)
+  );
+}

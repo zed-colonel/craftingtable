@@ -72,7 +72,16 @@ import {
 import { stagedPromotionIssue } from './finalization-stage-policy.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
-import { MERGE_GATE_MESSAGES, type MergeGate, mergeGateFor } from './merge/gate.js';
+import {
+  automationApproved,
+  finalCandidateMoved,
+  finalReviewReady,
+  MERGE_GATE_MESSAGES,
+  type MergeGate,
+  mergeGateFor,
+  planPromotionUnapproved,
+  retargetRequired,
+} from './merge/gate.js';
 import { needsNativeVerification } from './native-verification-policy.js';
 import { PhaseGateError, resourceBlockers, withPhaseReservation } from './phase-resources.js';
 import { latestReviewReport } from './run-lineage.js';
@@ -81,6 +90,7 @@ import { acceptedEvidence } from './runtime-evidence-policy.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import type { WorkItemService } from './work-item-service.js';
 import { securityReviewCurrent } from './workflow-policy.js';
+import { requireGit } from './git-required.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
@@ -357,16 +367,6 @@ export class ExecutionService {
     });
   }
 
-  private requireGit(): GitOperations {
-    if (this.git === undefined) {
-      throw new ExecutionRequestError(
-        'unavailable',
-        'No Git executable was found; set CRAFTINGTABLE_GIT_EXECUTABLE or add git to PATH',
-      );
-    }
-    return this.git;
-  }
-
   listRepositories(
     context: AuthContext,
     workspaceId: WorkspaceId,
@@ -415,7 +415,7 @@ export class ExecutionService {
     // reads it, and Git is given that resolved path; the top level it answers is checked again,
     // so a link changed in between cannot move the repository outside them (R-G9 review).
     const resolved = this.requireUnderRepositoryRoots(input.rootPath);
-    const inspection = await this.requireGit().inspectRepository(resolved);
+    const inspection = await requireGit(this.git).inspectRepository(resolved);
     if (!inspection.ok) {
       throw new ExecutionRequestError('invalid-request', inspection.failure.message);
     }
@@ -557,7 +557,7 @@ export class ExecutionService {
     if (repository === undefined) {
       throw new NotFoundError();
     }
-    const listed = await this.requireGit().listBranches(repository.rootPath);
+    const listed = await requireGit(this.git).listBranches(repository.rootPath);
     if (!listed.ok) {
       throw new ExecutionRequestError(
         'unavailable',
@@ -836,7 +836,7 @@ export class ExecutionService {
         );
       return withPhaseReservation(this.storage, resolved, tree, phase, () =>
         this.branches.duringMerge(repo.rootPath, async () => {
-          const git = this.requireGit();
+          const git = requireGit(this.git);
           requireScope(this.storage, workspaceId, workItemId, scope, phase);
           if (
             tree.integrationBranch !== resolved.binding.integrationBranch ||
@@ -1084,7 +1084,7 @@ export class ExecutionService {
           'conflict',
           'Admit the parent before starting scoped execution.',
         );
-      const git = this.requireGit();
+      const git = requireGit(this.git);
       const { item, repository } = this.storage.readTransaction((tx) => {
         const found = tx.planning.workItems.find(workspaceId, workItemId);
         const repo = tx.execution.sourceRepositories.find(workspaceId, input.repositoryId);
@@ -1264,7 +1264,7 @@ export class ExecutionService {
       );
       const branchName = `ct/${purpose === 'decision' ? 'decision' : 'finalize'}-${value.id}`;
       if (recoverOnly && !existsSync(path)) return undefined;
-      const result = await this.requireGit().createWorktree({
+      const result = await requireGit(this.git).createWorktree({
         recoverExisting: true,
         repositoryPath: repository.rootPath,
         worktreePath: path,
@@ -1362,7 +1362,7 @@ export class ExecutionService {
       }
       return this.branches.duringMerge(repository.rootPath, async () => {
         // Only an explicit operator choice discards uncommitted or untracked work.
-        const removed = await this.requireGit().removeWorktree({
+        const removed = await requireGit(this.git).removeWorktree({
           repositoryPath: repository.rootPath,
           worktreePath: worktree.path,
           force: options.discardChanges === true,
@@ -1467,7 +1467,7 @@ export class ExecutionService {
       )
         return false;
       return this.branches.duringMerge(repository.rootPath, async () => {
-        const removed = await this.requireGit().removeWorktree({
+        const removed = await requireGit(this.git).removeWorktree({
           repositoryPath: repository.rootPath,
           worktreePath: worktree.path,
           force: false,
@@ -1558,7 +1558,7 @@ export class ExecutionService {
   }> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     return this.mutations.during(worktreeId, 'merge', async () => {
-      const git = this.requireGit();
+      const git = requireGit(this.git);
       const worktree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
       const repository =
         worktree &&
@@ -1667,7 +1667,7 @@ export class ExecutionService {
                 : undefined;
             }
             check();
-            if (worktree.planVersionId && (!finalApproval || !context.session || delegation))
+            if (planPromotionUnapproved(worktree, finalApproval, !!context.session, !!delegation))
               throw new ExecutionRequestError(
                 'conflict',
                 'Plan promotion requires explicit approval from the finalization page',
@@ -1679,12 +1679,7 @@ export class ExecutionService {
               const cycle =
                 finalization &&
                 this.storage.execution.cycles.find(workspaceId, finalization.cycleId);
-              if (
-                finalization?.status !== 'active' ||
-                finalization.worktreeId !== worktreeId ||
-                cycle?.polishPhase !== 'final-review' ||
-                cycle.status !== 'awaiting-merge'
-              )
+              if (!finalization || !finalReviewReady(finalization, worktreeId, cycle))
                 throw new ExecutionRequestError(
                   'conflict',
                   'Final independent review is not ready for promotion',
@@ -1722,12 +1717,7 @@ export class ExecutionService {
                 'Merge requires a clean worktree on its managed branch; resolve any uncommitted changes',
               );
             const cycle = this.storage.execution.cycles.activeForWorktree(workspaceId, worktreeId);
-            if (
-              cycle &&
-              (cycle.status !== 'awaiting-merge' ||
-                cycle.currentRunId !== gate.reviewRunId ||
-                cycle.reviewHeadSha !== state.value.headSha)
-            )
+            if (!automationApproved(cycle, gate.reviewRunId, state.value.headSha))
               throw new ExecutionRequestError(
                 'conflict',
                 'Automation has not approved this reviewed commit. Resume for a fresh review, or stop the cycle to use the manual merge flow.',
@@ -1780,16 +1770,12 @@ export class ExecutionService {
                 'conflict',
                 'The current final review does not meet the completion policy.',
               );
-            if (input.targetBranch !== undefined && input.targetBranch !== reviewed.targetBranch)
+            if (retargetRequired(input.targetBranch, reviewed))
               throw new ExecutionRequestError(
                 'conflict',
                 'Retarget the worktree explicitly and review again before merging elsewhere',
               );
-            if (
-              finalApproval &&
-              (reviewed.headSha !== finalApproval.expectedHeadSha ||
-                reviewed.targetSha !== finalApproval.expectedTargetSha)
-            )
+            if (finalCandidateMoved(finalApproval, reviewed))
               throw new ExecutionRequestError(
                 'conflict',
                 'Final candidate or destination changed. Refresh and review the exact commits before approving.',
@@ -1985,7 +1971,7 @@ export class ExecutionService {
     repository: SourceRepository,
     operation: import('@craftingtable/domain').MergeOperation,
   ): Promise<void> {
-    const git = this.requireGit();
+    const git = requireGit(this.git);
     const path = join(
       this.config.mergeRoot ?? join(this.config.worktreeRoot, '.merge'),
       operation.id,
@@ -2028,7 +2014,7 @@ export class ExecutionService {
     repository: SourceRepository,
     tree: Worktree,
   ): Promise<void> {
-    const git = this.requireGit();
+    const git = requireGit(this.git);
     const scratch = await git.removeWorktree({
       repositoryPath: repository.rootPath,
       worktreePath: join(
@@ -2095,7 +2081,7 @@ export class ExecutionService {
     if (worktree.status !== 'active') {
       throw new ExecutionRequestError('conflict', 'Worktree has been removed');
     }
-    const git = this.requireGit();
+    const git = requireGit(this.git);
     let baseSha = worktree.baseSha;
     if (worktree.integrationBranch !== undefined) {
       const repository = this.storage.execution.sourceRepositories.find(

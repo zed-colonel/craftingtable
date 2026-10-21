@@ -238,6 +238,21 @@ it.each(RUNNING)(
       message: 'This roadmap is being stopped.',
     });
     expect(storedRoadmap(fx.f.state)).toEqual(before);
+    // The forms' views say so before a save is tried (mutation round, I1-agents-view-settling).
+    const view = (path: string) =>
+      fx.f.state.context.app.inject({
+        method: 'GET',
+        url: `/api/workspaces/${fx.ws}/${path}`,
+        headers: mutationHeaders(fx.f.state),
+      });
+    expect((await view(`roadmaps/${fx.saved.id}/agent-profiles`)).json().editBlocker).toBe(
+      'This roadmap is being stopped.',
+    );
+    expect(
+      (await view('roadmaps/capacities'))
+        .json()
+        .roadmaps.find((r: { id: string }) => r.id === fx.saved.id)?.editBlocker,
+    ).toBe('This roadmap is being stopped.');
   },
 );
 

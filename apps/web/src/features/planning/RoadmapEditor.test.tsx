@@ -491,3 +491,14 @@ it('edits a running roadmap’s queued entries, held to the revision it showed r
   );
   expect(screen.getByText(/This roadmap changed while you were editing/)).toBeTruthy();
 });
+
+it('saves nothing for an unchanged draft of a running roadmap whose version moved on (R-B6, mutation round W1-editor-content-version)', async () => {
+  const running = { ...roadmap, status: 'running' } as Roadmap;
+  const onSaved = vi.fn();
+  render(
+    <Editor current={{ ...running, version: 9 }} initial={draftOf(running)} onSaved={onSaved} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save roadmap' }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  expect(saveRoadmap).not.toHaveBeenCalled();
+});

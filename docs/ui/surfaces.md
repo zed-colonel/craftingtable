@@ -107,8 +107,7 @@ the imported maps, each linking to its page.
 
 - **Board:** the scheduler's reason, the roadmap's own Needs you items, its status, mode and the
   workstation's shared slots (with **Manage capacity**), the controls (Start, Pause, Resume, and
-  **Edit queued entries** on a roadmap without a map while it is a draft, paused or needs
-  attention), then **Stop or wind down…** (**Wind down…** once it has ended) and, on a wound-down
+  **Edit queued entries** on a roadmap without a map until it ends, while it runs too), then **Stop or wind down…** (**Wind down…** once it has ended) and, on a wound-down
   roadmap, **Clean up repositories…**, then the board, graph or list, and the entries with their
   individual controls. `RoadmapWindDown` owns both forms: the daemon's preview (what stops, the
   resolutions it abandons, the items that resolve, each plan version with Keep or Retire as

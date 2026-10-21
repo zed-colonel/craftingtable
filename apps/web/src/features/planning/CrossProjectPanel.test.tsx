@@ -393,7 +393,8 @@ it('edits a running roadmap’s queued settings, and says what its started items
   const maintainer = screen.getByRole('checkbox', {
     name: 'repository-maintainer',
   }) as HTMLInputElement;
-  expect(maintainer.disabled).toBe(false);
+  expect(maintainer.matches(':disabled')).toBe(false);
+  expect(screen.getByRole('button', { name: 'Save reviewer and queued settings' })).toBeTruthy();
   expect(screen.queryByText(/Pause the roadmap to edit queued settings/)).toBeNull();
 });
 

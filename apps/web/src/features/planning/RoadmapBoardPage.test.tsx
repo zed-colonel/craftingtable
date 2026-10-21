@@ -122,3 +122,16 @@ it('draws the graph on a wide screen and never on a phone, where the list stands
   const views = screen.getByRole('navigation', { name: 'Board views' });
   expect([...views.querySelectorAll('a')].map((a) => a.textContent)).toEqual(['Board', 'List']);
 });
+
+it('offers Edit queued entries on a running roadmap without a map (R-B6, decision 5; mutation round W1-board-edit-paused-only)', async () => {
+  const api = await import('../../lib/roadmap-api.js');
+  vi.mocked(api.loadRoadmapDefinition).mockResolvedValue({
+    name: 'Queue roadmap',
+    revision: 2,
+    scheduling: { mode: 'sequential', maxInFlight: 1, maxPerRepository: 1 },
+    entries: [],
+  } as never);
+  width(true);
+  render(<RoadmapPage {...common} />);
+  expect(await screen.findByRole('button', { name: 'Edit queued entries' })).toBeTruthy();
+});

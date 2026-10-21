@@ -4,6 +4,7 @@ import { delegationWaits } from '../src/services/roadmap-delegation-policy.js';
 import {
   awaitRoadmapMerge,
   cleanupExecutionFixtures,
+  controlCycle,
   designDone,
   git,
   implementationDone,
@@ -136,6 +137,21 @@ it('a grant names its named entry’s review at work, and an unnamed entry’s d
   expect(refused.statusCode, refused.body).toBe(409);
   expect(refused.json().error.message).toBe("Wait for AQ-01's checkpoint review to finish.");
   expect(storedRoadmap(fx.state).delegationAssignments ?? []).toEqual([]);
+  // Paused, the cycle's design session goes on, so its review still holds the grant
+  // (mutation round, I2-live-wiring).
+  await controlCycle(fx.state, tx.execution.cycles.find(ws, first!.cycleId)!, 'pause');
+  const paused = await grant(first!.entryId);
+  expect(paused.statusCode, paused.body).toBe(409);
+  expect(paused.json().error.message).toBe("Wait for AQ-01's checkpoint review to finish.");
+  // An integration refresh in flight on the other item holds a grant naming it
+  // (mutation round, I2-refreshing-wiring).
+  const refreshing = vi
+    .spyOn(fx.state.context.services.workCycleService, 'isRefreshing')
+    .mockImplementation((id) => id === second!.cycleId);
+  const refresh = await grant(second!.entryId);
+  expect(refresh.statusCode, refresh.body).toBe(409);
+  expect(refresh.json().error.message).toBe("Wait for AQ-03's integration refresh to finish.");
+  refreshing.mockRestore();
   // The other item's own work does not hold a grant that does not name it.
   const granted = await grant(second!.entryId);
   expect(granted.statusCode, granted.body).toBe(200);

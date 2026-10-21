@@ -308,7 +308,6 @@ describe("a roadmap's Resume (controlWithin)", () => {
     const outcome = await roadmapResume(
       f,
       () => writeAttempt(f.state, f.attempt.id, { entryId: asRoadmapEntryId(randomUUID()) }),
-      true,
     );
     expect(outcome.resumed).toEqual([f.cycle.id]);
   });

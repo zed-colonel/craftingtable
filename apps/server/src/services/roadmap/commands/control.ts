@@ -101,7 +101,8 @@ export class RoadmapControl {
         // An item the operator paused stays paused until its own Resume.
         if (roadmap.entryHolds?.[attempt.entryId]?.status === 'paused') continue;
         const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
-        // An attempt can outlive its entry (an amendment dropped it): its slice cycle still resumes.
+        // The `!` this replaced let an attempt without its entry through, and its slice cycle
+        // resumed; no path to that state is shown, so the `find` keeps it optional (R-B7).
         const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId);
         if (!this.holds.resumesCycle(roadmap, entry, attempt, cycle)) continue;
         try {
@@ -214,7 +215,7 @@ export class RoadmapControl {
             entry,
             cycle,
           );
-          if (decision.escalation) conflict(required(decision.reason, 'the escalation’s reason'));
+          if (decision.escalation) conflict(required(decision.reason, "the escalation's reason"));
         }
         if (cycle && ['stopped', 'completed'].includes(cycle.status) && !recovery)
           conflict(

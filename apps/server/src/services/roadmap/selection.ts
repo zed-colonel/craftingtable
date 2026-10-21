@@ -169,7 +169,7 @@ export class RoadmapSelection {
       recoveryRound &&
       entry.executionScope?.kind === 'slice' &&
       holders.some((tree) =>
-        this.waitsOnSlice(tx, tree, required(entry.executionScope, 'the round’s slice scope')),
+        this.waitsOnSlice(tx, tree, required(entry.executionScope, "the round's slice scope")),
       )
         ? ` Work holding those slots waits on ${entry.sourceId}, which this recovery round repairs, so they cannot free by themselves. Raise the limit, or pause or finish a holder.`
         : undefined;
@@ -347,7 +347,7 @@ export class RoadmapSelection {
             !roadmap.attempts.some((a) => a.entryId === e.id)
               ? (definition.source.slices
                   .find(
-                    (s) => s.id === required(e.executionScope, 'the slice entry’s scope').sourceId,
+                    (s) => s.id === required(e.executionScope, "the slice entry's scope").sourceId,
                   )
                   ?.merge_requires.filter((r) => r.kind === 'checkpoint')
                   .map((r) => r.id) ?? [])

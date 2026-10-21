@@ -387,7 +387,7 @@ export class RoadmapHolds {
       cycle.executionScope &&
       cycle.executionScope.kind !== 'slice' &&
       ((roadmap.scopeRecovery?.enabled && cycle.status === 'needs-attention') ||
-        !!this.selection.roundFor(roadmap, required(entry, 'the resumed review’s entry')))
+        !!this.selection.roundFor(roadmap, required(entry, "the resumed review's entry")))
     )
       return false;
     if (!['paused', 'needs-attention'].includes(cycle.status) || !this.resumable(cycle))

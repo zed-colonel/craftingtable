@@ -76,14 +76,14 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
       const spec = subjectRequirements(
         scope.definition,
         subject,
-        required(cycle.executionScope, 'the slice cycle’s scope').sourceId,
+        required(cycle.executionScope, "the slice cycle's scope").sourceId,
       );
       const alias = tx.imports
         .bindings(cycle.workspaceId, scope.definition.id)
         .find(
           (b) =>
             b.revision ===
-            required(cycle.executionScope, 'the slice cycle’s scope').bindingRevision,
+            required(cycle.executionScope, "the slice cycle's scope").bindingRevision,
         )
         ?.bindings.find((b) => b.workItems.some((w) => w.workItemId === cycle.workItemId))?.alias;
       const supported = supportsTechnicalCheckpoint(scope.definition, checkpoint.id, alias);
@@ -92,7 +92,7 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
       const prerequisites = prerequisiteEvaluation(
         tx,
         scope.definition,
-        required(cycle.executionScope, 'the slice cycle’s scope').bindingRevision,
+        required(cycle.executionScope, "the slice cycle's scope").bindingRevision,
         subject,
       );
       return {
@@ -109,7 +109,7 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
             tx,
             cycle.workspaceId,
             scope.definition.id,
-            required(cycle.executionScope, 'the slice cycle’s scope').bindingRevision,
+            required(cycle.executionScope, "the slice cycle's scope").bindingRevision,
             subject,
             new Set(),
             cycle.executionScope,
@@ -117,7 +117,7 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
           !!stagedDecision(
             tx,
             cycle.workspaceId,
-            required(cycle.executionScope, 'the slice cycle’s scope'),
+            required(cycle.executionScope, "the slice cycle's scope"),
             checkpoint.id,
           ),
         requirements: spec.requirements,

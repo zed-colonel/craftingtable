@@ -206,7 +206,7 @@ export class RoadmapSettings {
       this.cycles.validateAgentSelections({
         ...required(
           this.views.agentSettings(context, workspaceId, id).entries[0],
-          'the cross-project roadmap’s settings',
+          "the cross-project roadmap's settings",
         ).selections,
         conflict: input.automation.resolutionProfile,
       });

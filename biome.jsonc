@@ -43,8 +43,8 @@
       // a production `!` that is wrong surfaces as an anonymous TypeError far from its cause, so
       // these files use `required` (packages/domain/src/invariant.ts), which names what was absent.
       // The scheduler half adds the files it moved or made (operator decision 4, 2026-10-21, which
-      // amends decision 6); the rest convert after R-B7's third part, which turns the rule on
-      // everywhere and removes this list.
+      // amends decision 6); the rest convert after R-B7's third part, and the closing step after it
+      // turns the rule on everywhere and removes this list.
       "includes": [
         "packages/domain/src/invariant.ts",
         "apps/server/src/services/agent-run-service.ts",

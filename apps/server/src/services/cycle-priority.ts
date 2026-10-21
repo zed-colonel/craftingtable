@@ -24,14 +24,14 @@ export function prioritizeRoadmapCycles(
   for (const queue of queues.values())
     queue.sort(
       (a, b) =>
-        required(owners.get(a.id), 'the owned cycle’s priority').priority -
-        required(owners.get(b.id), 'the owned cycle’s priority').priority,
+        required(owners.get(a.id), "the owned cycle's priority").priority -
+        required(owners.get(b.id), "the owned cycle's priority").priority,
     );
   return cycles.map((cycle) => {
     const owner = owners.get(cycle.id);
     return owner
       ? required(
-          required(queues.get(owner.roadmapId), 'the roadmap’s queue').shift(),
+          required(queues.get(owner.roadmapId), "the roadmap's queue").shift(),
           'the next owned cycle',
         )
       : cycle;

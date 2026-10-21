@@ -63,7 +63,7 @@ export class RoadmapRecoveryRounds {
     const owned = source && cycleOwnership(this.storage, source);
     let roadmap = owned?.roadmap;
     const sourceEntry = roadmap?.definition.entries.find(
-      (e) => e.id === required(owned, 'the source cycle’s owner').attempt.entryId,
+      (e) => e.id === required(owned, "the source cycle's owner").attempt.entryId,
     );
     const owner = roadmap?.definition.entries.find(
       (e) =>
@@ -85,7 +85,7 @@ export class RoadmapRecoveryRounds {
     // A round this command prepared earlier and that created nothing is retried in place.
     const retry =
       open?.status === 'preparing' &&
-      required(open.recovery, 'the open recovery round’s state').requestedByUserId &&
+      required(open.recovery, "the open recovery round's state").requestedByUserId &&
       !this.state.preparingRounds.has(open.id) &&
       open.entryId === owner.id &&
       !this.storage.execution.cycles.find(ws, open.cycleId)

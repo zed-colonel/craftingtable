@@ -674,10 +674,10 @@ export class RoadmapViews {
       : mapGraph({
           roadmapId,
           revision: definition.revision,
-          source: required(map, 'the roadmap’s map definition').source,
+          source: required(map, "the roadmap's map definition").source,
           bindings:
             tx.imports
-              .bindings(workspaceId, required(map, 'the roadmap’s map definition').id)
+              .bindings(workspaceId, required(map, "the roadmap's map definition").id)
               .find((b) => b.revision === selection.bindingRevision)?.bindings ?? [],
           targetId: selection.targetId,
           selection: selection.selection,
@@ -768,7 +768,7 @@ export class RoadmapViews {
             if (recovery && entry.executionScope?.kind !== 'slice') {
               const repair = snapshot.execution.cycles.find(roadmap.workspaceId, recovery.cycleId);
               const repairNeedsYou =
-                required(recovery.recovery, 'the recovery round’s state').phase === 'repair' &&
+                required(recovery.recovery, "the recovery round's state").phase === 'repair' &&
                 repair &&
                 ['paused', 'needs-attention', 'stopped'].includes(repair.status);
               return {
@@ -780,7 +780,7 @@ export class RoadmapViews {
                     : 'paused',
                 reason: repairNeedsYou
                   ? `Owning-slice recovery: ${repair.reason}`
-                  : `Roadmap recovery: ${required(recovery.recovery, 'the recovery round’s state').phase === 'repair' ? 'repair and integration' : required(recovery.recovery, 'the recovery round’s state').phase === 'verification' ? 'fresh independent verification' : 'parent acceptance'}.`,
+                  : `Roadmap recovery: ${required(recovery.recovery, "the recovery round's state").phase === 'repair' ? 'repair and integration' : required(recovery.recovery, "the recovery round's state").phase === 'verification' ? 'fresh independent verification' : 'parent acceptance'}.`,
               };
             }
             const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
@@ -862,7 +862,7 @@ export class RoadmapViews {
               : roadmap.definition;
             const entry = required(
               roadmap.definition.entries.find((e) => e.id === progress.entryId),
-              'the progress row’s entry',
+              "the progress row's entry",
             );
             return {
               ...progress,
@@ -875,7 +875,7 @@ export class RoadmapViews {
                 definition?.entries.find((e) => e.id === progress.entryId) ??
                   required(
                     roadmap.definition.entries.find((e) => e.id === progress.entryId),
-                    'the progress row’s entry',
+                    "the progress row's entry",
                   ),
                 definition ?? roadmap.definition,
               ).automation,
@@ -904,7 +904,7 @@ export class RoadmapViews {
         selection && tx.imports.definition(roadmap.workspaceId, selection.definitionId)?.source;
       if (!selection || !source) return undefined;
       needs ??= operatorNeeds(
-        required(mapState(), 'the cross-project map’s state').nodes,
+        required(mapState(), "the cross-project map's state").nodes,
         new Set(
           source.slices.flatMap((slice) =>
             slice.merge_requires.flatMap((r) => (r.kind === 'checkpoint' ? [r.id] : [])),

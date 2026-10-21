@@ -702,7 +702,7 @@ export class MergeExecutor {
       sourcePath: proposal.sourcePath,
       checks: proposal.checks,
       definitionDigests: proposal.definitionDigests,
-      rationale: required(merge.checkAdoption, 'the merge’s check adoption').rationale,
+      rationale: required(merge.checkAdoption, "the merge's check adoption").rationale,
       adoptedByUserId: merge.authorizedByUserId,
       adoptedAt: at,
       adoptedAtMerge: {

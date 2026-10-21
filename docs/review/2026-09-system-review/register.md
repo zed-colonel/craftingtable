@@ -94,6 +94,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-G18](#r-g18) | P4 | L | withdrawn 2026-10-14 (ADR-075) | Agents' worktrees on a Git directory CraftingTable owns |
 | [R-G19](#r-g19) | P4 | M | done, deployed 2026-10-14 (0bf3bc3; ADR-076) | The accelerator posture: simplify the agent and check defences |
 | [R-G20](#r-g20) | P4 | S | open (found live 2026-10-15) | Supplemental checks get the agents' uv settings |
+| [R-G21](#r-g21) | P4 | S-M | open (added 2026-10-21 at the operator's request) | Backend-neutral usage and cost: Codex runs get an estimate, totals beyond the run (added 2026-10-21) |
 | **H** | | | | **Data lifecycle and integrity** |
 | [R-H1](#r-h1) | P0 | S | done (c8f58fc) | Fix the unreadable first run (live 500) |
 | [R-H2](#r-h2) | P1 | M | partial (cae7827, d8cedea; live measurement after deploy) | Journal retention: stop storing raw vendor lines by default |
@@ -6268,6 +6269,32 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:** when the `pypi` source is configured, give a free-form `ct-check --` the same uv settings and cache access as the agent's own commands (the source's launch overlay: `UV_CACHE_DIR` the agents' shared cache, `UV_PYTHON`, `UV_PYTHON_DOWNLOADS=never`, `UV_LINK_MODE=copy`, the profile's uv first on `PATH`). Under ADR-075 sharing the agents' cache here is acceptable; checks that count keep their own.
 - **Done when:** a supplemental `ct-check -- uv run …` in a Python worktree runs where the agent's own command would, and declared checks are unchanged.
 - **Priority:** small and not blocking; take it beside the next work that touches Python checks.
+
+### R-G21
+
+**Backend-neutral usage and cost: Codex runs get an estimate, totals beyond the run** · Phase P4 · Effort S-M · Status: open (added 2026-10-21 at the operator's request)
+
+- **Found 2026-10-21, on the live daemon (read-only):**
+  - *Claude Code:* 137 of 138 runs have a cost, $761.81 in all. Each figure is the CLI's own `total_cost_usd` from its result line (`packages/agents/src/claude-code/normalize.ts:530`). It is an API list-price figure, and the run page shows it as an estimate for subscription runs (`formatCost`, `apps/web/src/lib/execution-labels.ts:105`). No token counts are kept.
+  - *Codex:* none of 689 runs has a cost. Yet 671 of its 674 `turn-completed` events carry `tokenUsage` (input, cached input, output, reasoning output, total; `packages/agents/src/codex/normalize.ts:138`). The only cost source is the optional `account/usage/read` request after a turn (`packages/agents/src/codex/session.ts:294-311`), which has never returned `estimatedUsageUsdMicros` here (codex-cli 0.163.0). A Codex run's cost reads "—".
+  - *Totals:* cost is shown per run only (the runs page, the run page, the delegation panel). No work item, plan, finalization or roadmap total exists.
+- **The operator's aim (2026-10-21):** cost reported across the board whatever the backend, as an estimate where it must be, and as general as possible, because other backends (OpenCode, Pi and the like) may be swapped in later.
+- **Change:**
+  1. *One usage record, backend-neutral,* per turn and per run. It holds token counts by class (input, cache read, cache write, output, reasoning output; a class a backend cannot report is absent, not zero) and a cost with its source: `reported` (the backend gave dollars), `estimated` (CraftingTable priced the tokens) or `unknown`. Billing (subscription or API) stays a separate field and only labels the figure: a subscription figure is what the same tokens would cost at API list prices, never a bill.
+  2. *Adapters report what they have.* Each maps its backend's usage into the record and gives dollars only when its backend does: Codex already has the tokens; Claude Code also keeps its result line's token usage (`usage`, `modelUsage`; confirm the fields against a live line in the design). A new backend's adapter maps its usage and nothing else changes.
+  3. *A price book* per provider and model: a price per million tokens for each class, with the date it took effect, kept as data rather than in code. A run whose model has no price shows its tokens and "no price for <model>", never $0. Each estimate records the entry it used. A reported figure wins over an estimate.
+  4. *Totals beyond the run:* the work item, the plan's finalization and the roadmap show their runs' total, saying when it includes estimates and how many runs have no cost.
+  5. *The past:* Codex's journaled token counts are priced once the book has their models, so the 689 runs get estimates too.
+- **Decisions for the design pass:** where the price book lives and who updates it (a committed file, the operator's settings, or both); whether estimates are stored at the run's end or derived on read (stored keeps a past figure stable when prices change; derived needs no backfill); and which surfaces show totals.
+- **Beside R-G8 (P5):** usage reporting becomes one of the capabilities R-G8 declares. This item does not wait for R-G8 or do its work. Not in scope: budgets, limits, and tracking subscription quota.
+- **Done when:**
+  - A finished Codex run shows an estimated cost whenever its model is priced.
+  - Claude Code runs keep their reported figure and also record tokens.
+  - An unpriced model shows tokens and no price.
+  - The work item, finalization and roadmap show totals marked as including estimates.
+  - The past Codex runs are priced.
+  - Each adapter has a test from a recorded line, and a test backend that reports only tokens is priced with no change outside its adapter.
+- **Priority:** small and independent of the controller work (agents, contracts, storage, web; probably one migration). It can follow R-B7's scheduler half or go beside it in a separate session.
 
 
 ### R-H1

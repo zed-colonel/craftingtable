@@ -44,9 +44,12 @@ import { createTestContext, type TestContext } from './test-support.js';
 
 /** Paths whose entries report another device: a volume mounted inside a run's scratch. */
 const otherVolume = vi.hoisted(() => ({ prefixes: [] as string[] }));
+/** Called before each entry the walks look at: something the daemon does while a tick reads. */
+const walking = vi.hoisted(() => ({ hook: undefined as ((path: string) => void) | undefined }));
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
   const lstat = (async (path: string, ...rest: unknown[]) => {
+    walking.hook?.(String(path));
     const entry = (await (actual.lstat as (...args: unknown[]) => Promise<Stats>)(
       path,
       ...rest,
@@ -62,6 +65,7 @@ const DAY = 86_400_000;
 const contexts: TestContext[] = [];
 afterEach(async () => {
   otherVolume.prefixes = [];
+  walking.hook = undefined;
   for (const context of contexts.splice(0)) await context.cleanup();
 });
 
@@ -314,6 +318,18 @@ async function tickFixture(
     },
     instant: () => instant,
   };
+}
+
+/** Saves the workspace's storage policy with `change` over it. */
+function setPolicy(
+  f: Awaited<ReturnType<typeof tickFixture>>,
+  change: Partial<ReturnType<StorageService['get']>['policy']>,
+) {
+  const status = f.service.get(f.auth, f.workspaceId);
+  f.service.save(f.auth, f.workspaceId, {
+    expectedVersion: status.version,
+    policy: { ...status.policy, ...change },
+  });
 }
 
 /** The tick's refusals: one message naming each run it could not inspect, or none. */
@@ -1008,4 +1024,142 @@ it("keeps a merged worktree's shared build cache with automatic cache cleanup of
   f.advance(1 / 1440);
   expect(await tick(f.service)).toBeUndefined();
   expect(existsSync(shared)).toBe(false);
+});
+
+it("reads a directory for its caches as soon as automatic cache cleanup turns on (increment 2's mutation round)", async () => {
+  const f = await tickFixture();
+  setPolicy(f, { autoCleanBuildCaches: false });
+  // Merged a day ago, a cache in its scratch: with cleanup off it is read only for its expiry.
+  const merged = f.addRun({ status: 'finished', tree: 'merged', exited: true, retained: 1 });
+  const cache = f.cargo(merged, 'target', 1);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(cache)).toBe(true);
+  // Turned on, it is read for its caches at the next tick, not at its re-check.
+  setPolicy(f, { autoCleanBuildCaches: true });
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(cache)).toBe(false);
+});
+
+it("forgets a directory the tick stops reading, so a cache built meanwhile goes when it reads again (increment 2's mutation round)", async () => {
+  const f = await tickFixture();
+  // Ended in an active worktree: read only for its caches, so not at all with cleanup off.
+  const ended = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  f.scratchFile(ended, 1);
+  expect(await tick(f.service)).toBeUndefined();
+  // Cleanup off: the tick no longer lists it, and drops what it read there.
+  setPolicy(f, { autoCleanBuildCaches: false });
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  // A cache built meanwhile goes at the first tick with cleanup back on, under the same key.
+  const cache = makeCargo(join(ended.scratch, 'target'));
+  setPolicy(f, { autoCleanBuildCaches: true });
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(cache)).toBe(false);
+});
+
+it("reads a directory again when its run's retention start is recorded anew (increment 2's mutation round)", async () => {
+  const f = await tickFixture();
+  // Merged 20 days ago, its scratch 40 days old: ten days left.
+  const run = f.addRun({ status: 'finished', tree: 'merged', exited: true, retained: 20 });
+  f.scratchFile(run, 40);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(run.scratch)).toBe(true);
+  // Its end and its worktree's removal recorded as 40 days ago (a correction, or a clock set
+  // right: in use these are only ever filled in later, which makes the tick read early, not
+  // late): expired at the next tick.
+  const since = new Date(f.instant() - 40 * DAY).toISOString();
+  const db = openDatabase(f.context.config.databasePath);
+  db.prepare('UPDATE agent_runs SET finished_at = ? WHERE id = ?').run(since, run.runId);
+  db.prepare('UPDATE worktrees SET removed_at = ? WHERE id = ?').run(since, run.worktreeId);
+  db.close();
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(run.scratch)).toBe(false);
+});
+
+it('reads again at the next tick a directory forgotten while the tick read it (increment 2 review LOW-1, its mutation round)', async () => {
+  const f = await tickFixture();
+  const run = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  f.scratchFile(run, 1);
+  // The run's checks stop while the tick reads its scratch.
+  let forgotten = false;
+  walking.hook = (path) => {
+    if (forgotten || !path.endsWith(join(run.runId, 'scratch'))) return;
+    forgotten = true;
+    f.service.forgetInspections({ runId: run.runId });
+  };
+  expect(await tick(f.service)).toBeUndefined();
+  expect(forgotten).toBe(true);
+  // What the checks built is seen at the next tick, not at the re-check.
+  const cache = makeCargo(join(run.scratch, 'target'));
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(cache)).toBe(false);
+});
+
+it("stops pausing its walk once the daemon is stopping (R-H8 decision 5, increment 2's mutation round)", async () => {
+  // A 10-second pause before every entry: a walk that kept pausing would take 40 seconds.
+  const f = await tickFixture({ walkSliceMs: 0, walkPauseMs: 10_000 });
+  const run = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  for (let index = 0; index < 3; index++)
+    mkdirSync(join(run.scratch, String(index)), { recursive: true });
+  const walked: string[] = [];
+  walking.hook = (path) => {
+    if (path.startsWith(run.scratch)) walked.push(path);
+  };
+  // The daemon begins to stop as the tick lists the directories, before it walks any.
+  const directories = f.context.storage.maintenance.directories.bind(f.context.storage.maintenance);
+  let stopped: Promise<void> | undefined;
+  vi.spyOn(f.context.storage.maintenance, 'directories').mockImplementation((scope) => {
+    const listed = directories(scope);
+    stopped ??= f.service.shutdown();
+    return listed;
+  });
+  const started = performance.now();
+  expect(await tick(f.service)).toBeUndefined();
+  await stopped;
+  // It still walked the scratch and its three directories, without a pause between them.
+  expect(walked).toHaveLength(4);
+  expect(performance.now() - started).toBeLessThan(10_000);
+});
+
+it("forgets at a run's end what it read in the run's worktree, even a directory that cleanup does not walk (increment 2's mutation round)", async () => {
+  const f = await tickFixture();
+  // Interrupted, its worktree merged: read for its expiry, never for its caches.
+  const run = f.addRun({ status: 'interrupted', tree: 'merged', exited: false, retained: 1 });
+  f.scratchFile(run, 1);
+  expect(await tick(f.service)).toBeUndefined();
+  // Replaced after that read: the next read refuses it.
+  rmSync(run.path, { recursive: true });
+  mkdirSync(join(f.outside, 'replaced'));
+  symlinkSync(join(f.outside, 'replaced'), run.path);
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  // A run on its worktree ends: the next tick reads it again. (Only an end-of-run cleanup that
+  // finishes after its worktree's merge and removal meets such a directory: a build-eligible
+  // one its cleanup walks, and marks to be read again, itself.)
+  await f.service.cleanupAfterRun(run.worktreeId);
+  f.advance(1 / 1440);
+  expect(refused(await tick(f.service), { run })).toEqual(['run']);
+});
+
+it('reads at the next tick, outside the budget, a run its end-of-run cleanup could not walk (increment 2 re-check LOW-C, its mutation round)', async () => {
+  const f = await tickFixture({ walkBudgetMs: 0 });
+  const other = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  const ended = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  // One directory a tick: both read, nothing to act on.
+  for (let index = 0; index < 2; index++) {
+    expect(await tick(f.service)).toBeUndefined();
+    f.advance(1 / 1440);
+  }
+  // The other directory becomes unread, listed first; the ended run's scratch grows past the
+  // cache inventory, so its end-of-run cleanup fails to walk it.
+  f.service.forgetInspections({ worktreeId: other.worktreeId });
+  for (let index = 0; index <= 10_000; index++)
+    mkdirSync(join(ended.scratch, 'wide', String(index)), { recursive: true });
+  await f.service.cleanupAfterRun(ended.worktreeId);
+  // The next tick's budget goes on the other directory, yet the ended run is read, and refused.
+  expect(refused(await tick(f.service), { other, ended })).toEqual(['ended']);
 });

@@ -1251,6 +1251,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **R-I12 done, 2026-10-20.** The hard-kill test's failures were the test's own: its stand-in agent announced a member that had not yet started ignoring SIGTERM, and under load the group's SIGTERM came first (35 % of runs under the unit suite with a process-spawning load, 0 in 67 after the fix). Fixed in the test ([R-I12](register.md#r-i12)); the reaping was right. Next: R-H8.
 
+**R-H8 built, 2026-10-20.** The storage tick keeps what it read in each run directory until it can change (its due time, the daemon's own writes, a 6-hour re-check), reads only what it may act on, and walks about 50 ms a minute, paced, on the operator's nine decisions ([R-H8](register.md#r-h8)). On a dev daemon over a generated tree shaped like the live one, the tick's minute fell from 2,850 ms of main-thread CPU to the floor's (about 118 ms a minute with the daemon's other work, no second busy 100 ms or more) once its paced first pass ends, about 40 minutes after a start. Not merged or deployed; no migration. Left for the operator: the live measurement after the deploy. Next: R-B6.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

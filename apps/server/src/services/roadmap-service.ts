@@ -1234,7 +1234,11 @@ export class RoadmapService {
             return cycle ? [cycle] : [];
           }),
         })),
-      (cycleId) => this.cycles.isRefreshing(cycleId),
+      {
+        refreshing: (cycleId) => this.cycles.isRefreshing(cycleId),
+        live: (cycle) =>
+          this.storage.execution.runs.liveForWorktree(workspaceId, cycle.worktreeId).length > 0,
+      },
     );
     if (waits.length) conflict(`Wait for ${waits.join(', ')} to finish.`);
     const map =

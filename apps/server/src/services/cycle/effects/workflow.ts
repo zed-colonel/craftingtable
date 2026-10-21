@@ -19,6 +19,7 @@ import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { BranchService } from '../../branch-service.js';
 import {
+  ConcurrentModificationError,
   NotFoundError,
   TypedRefusalError,
   CheckDefinitionChangedError,
@@ -273,6 +274,17 @@ export class CycleWorkflow {
               : `Starting independent checkpoint review: ${checkpointId}.`,
       },
       'workflow-review',
+      {
+        // A delegation grant that lands across the start's awaits is not run past: the review is
+        // decided again under it (R-B6 increment 2 review MEDIUM-1), as contention is.
+        check: () => {
+          const now = workflowDelegation(this.storage, cycle)?.roles;
+          if (JSON.stringify(now) !== JSON.stringify(delegation?.roles))
+            throw new ConcurrentModificationError(
+              'Reviewer delegation changed while the review started; it is decided again.',
+            );
+        },
+      },
     );
   }
 

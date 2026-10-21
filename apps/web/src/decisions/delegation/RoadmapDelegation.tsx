@@ -93,9 +93,13 @@ export function RoadmapDelegation({
         <>
           <p>
             This replaces the selected entries’ future delegation, including retries; no new
-            plan-acceptance evidence is needed. It waits only for a selected entry’s controller
-            review, integration refresh or conflict resolution still at work.
+            plan-acceptance evidence is needed. It is refused while a selected entry’s controller
+            review, integration refresh or conflict resolution is at work; apply it again once that
+            finishes.
           </p>
+          {['stopped', 'completed'].includes(roadmap.status) && (
+            <p className="muted">This roadmap has ended; its delegation no longer changes.</p>
+          )}
           <About label="About delegation changes">
             <p>
               This explicit grant replaces integration automation and reviewer responsibilities for

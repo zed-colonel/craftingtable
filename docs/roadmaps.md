@@ -125,8 +125,8 @@ roadmap's refresh limit per item (3 by default, at most 20). At the limit the cy
 
 **Change future delegation** (a map roadmap's setup, until the roadmap ends, while it runs too)
 changes the merge policy and reviewer responsibilities for selected entries, started ones
-included, without pausing or resuming anything or reopening plan acceptance. It waits only for a
-selected entry's controller review, integration refresh or conflict resolution still at work; a
+included, without pausing or resuming anything or reopening plan acceptance. It is refused while a
+selected entry's controller review, integration refresh or conflict resolution is at work; a
 merge or resolution the scheduler has under way when it lands stands down and is decided again
 under the new grant.
 

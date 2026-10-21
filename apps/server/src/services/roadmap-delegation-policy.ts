@@ -76,21 +76,31 @@ export function historicalReviewerRoles(
  * delegated action in flight, which reads the grant across an await and would finish under one
  * it did not start with. A controller review reads its reviewer roles at its start and again at
  * its acceptance, after its run ended; an integration refresh its authority; a conflict
- * resolution at work its profile and automation. A design, implementation or remediation step
- * reads no grant, nor does a stop, and a conflict only detected waits for the grant. The
- * scheduler's own merge and resolution start re-check the grant instead.
+ * resolution at work its profile and automation. A review or resolution is at work while its
+ * cycle runs or a run is live on its worktree (a paused cycle's session goes on); one left on a
+ * stopped cycle waits for the operator, and resuming it reads the grant again, so it holds
+ * nothing (increment 2 review HIGH-1). A design, implementation or remediation step reads no
+ * grant, and a conflict only detected waits for the grant. The scheduler's own merge and
+ * resolution start re-check the grant instead.
  */
 export function delegationWaits(
   entries: readonly { readonly sourceId: string; readonly cycles: readonly WorkCycle[] }[],
-  refreshing: (cycleId: string) => boolean,
+  facts: {
+    readonly refreshing: (cycleId: string) => boolean;
+    /** Whether a run is live on the cycle's worktree. */
+    readonly live: (cycle: WorkCycle) => boolean;
+  },
 ): string[] {
   return entries.flatMap(({ sourceId, cycles }) =>
     cycles.flatMap((cycle) => {
-      const review = cycle.workflow?.activeReview;
+      const atWork = cycle.status === 'running' || facts.live(cycle);
+      const review = atWork ? cycle.workflow?.activeReview : undefined;
       return [
         ...(review ? [`${sourceId}'s ${review.kind} review`] : []),
-        ...(refreshing(cycle.id) ? [`${sourceId}'s integration refresh`] : []),
-        ...(ownsIntegrationResolution(cycle) ? [`${sourceId}'s conflict resolution`] : []),
+        ...(facts.refreshing(cycle.id) ? [`${sourceId}'s integration refresh`] : []),
+        ...(atWork && ownsIntegrationResolution(cycle)
+          ? [`${sourceId}'s conflict resolution`]
+          : []),
       ];
     }),
   );

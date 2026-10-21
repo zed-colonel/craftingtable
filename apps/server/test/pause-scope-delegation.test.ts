@@ -8,6 +8,7 @@ import {
   git,
   implementationDone,
   mutationHeaders,
+  parallelFixture,
   present,
   reviewText,
   roadmapControl,
@@ -35,50 +36,111 @@ const cycle = (fields: Record<string, unknown>) =>
 
 it('a grant waits for its named entries’ controller reviews, integration refreshes and resolutions at work, and nothing else', () => {
   const refreshing = new Set(['refreshing']);
+  const liveOn = new Set(['live']);
   const waits = (cycles: readonly (WorkCycle | undefined)[]) =>
     delegationWaits(
       cycles.map((c, i) => ({ sourceId: `AQ-0${i + 1}`, cycles: c ? [c] : [] })),
-      (id) => refreshing.has(id),
+      { refreshing: (id) => refreshing.has(id), live: (c) => liveOn.has(c.id) },
     );
   // Steps that read no grant: a design, implementation or remediation, live or not; a stop.
   expect(
     waits([
       cycle({ status: 'running', step: 'implement' }),
+      cycle({ id: 'live', status: 'paused', step: 'implement' }),
       cycle({ status: 'needs-attention', step: 'review' }),
       undefined,
     ]),
   ).toEqual([]);
+  const reviewing = (kind: string, fields: Record<string, unknown> = { status: 'running' }) =>
+    cycle({ ...fields, workflow: { reassessments: 0, questions: [], activeReview: { kind } } });
   for (const kind of ['checkpoint', 'security', 'reassessment'] as const)
-    expect(
-      waits([
-        cycle({
-          status: 'running',
-          workflow: { reassessments: 0, questions: [], activeReview: { kind } },
-        }),
-      ]),
-    ).toEqual([`AQ-01's ${kind} review`]);
+    expect(waits([reviewing(kind)])).toEqual([`AQ-01's ${kind} review`]);
+  // A paused cycle's review session goes on, so it holds the grant while its run is live.
+  expect(waits([reviewing('security', { id: 'live', status: 'paused' })])).toEqual([
+    "AQ-01's security review",
+  ]);
+  // One left on a stopped cycle waits for the operator, and reads the grant again on resume:
+  // it holds nothing (increment 2 review HIGH-1).
+  for (const status of ['needs-attention', 'paused'] as const)
+    expect(waits([reviewing('checkpoint', { status })])).toEqual([]);
   expect(waits([cycle({ id: 'refreshing', status: 'awaiting-merge' })])).toEqual([
     "AQ-01's integration refresh",
   ]);
-  for (const status of ['preparing', 'resolving', 'committing'] as const)
+  for (const status of ['preparing', 'resolving', 'committing'] as const) {
+    expect(waits([cycle({ status: 'running', integrationResolution: { status } })])).toEqual([
+      "AQ-01's conflict resolution",
+    ]);
     expect(
-      waits([
-        cycle({
-          status: 'needs-attention',
-          integrationResolution: { status },
-        }),
-      ]),
+      waits([cycle({ id: 'live', status: 'needs-attention', integrationResolution: { status } })]),
     ).toEqual(["AQ-01's conflict resolution"]);
+    expect(
+      waits([cycle({ status: 'needs-attention', integrationResolution: { status } })]),
+    ).toEqual([]);
+  }
   // A conflict detected but not yet taken up waits for the grant, not the other way round.
   for (const status of ['detected', 'completed', 'abandoned'] as const)
-    expect(
-      waits([
-        cycle({
-          status: 'needs-attention',
-          integrationResolution: { status },
-        }),
-      ]),
-    ).toEqual([]);
+    expect(waits([cycle({ status: 'running', integrationResolution: { status } })])).toEqual([]);
+});
+
+it('a grant names its named entry’s review at work, and an unnamed entry’s does not hold it (review MEDIUM-2)', async () => {
+  const fx = await parallelFixture({ independentThird: true });
+  let release!: () => void;
+  const designs = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  fx.backend.replyForRequest = (request) =>
+    request.model === 'design-model' ? { ...designDone, release: designs } : implementationDone;
+  expect((await saveRoadmapRequest(fx.state, fx.input)).statusCode).toBe(200);
+  await roadmapControl(fx.state, 'start');
+  const tx = fx.state.context.storage,
+    ws = fx.state.workspaceId;
+  await waitFor(() => storedRoadmap(fx.state).attempts.length === 2, 'both items started');
+  const [first, second] = storedRoadmap(fx.state).attempts;
+  // The first item's cycle has a checkpoint review at work.
+  const cycle = present(tx.execution.cycles.find(ws, first!.cycleId));
+  expect(
+    tx.execution.cycles.replace(
+      {
+        ...cycle,
+        workflow: {
+          reassessments: 0,
+          questions: [],
+          activeReview: {
+            kind: 'checkpoint',
+            sourceRunId: cycle.currentRunId!,
+            requirements: [],
+            caseIds: [],
+            roles: [],
+            contextDigest: '0'.repeat(64),
+          },
+        },
+        version: cycle.version + 1,
+      },
+      cycle.version,
+    ),
+  ).toBeTruthy();
+  const grant = (entryId: string) =>
+    fx.state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/delegation`,
+      headers: mutationHeaders(fx.state),
+      payload: {
+        expectedVersion: storedRoadmap(fx.state).version,
+        entryIds: [entryId],
+        automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
+        reviewerRoles: [],
+        rationale: 'Characterize the wait.',
+      },
+    });
+  const refused = await grant(first!.entryId);
+  expect(refused.statusCode, refused.body).toBe(409);
+  expect(refused.json().error.message).toBe("Wait for AQ-01's checkpoint review to finish.");
+  expect(storedRoadmap(fx.state).delegationAssignments ?? []).toEqual([]);
+  // The other item's own work does not hold a grant that does not name it.
+  const granted = await grant(second!.entryId);
+  expect(granted.statusCode, granted.body).toBe(200);
+  expect(storedRoadmap(fx.state).delegationAssignments).toHaveLength(1);
+  release();
 });
 
 it('revoking automatic merge while the scheduler’s merge is under way stands the merge down', async () => {

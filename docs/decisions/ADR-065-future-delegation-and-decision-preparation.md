@@ -78,10 +78,13 @@ as before.
 
 Operator decision 2. A delegation grant no longer needs the roadmap paused nor the workspace
 quiet. It waits only for its named entries' delegated actions in flight, each of which reads the
-grant across an await: a controller review (from its start to its acceptance, after its run
-ended), an integration refresh, and a conflict resolution at work. A conflict only detected does
-not hold it, so automatic resolution can be granted while a conflict waits. The scheduler's merge
-and conflict resolution re-check the entry's grant before each step and stand down when it
-changed, as a pause made them, and the next pass decides them under the new grant. Grants stay
+grant across an await: a controller review (until its acceptance, after its run ended) and a
+conflict resolution, each while its cycle runs or a run is live on its worktree, and an
+integration refresh. A review or resolution left on a stopped cycle does not hold it: resuming
+reads the grant again. A conflict only detected does not hold it either, so automatic resolution
+can be granted while a conflict waits. A controller review's start, and the scheduler's merge and
+conflict resolution, re-check the entry's grant before they write and stand down when it changed,
+as a pause made them; the next pass decides them under the new grant. A merge is re-checked until
+it is reserved; a reservation then completes as reserved, or goes to the operator. Grants stay
 append-only and audited; while the roadmap runs a grant is taken as sent, last writer winning.
 Approval keeps its rule above until scoped.

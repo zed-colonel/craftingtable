@@ -1,16 +1,7 @@
-import { cycleAgents } from './agent-profile-policy.js';
-import type { RoadmapActor } from './roadmap-actor.js';
-import { selectionSet } from './agent-resolution.js';
-import {
-  InvariantError,
-  type SourceRepositoryId,
-  type WorkCycleId,
-  type MapAmendmentId,
-} from '@craftingtable/domain';
 import type {
   AuthorizeWorkCycleRemediationRequest,
-  ControllerSummary,
   ControlFinalizationRequest,
+  ControllerSummary,
   IntegrationResolutionRequest,
   PrepareBaselineRequest,
   RecoverDesignRequest,
@@ -18,18 +9,19 @@ import type {
   StartInvestigationRequest,
   StartWorkCycleRequest,
 } from '@craftingtable/contracts';
+import type {
+  AgentRun,
+  CycleOwner,
+  CycleView,
+  WorkCycle,
+  WorkItemId,
+  WorkspaceId,
+} from '@craftingtable/domain';
 import {
-  type AgentRun,
-  cycleActions,
-  guidanceAccepted,
-  settingsChangeable,
-  type CycleOwner,
-  type CycleProjection,
-  type CycleView,
-  type WorkCycle,
-  type WorkItemId,
-  type WorkspaceId,
-  type Worktree,
+  InvariantError,
+  type MapAmendmentId,
+  type SourceRepositoryId,
+  type WorkCycleId,
 } from '@craftingtable/domain';
 import type { GitOperations } from '@craftingtable/git';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
@@ -37,15 +29,43 @@ import type { AgentRunService } from './agent-run-service.js';
 import type { CommandContext } from './auth-service.js';
 import type { BaselinePreparationService } from './baseline-preparation.js';
 import type { BranchService } from './branch-service.js';
+import { CycleControl } from './cycle/commands/control.js';
+import { CycleFinalizationCommands } from './cycle/commands/finalization.js';
+import { CycleInvestigations } from './cycle/commands/investigations.js';
+import { CycleRecovery } from './cycle/commands/recovery.js';
+import { CycleStart } from './cycle/commands/start.js';
+import { decideRestart } from './cycle/core/commands.js';
+import {
+  decideFailure,
+  decideLaunch,
+  decideRefusal,
+  type RefusalDecision,
+} from './cycle/core/effect-decisions.js';
+import { cycleFacts, type KernelFacts } from './cycle/core/facts.js';
+import { decisionLane } from './cycle/core/lanes.js';
+import {
+  type CycleDecision,
+  type CycleEffect,
+  type CycleGuard,
+  decide,
+  decisionSummary,
+} from './cycle/core/machine.js';
+import { nextLook } from './cycle/core/next-look.js';
+import { CycleOutcomes } from './cycle/effects/apply-outcome.js';
+import { CycleFinalizationStage } from './cycle/effects/finalization-stage.js';
+import { CycleIntegration } from './cycle/effects/integration.js';
+import { CycleRemediation } from './cycle/effects/remediation.js';
+import { CycleRestart } from './cycle/effects/restart.js';
+import { CycleWorkflow } from './cycle/effects/workflow.js';
+import { CycleGates } from './cycle/gates.js';
+import { CycleLocks } from './cycle/locks.js';
+import { CycleProjections } from './cycle/projection.js';
+import { CycleSettings } from './cycle/settings.js';
+import { ATTENTION_STATUSES, type CyclePassObserver } from './cycle/shared.js';
+import { CycleWriter } from './cycle/writer.js';
 import { prioritizeRoadmapCycles } from './cycle-priority.js';
-import { investigationLive, stopQuestions, worktreeChangeOpen } from './investigation.js';
 import { NotFoundError } from './errors.js';
 import type { ExecutionService } from './execution-service.js';
-import { mapReadSnapshot } from './map-read-snapshot.js';
-import { ownerPolicy } from './roadmap/owner-policy.js';
-import { cycleFacts, type KernelFacts } from './cycle/core/facts.js';
-import { nextLook } from './cycle/core/next-look.js';
-import { decisionLane } from './cycle/core/lanes.js';
 import {
   ControllerKernel,
   type KernelClock,
@@ -54,59 +74,14 @@ import {
   systemClock,
 } from './kernel/controller-kernel.js';
 import { ControllerFigures } from './kernel/figures.js';
+import { mapReadSnapshot } from './map-read-snapshot.js';
+import { ownerPolicy } from './roadmap/owner-policy.js';
+import type { RoadmapActor } from './roadmap-actor.js';
 import type { RunLog } from './run/shared.js';
-import {
-  decideRestart,
-  guidedRemediationRefused,
-  resumeAtRoundLimit,
-} from './cycle/core/commands.js';
-import {
-  type CycleDecision,
-  type CycleEffect,
-  type CycleGuard,
-  decide,
-  decisionSummary,
-} from './cycle/core/machine.js';
-import {
-  continueDesignFailure,
-  decideFailure,
-  decideLaunch,
-  decideRefusal,
-  decideFinalized,
-  type RefusalDecision,
-} from './cycle/core/effect-decisions.js';
-import type { StepOutcomeDecision } from './cycle/core/step-outcome.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
-import { automatedScopeRecoveryWait } from './scope-recovery-policy.js';
-import { scopeMergeWait, scopeReviewWait } from './scope-repair.js';
-import { operatorQuestionRoutes, unsettledDecisionsAt } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
-import { CycleGates } from './cycle/gates.js';
-import { CycleLocks } from './cycle/locks.js';
-import { CycleSettings } from './cycle/settings.js';
-import {
-  ATTENTION_STATUSES,
-  type CyclePassObserver,
-  latestOutsideLineage,
-  PREPARING_RECOVERY,
-  reviewFacts,
-  reviewNeedsRounds,
-  TERMINAL_CYCLE_STATUSES,
-  withoutFindings,
-} from './cycle/shared.js';
-import { CycleWriter } from './cycle/writer.js';
-import { CycleStart } from './cycle/commands/start.js';
-import { CycleControl } from './cycle/commands/control.js';
-import { CycleFinalizationCommands } from './cycle/commands/finalization.js';
-import { CycleInvestigations } from './cycle/commands/investigations.js';
-import { CycleRecovery } from './cycle/commands/recovery.js';
-import { CycleRemediation } from './cycle/effects/remediation.js';
-import { CycleIntegration } from './cycle/effects/integration.js';
-import { CycleWorkflow } from './cycle/effects/workflow.js';
-import { CycleFinalizationStage } from './cycle/effects/finalization-stage.js';
-import { CycleRestart } from './cycle/effects/restart.js';
 
 export type { CyclePassObserver } from './cycle/shared.js';
 
@@ -119,9 +94,9 @@ export class WorkCycleService {
 
   constructor(
     private readonly storage: CraftingTableStorage,
-    private readonly workspaceService: WorkspaceService,
-    private readonly runs: AgentRunService,
     // Unmarked parameters are read by the modules the constructor builds, not by the service.
+    workspaceService: WorkspaceService,
+    private readonly runs: AgentRunService,
     git: GitOperations | undefined,
     private readonly notifier: WorkspaceEventNotifier,
     private readonly now: () => Date,
@@ -261,9 +236,22 @@ export class WorkCycleService {
       this.settings,
       this.starts,
     );
+    this.projections = new CycleProjections(storage, workspaceService, this.locks);
+    this.outcomes = new CycleOutcomes(
+      runs,
+      this.writer,
+      this.locks,
+      this.remediation,
+      this.integration,
+      this.workflow,
+      this.finalizationStage,
+      this.restart,
+    );
   }
   private readonly kernel: ControllerKernel;
   private readonly locks: CycleLocks;
+  private readonly projections: CycleProjections;
+  private readonly outcomes: CycleOutcomes;
   private readonly writer: CycleWriter;
   private readonly gates: CycleGates;
   private readonly settings: CycleSettings;
@@ -567,141 +555,31 @@ export class WorkCycleService {
   adoptRoadmapRound(cycle: WorkCycle, owner: CycleOwner): WorkCycle {
     return this.recovery.adoptRoadmapRound(cycle, owner);
   }
-  isTransitioning(id: WorkCycleId): boolean {
-    return this.locks.isTransitioning(id);
-  }
-
-  /** The stored cycle, for the access guard's step-up check (R-G9), as `RoadmapService.storedWork`. */
   storedWork(workspaceId: WorkspaceId, cycleId: WorkCycleId): unknown {
-    return this.storage.execution.cycles.find(workspaceId, cycleId);
+    return this.projections.storedWork(workspaceId, cycleId);
   }
-
-  /**
-   * Cycles as the browser reads them.
-   *
-   * Without a work item this is the workspace-wide attention list: only cycles
-   * that have not ended, without the design-recovery blob. Ended cycles are
-   * history, and every page used to download all of them on every refresh
-   * (PERF-05). With a work item it is that item's full detail, history
-   * included. Derived waits and routes are computed only for cycles that have
-   * not ended; they never apply to an ended cycle, except the preparation
-   * notice of a completed cycle being reviewed again.
-   */
   list(
     context: CommandContext,
     workspaceId: WorkspaceId,
     filter: { readonly workItemId?: WorkItemId } = {},
   ): readonly CycleView[] {
-    this.workspaceService.requireAuthorized(context, workspaceId);
-    return this.views(mapReadSnapshot(this.storage), workspaceId, filter);
+    return this.projections.list(context, workspaceId, filter);
   }
-
-  /**
-   * `list` inside a read the caller holds (one transaction and one map snapshot per page
-   * region, R-D5).
-   */
   views(
     tx: StorageRepositories,
     workspaceId: WorkspaceId,
     filter: { readonly workItemId?: WorkItemId } = {},
   ): readonly CycleView[] {
-    const stored = tx.execution.cycles.listForWorkspace(workspaceId);
-    const selected =
-      filter.workItemId === undefined
-        ? stored
-            .filter((c) => !TERMINAL_CYCLE_STATUSES.has(c.status))
-            .map(({ designRecovery: _omitted, ...c }): WorkCycle => withoutFindings(c))
-        : stored.filter((c) => c.workItemId === filter.workItemId);
-    return selected.map((c) => ({ cycle: c, projection: this.projection(tx, c) }));
+    return this.projections.views(tx, workspaceId, filter);
   }
-
-  /** A cycle as a response returns it: the record beside its projection (CTRL-22, R-D5). */
   present(cycle: WorkCycle): CycleView {
-    return { cycle, projection: this.projection(mapReadSnapshot(this.storage), cycle) };
+    return this.projections.present(cycle);
   }
-
-  private projection(tx: StorageRepositories, c: WorkCycle): CycleProjection {
-    const agents = cycleAgents(tx, c);
-    const nextAgentSelections = selectionSet(agents);
-    if (TERMINAL_CYCLE_STATUSES.has(c.status))
-      return {
-        nextAgentSelections,
-        agents,
-        actions: [],
-        // A completed cycle can be reviewed again; its preparation still shows.
-        ...(this.locks.isTransitioning(c.id) ? { scopeReviewWait: PREPARING_RECOVERY } : {}),
-      };
-    const wait = this.locks.isTransitioning(c.id)
-      ? PREPARING_RECOVERY
-      : (automatedScopeRecoveryWait(tx, c) ?? scopeReviewWait(tx, c));
-    const mergeWait = scopeMergeWait(tx, c);
-    const unsettled = unsettledDecisionsAt(tx, c);
-    const currentRun = tx.execution.runs.find(c.workspaceId, c.currentRunId);
-    const turn =
-      currentRun &&
-      tx.execution.runEvents.latestOfKind(c.workspaceId, currentRun.id, 'turn-completed');
-    // The browser offers what the daemon would accept: the same rule, with the tree's
-    // newest run, which a resume adopts when it continues the cycle's lineage.
-    const latestRunId = tx.execution.runs.latestIdForWorktree(c.workspaceId, c.worktreeId);
-    const actions = cycleActions(
-      { ...c, ...(unsettled.length ? { unsettledDecisions: unsettled } : {}) },
-      latestRunId,
-      reviewNeedsRounds(tx, c, currentRun),
-      {
-        questions: !!stopQuestions(tx, c),
-        live: investigationLive(c),
-        changed: worktreeChangeOpen(c),
-      },
-      latestOutsideLineage(tx, c, latestRunId),
-      resumeAtRoundLimit(
-        c,
-        latestRunId && tx.execution.runs.find(c.workspaceId, latestRunId),
-        reviewFacts(tx, c),
-      ),
-      // The guided resume's rule, read as the command reads it (R-C17 part 4, decision 1).
-      guidanceAccepted(
-        c,
-        latestRunId,
-        tx.execution.runs.liveForWorktree(c.workspaceId, c.worktreeId).length > 0,
-        guidedRemediationRefused(
-          c,
-          latestRunId && tx.execution.runs.find(c.workspaceId, latestRunId),
-          reviewFacts(tx, c),
-        ),
-      ),
-      // And the settings change's (decision 3).
-      settingsChangeable(c, {
-        investigationLive: investigationLive(c),
-        worktreeChangeOpen: worktreeChangeOpen(c),
-        amendmentRetired: tx.amendments.retired(c.workspaceId, c.worktreeId),
-        transitioning: this.locks.isTransitioning(c.id),
-      }),
-    );
-    const routes =
-      c.status === 'needs-attention' &&
-      c.executionScope?.kind === 'slice' &&
-      turn?.kind === 'turn-completed'
-        ? operatorQuestionRoutes(tx, c, turn.payload.resultText)
-        : [];
-    return {
-      nextAgentSelections,
-      agents,
-      actions,
-      ...(unsettled.length ? { unsettledDecisions: unsettled } : {}),
-      ...(wait ? { scopeReviewWait: wait } : {}),
-      ...(mergeWait ? { mergeRequirementsWait: mergeWait } : {}),
-      ...(routes.length ? { questionRoutes: routes } : {}),
-    };
-  }
-
-  /**
-   * Reminders for this cycle's item wait: a command is preparing its transition, or an
-   * investigation is gathering what the operator needs to answer (R-C16).
-   */
   holdsReminders(workspaceId: WorkspaceId, id: WorkCycleId): boolean {
-    if (this.locks.isTransitioning(id)) return true;
-    const cycle = this.storage.execution.cycles.find(workspaceId, id);
-    return !!cycle && investigationLive(cycle);
+    return this.projections.holdsReminders(workspaceId, id);
+  }
+  isTransitioning(id: WorkCycleId): boolean {
+    return this.locks.isTransitioning(id);
   }
 
   /**
@@ -1223,7 +1101,12 @@ export class WorkCycleService {
         return this.runEffect(cycle, decision.effect);
       case 'outcome':
         if (!decision.worktree) throw new NotFoundError();
-        return this.applyStepOutcome(cycle, decision.run, decision.worktree, decision.outcome);
+        return this.outcomes.applyStepOutcome(
+          cycle,
+          decision.run,
+          decision.worktree,
+          decision.outcome,
+        );
     }
   }
 
@@ -1241,124 +1124,6 @@ export class WorkCycleService {
         return;
       case 'advance-resolution':
         return this.integration.advanceResolution(cycle);
-    }
-  }
-
-  /** Carries out what `decideStepOutcome` decided for the current run (R-B2). */
-  private async applyStepOutcome(
-    cycle: WorkCycle,
-    run: AgentRun,
-    worktree: Worktree,
-    decision: StepOutcomeDecision,
-  ): Promise<void> {
-    switch (decision.kind) {
-      case 'wait-for-run':
-        return;
-      case 'resume-after-restart':
-        await this.restart.resumeAfterRestart(cycle, run);
-        return;
-      case 'end-turn':
-        if (!this.locks.ending.has(run.id) && this.runs.finishCycleTurn(cycle))
-          this.locks.ending.add(run.id);
-        return;
-      case 'attention':
-        // A drain stops the loop before it interrupts runs; this only guards a late pass.
-        if (decision.code === 'restart-session-lost' && this.runs.isDraining()) return;
-        break;
-      default:
-        break;
-    }
-    this.locks.ending.delete(run.id);
-    if (decision.workflow) cycle = this.writer.change(cycle, { workflow: decision.workflow });
-    switch (decision.kind) {
-      case 'attention':
-        this.writer.attention(
-          cycle,
-          decision.code,
-          decision.message,
-          undefined,
-          decision.repairAttempts,
-        );
-        return;
-      case 'repair-output':
-        await this.restart.repairOutput(cycle, run, decision);
-        return;
-      case 'schedule-service-retry':
-        this.writer.change(
-          cycle,
-          {
-            attempt: decision.attempt,
-            ...(decision.runDeadlineAt ? { runDeadlineAt: decision.runDeadlineAt } : {}),
-            reason: decision.reason,
-          },
-          'provider-backoff',
-        );
-        return;
-      case 'next-step':
-        await this.writer.next(
-          cycle,
-          decision.step,
-          run,
-          undefined,
-          decision.changes,
-          decision.action,
-        );
-        return;
-      case 'advance-resolution':
-        await this.integration.advanceResolution(cycle);
-        return;
-      case 'continue-design':
-        try {
-          this.restart.continueDesign(cycle, run, decision.reason);
-        } catch (error) {
-          // The investigation's stop stays the operator's, with its results panel.
-          const stopped = continueDesignFailure(error);
-          this.writer.attention(cycle, stopped.code, stopped.message);
-        }
-        return;
-      case 'design-wait':
-        this.writer.change(cycle, {
-          waits: { design: decision.designWait },
-          reason: decision.reason,
-        });
-        return;
-      case 'finalize-implementation': {
-        const finalized = await this.remediation.finalizeImplementation(cycle, run);
-        if (!finalized) return;
-        if (await this.integration.refreshIntegration(finalized, run, true)) return;
-        let head: string | undefined;
-        if (finalized.step === 'remediate')
-          try {
-            head = await this.writer.cleanHead(finalized);
-          } catch {
-            head = undefined;
-          }
-        const reviewed = decideFinalized({
-          step: finalized.step,
-          unchangedTwice: !!head && this.remediation.remediatedNothingTwice(finalized, run, head),
-        });
-        if (reviewed.kind === 'attention') {
-          this.writer.attention(finalized, reviewed.code, reviewed.message);
-          return;
-        }
-        await this.writer.next(finalized, 'review', run);
-        return;
-      }
-      case 'advance-finalization-stage':
-        await this.finalizationStage.advanceFinalizationStage(cycle, run, decision.noQuestions);
-        return;
-      case 'remediate-review':
-        if (decision.clearActiveReview && cycle.workflow)
-          cycle = this.writer.change(cycle, {
-            workflow: { ...cycle.workflow, activeReview: null, waiting: null },
-          });
-        await this.remediation.reviewRemediation(cycle, run);
-        return;
-      case 'approve-review':
-        await this.workflow.approveReview(cycle, run, worktree, decision);
-        return;
-      default:
-        return;
     }
   }
 }

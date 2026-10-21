@@ -1063,6 +1063,9 @@ export class ExecutionService {
               'conflict',
               'The execution changed while recording evidence. Refresh and try again.',
             );
+          // An approval that landed across the Git inspection changed the review's packet: it
+          // is refused here, not recorded stale (R-B6 increment 3 review L-1).
+          this.runtimeEvidence?.assertRun(tree, run.id);
           delegation?.check();
           const at = this.now().toISOString();
           const result = this.storage.transaction((tx) => {

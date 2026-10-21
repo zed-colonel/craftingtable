@@ -69,7 +69,7 @@ const trees = [
   }),
   tree('manual', 'slice', 'P/merge', { executionScope: undefined }),
 ];
-const affected = (consumers: readonly string[] = []) =>
+const affected = (consumers: readonly string[] = [], displacedConsumers: readonly string[] = []) =>
   decisionAffectedTrees(
     {
       execution: { worktrees: { listActive: (ws: string) => (ws === 'ws' ? trees : []) } },
@@ -80,6 +80,12 @@ const affected = (consumers: readonly string[] = []) =>
       subject: { kind: 'checkpoint', sourceId: 'ADR' },
       architectureDecision: { consumers: consumers.map((sliceId) => ({ sliceId })) },
     } as unknown as EvidenceSubmissionHead,
+    [
+      {
+        subject: { kind: 'checkpoint', sourceId: 'ADR' },
+        architectureDecision: { consumers: displacedConsumers.map((sliceId) => ({ sliceId })) },
+      } as unknown as EvidenceSubmissionHead,
+    ],
   ).map((t) => t.id);
 
 it('an approval affects the trees of the map’s binding whose slices require its checkpoint, or a clause names', () => {
@@ -87,6 +93,16 @@ it('an approval affects the trees of the map’s binding whose slices require it
   expect(affected()).toEqual(['start', 'merge', 'verify', 'parent-p', 'parent-q']);
   // A clause decision also reaches the slices it names as consumers, and their parents.
   expect(affected(['Q/named'])).toEqual([
+    'start',
+    'merge',
+    'verify',
+    'named',
+    'parent-p',
+    'parent-q',
+  ]);
+  // The approval it displaces (the newest of its checkpoint and coverage) leaves its own named
+  // consumers' packets too (increment 3 review M-1).
+  expect(affected([], ['Q/named'])).toEqual([
     'start',
     'merge',
     'verify',
@@ -146,11 +162,19 @@ it('a tree’s work in flight is read from its runs, launches, reservations, mer
     merge?: string;
     review?: string;
     status?: string;
+    investigations?: number;
   }) =>
     decisionTreeWork(
       {
         execution: {
-          runs: { liveForWorktree: () => Array.from({ length: fields.live ?? 0 }) },
+          runs: {
+            liveForWorktree: () => [
+              ...Array.from({ length: fields.live ?? 0 }, () => ({})),
+              ...Array.from({ length: fields.investigations ?? 0 }, () => ({
+                profileSelection: { investigationId: 'i' },
+              })),
+            ],
+          },
           merges: { latest: () => (fields.merge ? { status: fields.merge } : undefined) },
           cycles: {
             activeForWorktree: () => ({
@@ -172,6 +196,8 @@ it('a tree’s work in flight is read from its runs, launches, reservations, mer
     mergeReserved: false,
   });
   expect(facts({ live: 1 }).liveRun).toBe(true);
+  // A question stop's investigation freezes no digest (increment 3 review L-4).
+  expect(facts({ investigations: 1 }).liveRun).toBe(false);
   expect(facts({ launches: [{ workspaceId: 'ws', worktreeId: 't' }] }).launching).toBe(true);
   expect(facts({ launches: [{ workspaceId: 'ws', worktreeId: 'u' }] }).launching).toBe(false);
   expect(facts({ launches: [{ workspaceId: 'ws-2', worktreeId: 't' }] }).launching).toBe(false);

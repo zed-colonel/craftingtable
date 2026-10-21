@@ -4,9 +4,9 @@
 - **Date:** 2026-09-19
 - **Amended:** 2026-09-25 (R-C3a): an answered investigation continues
 - **Amended:** 2026-10-02 (R-C16): investigating any question stop
-- **Amended:** 2026-10-20 (R-B6): approval waits only for the work it is an input of
 - **Amended:** 2026-10-05 (R-C16): the daemon checks that an investigation left the worktree unchanged
 - **Amended:** 2026-10-12 (R-I7): a read-only Codex run gets a read-only permission profile with the sandboxed runs' denied reads, not Codex's legacy read-only sandbox
+- **Amended:** 2026-10-21 (R-B6): approval waits only for the work it is an input of
 
 Design recovery must distinguish approved facts, outstanding predecessor work, actual
 operator choices and planning conflicts. Each new design supplies a structured
@@ -29,7 +29,7 @@ accepted plan forward; ADR-050's amendment). It never passes the full ADR or wai
 verification or publication requirements. Original imported requirements remain preserved;
 the reviewed overlay and its retained obligations accompany affected runs.
 
-Approval requires paused scheduling and no live map runs (amended 2026-10-20, below). Relevant approval identities
+Approval requires paused scheduling and no live map runs (amended 2026-10-21, below). Relevant approval identities
 are frozen in run environments; changing them invalidates affected review receipts without
 rewriting history or invalidating unrelated predecessors. Predecessor receipts carry an
 explicit current/stale indication, and phase requirements are distinguished from observed
@@ -129,16 +129,18 @@ A difference fails the investigation as `worktree-changed`, whatever its run fou
 A record started before the check is not compared. A roadmap's Stop ends its stops'
 investigations at once, uncompared, since nothing will build on those trees.
 
-## Amendment 2026-10-20: approval waits only for the work it is an input of (R-B6)
+## Amendment 2026-10-21: approval waits only for the work it is an input of (R-B6)
 
 Operator decisions 6 and 12. Approving a decision no longer needs the roadmap paused or the map
 quiet. It changes the decision packet of the scopes that use it, those whose slices require its
-checkpoint at start, merge or verify and those a clause decision names, and only their active
-worktrees' work in flight waits: a live run, a launch being prepared, a phase reservation's
+checkpoint at start, merge or verify and those a clause decision names (with those the approval
+it displaces named), and only their active worktrees' work in flight waits: a live run, a launch being prepared, a phase reservation's
 holder, a reserved merge (merged without the digest checked again) and a controller review (whose
 acceptance follows an await). Each such tree is named, with what it waits for. Work on other
 scopes, a cycle between steps (its next launch reads the new packet) and a decision preparation
-(its worktree has no scope) hold nothing. A review that finished before the approval and is not
+(its worktree has no scope) hold nothing, nor does a question stop's investigation, nor a review
+left at a stop (resuming it reads the packet again). A scope receipt recorded after an approval
+landed across its Git inspection is refused rather than recorded stale. A review that finished before the approval and is not
 yet merged is still refused at the merge gate and reviewed again, as before. Several proposals
 approved together are each decided on their own: one refused is reported with its reason and
 left selected.

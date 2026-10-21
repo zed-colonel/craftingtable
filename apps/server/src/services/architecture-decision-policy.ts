@@ -3,6 +3,7 @@ import {
   type ConcurrencyDefinition,
   type EvidenceSubmissionHead,
   type ExecutionScope,
+  isInvestigationRun,
   mapCapabilities,
   type WorkspaceId,
   type ConcurrencyDefinitionId,
@@ -189,21 +190,32 @@ function decisionsForScope(tx: StorageRepositories, ws: WorkspaceId, scope: Exec
 /**
  * The active worktrees whose decision packet approving this proposal changes (R-B6, decision 6):
  * those of a scope on its binding revision whose slices require its checkpoint, or that a clause
- * decision names as a consumer, as `decisionsForScope` reads them.
+ * decision names as a consumer, as `decisionsForScope` reads them. A packet holds the newest
+ * approval per checkpoint and coverage, so the approval it displaces leaves its own consumers'
+ * packets too (increment 3 review M-1).
  */
 export function decisionAffectedTrees(
   tx: StorageRepositories,
   d: ConcurrencyDefinition,
   s: EvidenceSubmissionHead,
+  displaced: readonly Pick<
+    EvidenceSubmissionHead,
+    'subject' | 'architectureDecision'
+  >[] = approvedArchitectureDecisions(tx, d.workspaceId, d.id, s.bindingRevision).filter(
+    (a) =>
+      a.subject.sourceId === s.subject.sourceId &&
+      a.architectureDecision?.coverage === s.architectureDecision?.coverage,
+  ),
 ): readonly Worktree[] {
-  return tx.execution.worktrees
-    .listActive(d.workspaceId)
-    .filter(
-      (tree) =>
-        tree.executionScope?.definitionId === d.id &&
-        tree.executionScope.bindingRevision === s.bindingRevision &&
-        scopeUsesDecision(scopeSlices(d, tree.executionScope), s),
-    );
+  return tx.execution.worktrees.listActive(d.workspaceId).filter((tree) => {
+    if (
+      tree.executionScope?.definitionId !== d.id ||
+      tree.executionScope.bindingRevision !== s.bindingRevision
+    )
+      return false;
+    const slices = scopeSlices(d, tree.executionScope);
+    return [s, ...displaced].some((decision) => scopeUsesDecision(slices, decision));
+  });
 }
 /** What a tree has in flight that read its decision packet and would finish against it. */
 export interface DecisionTreeWork {
@@ -217,7 +229,10 @@ export interface DecisionTreeWork {
 export function decisionTreeWork(tx: StorageRepositories, tree: Worktree): DecisionTreeWork {
   const ws = tree.workspaceId;
   const cycle = tx.execution.cycles.activeForWorktree(ws, tree.id);
-  const liveRun = tx.execution.runs.liveForWorktree(ws, tree.id).length > 0;
+  // A question stop's investigation reads no packet and freezes no digest (review L-4).
+  const liveRun = tx.execution.runs
+    .liveForWorktree(ws, tree.id)
+    .some((run) => !isInvestigationRun(run));
   // A review is at work while its cycle runs or its session is live; one left at a stop waits
   // for the operator and reads the packet again when resumed (R-B6 increment 2 review HIGH-1).
   const review =

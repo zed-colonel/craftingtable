@@ -46,7 +46,7 @@ started cross-project slices stopped at design; WI-ADR-016 alone was asked for i
   changes. A draft, paused, needs-attention or running roadmap may prepare a decision; the
   scheduler's own work is unaffected, since a preparation holds no development capacity, worktree
   of a work item or merge authority.
-- Approval keeps its rule: the roadmap is paused and no work on the map is live. A live
+- Approval keeps its rule (amended 2026-10-21, below): the roadmap is paused and no work on the map is live. A live
   preparation run no longer counts as work on the map. It only proposes; a proposal is checked
   against its exact binding when it is saved, and the operator reviews its text before approving.
   A preparation whose context predates another approval is at worst a stale recommendation,
@@ -63,7 +63,7 @@ started cross-project slices stopped at design; WI-ADR-016 alone was asked for i
   failed preparation waits for the operator's explicit retry, as before. Each run uses its owning
   entry's investigation profile and acts as the grantor, and stops being launched once the grant
   is revoked or the grantor loses an editor role.
-- Several saved proposals may be approved together in one pause: the operator marks each as
+- Several saved proposals may be approved together in one pause (amended 2026-10-21, below): the operator marks each as
   reviewed, one rationale is recorded with each, and each is approved through the same command
   and checks as a single approval. Nothing is approved without the operator.
 
@@ -88,6 +88,7 @@ as a pause made them; the next pass decides them under the new grant. A merge is
 it is reserved; a reservation then completes as reserved, or goes to the operator. Grants stay
 append-only and audited; while the roadmap runs a grant is taken as sent, last writer winning.
 
-Operator decisions 6 and 12. Approval no longer needs the roadmap paused: it waits only for the
-work in flight on the trees it is an input of (ADR-059, amended the same day), and proposals
-approved together are each decided on their own rather than in one pause.
+Operator decisions 6 and 12 (built 2026-10-21). Approval no longer needs the roadmap paused: it
+waits only for the work in flight on the trees it is an input of (ADR-059, amended the same day),
+and proposals approved together are each decided on their own rather than in one pause, one
+refused reported with its reason and left selected.

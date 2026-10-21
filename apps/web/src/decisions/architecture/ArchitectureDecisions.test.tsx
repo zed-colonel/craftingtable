@@ -291,7 +291,7 @@ it('keeps investigation evidence accessible when its structured recommendation i
   expect(screen.queryByRole('button', { name: 'Review recommendation' })).toBeNull();
   expect(request).not.toHaveBeenCalled();
 });
-it('approves several saved decisions in one pause, each reviewed, with one rationale (R-C3b)', async () => {
+it('approves several saved decisions together, each reviewed, with one rationale (R-C3b)', async () => {
   const second: ArchitectureDecisionInbox['decisions'][number] = {
     ...decisionInbox.decisions[0]!,
     checkpointId: 'LOCAL-ADR-013',
@@ -340,7 +340,7 @@ it('approves several saved decisions in one pause, each reviewed, with one ratio
     },
   ]);
 });
-it('offers no batch approval while scheduling runs (R-C3b)', () => {
+it('offers no batch approval while the map has a blocker (R-C3b)', () => {
   const blocked: ArchitectureDecisionInbox = {
     ...decisionInbox,
     blockers: ['Refresh the exact plan binding before approving decisions.'],
@@ -428,6 +428,72 @@ it('approves only the proposals ticked as reviewed, lists none with issues, and 
   expect(
     (within(batch).getByRole('checkbox', { name: /LOCAL-ADR-012/ }) as HTMLInputElement).checked,
   ).toBe(false);
+});
+
+it('keeps a batch’s report when its approvals leave fewer than two saved proposals (R-B6 increment 3 review M-2)', async () => {
+  const record = (id: string, proposal: string) => ({
+    ...decisionRecord,
+    id,
+    proposal: { ...decisionRecord.proposal, proposal },
+  });
+  const card = (
+    checkpointId: string,
+    records: ArchitectureDecisionInbox['decisions'][number]['records'],
+  ) => ({ ...decisionInbox.decisions[0]!, checkpointId, records });
+  const first = record('00000000-0000-4000-8000-000000000011', 'First.');
+  const second = record('00000000-0000-4000-8000-000000000012', 'Second.');
+  const inbox = (decidedFirst: boolean): ArchitectureDecisionInbox => ({
+    ...decisionInbox,
+    decisions: [
+      card('LOCAL-ADR-012', [
+        decidedFirst
+          ? {
+              ...first,
+              decision: {
+                id: 'approval',
+                workspaceId: asWorkspaceId('ws'),
+                submissionId: asEvidenceSubmissionId(first.id),
+                outcome: 'accepted' as const,
+                rationale: 'Reviewed.',
+                decidedAt: '2026-10-21T00:00:00Z',
+                decidedByUserId: asUserId('owner'),
+              },
+            }
+          : first,
+      ]),
+      card('LOCAL-ADR-013', [second]),
+    ],
+  });
+  const waiting = 'Wait for the merge on ct/b to finish: this decision is one of its inputs.';
+  vi.mocked(request)
+    .mockResolvedValueOnce(view(inbox(true)))
+    .mockRejectedValueOnce(new Error(waiting));
+  // The approved view comes back in, as the page does.
+  function Harness() {
+    const [data, setData] = useState(inbox(false));
+    return (
+      <SharedDecisions
+        data={data}
+        csrfToken="csrf"
+        disabled={false}
+        onChanged={(v) => setData(v.decisionInbox!)}
+      />
+    );
+  }
+  render(<Harness />);
+  const batch = screen.getByRole('region', { name: 'Approve saved decisions' });
+  for (const id of ['012', '013'])
+    fireEvent.click(within(batch).getByRole('checkbox', { name: new RegExp(`LOCAL-ADR-${id}`) }));
+  fireEvent.change(within(batch).getByLabelText('Approval rationale for the batch'), {
+    target: { value: 'Reviewed.' },
+  });
+  fireEvent.click(within(batch).getByRole('button', { name: 'Approve reviewed decisions' }));
+  await screen.findByText(`Approved LOCAL-ADR-012. Not approved: LOCAL-ADR-013: ${waiting}`);
+  const region = screen.getByRole('region', { name: 'Approve saved decisions' });
+  expect(within(region).getByRole('status').textContent).toBe('Approved LOCAL-ADR-012.');
+  expect(
+    (within(region).getByRole('checkbox', { name: /LOCAL-ADR-013/ }) as HTMLInputElement).checked,
+  ).toBe(true);
 });
 
 it('gives a decision a stopped slice waits on a card and a one-step brief before any exists (LIVE-18)', async () => {

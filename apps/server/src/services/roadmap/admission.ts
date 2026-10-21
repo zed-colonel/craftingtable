@@ -33,10 +33,11 @@ import {
   asWorkCycleId,
   asWorktreeId,
   DEFAULT_ROADMAP_SCHEDULING,
+  required,
   type Roadmap,
   type RoadmapAttempt,
-  type RoadmapEntry,
   roadmapAttention,
+  type RoadmapEntry,
   sameExecutionScope,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
@@ -347,7 +348,9 @@ export class RoadmapAdmission {
             const check = () => {
               const current = this.writer.find(roadmap.workspaceId, roadmap.id);
               this.writer.authority(current);
-              const queued = current.attempts.find((a) => a.id === attempt!.id);
+              const queued = current.attempts.find(
+                (a) => a.id === required(attempt, 'the queued review’s attempt').id,
+              );
               if (
                 current.status !== 'running' ||
                 current.entryHolds?.[entry.id] ||
@@ -362,8 +365,9 @@ export class RoadmapAdmission {
                 refresh &&
                 this.storage.runtimeEvidence.generations(
                   roadmap.workspaceId,
-                  entry.executionScope!.definitionId,
-                  entry.executionScope!.bindingRevision,
+                  required(entry.executionScope, "the review entry's execution scope").definitionId,
+                  required(entry.executionScope, "the review entry's execution scope")
+                    .bindingRevision,
                 )[0]?.id !== refresh.runtimeId
               )
                 conflict(
@@ -371,15 +375,18 @@ export class RoadmapAdmission {
                 );
               if (
                 this.storage.execution.cycles.find(roadmap.workspaceId, cycle.id)?.currentRunId !==
-                (refresh ?? requested)!.sourceRunId
+                required(refresh ?? requested, 'the queued review’s request').sourceRunId
               )
                 conflict('The queued review changed. Inspect its manual recovery before resuming.');
               const blockers = scopePhaseBlockers(
                 this.storage,
                 roadmap.workspaceId,
                 entry.workItemId,
-                entry.executionScope!,
-                entry.executionScope!.kind === 'slice-verification' ? 'verify' : 'accept',
+                required(entry.executionScope, "the review entry's execution scope"),
+                required(entry.executionScope, "the review entry's execution scope").kind ===
+                  'slice-verification'
+                  ? 'verify'
+                  : 'accept',
                 { ownerId: cycle.currentRunId },
               );
               if (blockers.length) throw new PhaseGateError(blockers);
@@ -397,7 +404,7 @@ export class RoadmapAdmission {
                   const current = this.writer.find(roadmap.workspaceId, roadmap.id);
                   this.writer.change(current, {
                     attempts: current.attempts.map((a) =>
-                      a.id === attempt!.id
+                      a.id === required(attempt, 'the queued review’s attempt').id
                         ? {
                             ...a,
                             status: 'active',
@@ -659,9 +666,12 @@ export class RoadmapAdmission {
   ): Promise<EntryStep | undefined> {
     const ws = roadmap.workspaceId;
     let attempt = this.selection.recoveryFor(roadmap, entry);
-    if (attempt && attempt.recovery!.sourceEntryId !== entry.id)
+    if (
+      attempt &&
+      required(attempt.recovery, 'the recovery round’s state').sourceEntryId !== entry.id
+    )
       return waiting('recovery-round', 'A recovery round for this work item is in progress.', {
-        entryId: attempt.recovery!.sourceEntryId,
+        entryId: required(attempt.recovery, 'the recovery round’s state').sourceEntryId,
         cycleId: attempt.cycleId,
       });
     if (!attempt) {
@@ -680,17 +690,21 @@ export class RoadmapAdmission {
         );
       if (!decision.owner) {
         if (decision.escalation)
-          throw new EntryHoldError('recovery-not-converging', decision.reason!);
+          throw new EntryHoldError(
+            'recovery-not-converging',
+            required(decision.reason, 'the escalation’s reason'),
+          );
         // One fact, one stop (R-C10's follow-up, decision 1): the review's own stop carries a
         // round recovery declined; the entry waits on it with the reason, and recovery asks again
         // on the next pass, so the round starts once the reason clears. A stop the controller
         // claims has no item to carry it, so the decline holds the entry for the operator.
-        const waited = cycleWait(sourceCycle, decision.reason!, entry.id);
+        const reason = required(decision.reason, 'why no recovery round starts');
+        const waited = cycleWait(sourceCycle, reason, entry.id);
         if (waited) return waited;
-        conflict(decision.reason!);
+        conflict(reason);
       }
       const ownerAttempt = roadmap.attempts.find(
-        (a) => a.entryId === decision.owner!.id && !a.recovery,
+        (a) => a.entryId === required(decision.owner, 'the owning slice').id && !a.recovery,
       );
       if (!ownerAttempt) conflict('The owning slice has no roadmap-bound implementation settings.');
       const blocked = this.selection.blocker(
@@ -717,8 +731,8 @@ export class RoadmapAdmission {
         recovery: {
           sourceEntryId: entry.id,
           sourceRunId: sourceCycle.currentRunId,
-          sourceSequence: decision.sourceSequence!,
-          findingFingerprint: decision.fingerprint!,
+          sourceSequence: required(decision.sourceSequence, 'the source review’s turn'),
+          findingFingerprint: required(decision.fingerprint, 'the findings’ fingerprint'),
           phase: 'repair',
           reviewRunIds: this.selection.reviewRunIds(roadmap, entry),
         },
@@ -730,7 +744,10 @@ export class RoadmapAdmission {
       );
     }
     const reserved = attempt;
-    const owner = roadmap.definition.entries.find((e) => e.id === reserved.entryId)!;
+    const owner = required(
+      roadmap.definition.entries.find((e) => e.id === reserved.entryId),
+      'the recovery round’s owning entry',
+    );
     const check = () => {
       const current = this.writer.find(ws, roadmap.id);
       if (
@@ -748,27 +765,33 @@ export class RoadmapAdmission {
         bindingIssues(
           this.storage,
           ws,
-          owner.executionScope!.definitionId,
-          owner.executionScope!.bindingRevision,
+          required(owner.executionScope, 'the owning slice’s scope').definitionId,
+          required(owner.executionScope, 'the owning slice’s scope').bindingRevision,
         ).length
       )
         conflict('The recovery map binding changed. Reconcile the roadmap before continuing.');
     };
     check();
     const context = this.writer.authority(roadmap);
-    if (reserved.recovery!.phase === 'repair') {
+    if (required(reserved.recovery, 'the recovery round’s state').phase === 'repair') {
       const tree = this.storage.execution.worktrees.find(ws, reserved.worktreeId);
       if (tree?.mergedAt) {
         this.writer.updateRecovery(roadmap, reserved, {
           status: 'completed',
           completedAt: tree.mergedAt,
-          recovery: { ...reserved.recovery!, phase: 'verification' },
+          recovery: {
+            ...required(reserved.recovery, 'the recovery round’s state'),
+            phase: 'verification',
+          },
         });
         return MOVED;
       }
       // The operator's command prepares its own round; a failed one is retried from there. One
       // that no request is preparing (it failed, or the daemon stopped) waits on the operator.
-      if (reserved.status === 'preparing' && reserved.recovery!.requestedByUserId) {
+      if (
+        reserved.status === 'preparing' &&
+        required(reserved.recovery, 'the recovery round’s state').requestedByUserId
+      ) {
         if (this.state.preparingRounds.has(reserved.id)) return MOVED;
         conflict(
           'Delegating source fixes did not finish. Repeat Delegate source fixes on the stopped review to continue this repair.',
@@ -781,8 +804,10 @@ export class RoadmapAdmission {
           'turn-completed',
         );
         if (
-          sourceCycle.currentRunId !== reserved.recovery!.sourceRunId ||
-          sourceTurn?.sequence !== reserved.recovery!.sourceSequence
+          sourceCycle.currentRunId !==
+            required(reserved.recovery, 'the recovery round’s state').sourceRunId ||
+          sourceTurn?.sequence !==
+            required(reserved.recovery, 'the recovery round’s state').sourceSequence
         )
           conflict(
             'The source review changed during recovery preparation. Inspect the reserved attempt.',
@@ -809,7 +834,7 @@ export class RoadmapAdmission {
             {
               expectedVersion: sourceCycle.version,
               snapshotDigest: preview.snapshotDigest,
-              sourceId: owner.executionScope!.sourceId,
+              sourceId: required(owner.executionScope, 'the owning slice’s scope').sourceId,
               maxRemediationRounds: frozen.policy.maxRemediationRounds,
               instructions: frozen.instructions,
             },
@@ -863,22 +888,32 @@ export class RoadmapAdmission {
       (e) =>
         e.workItemId === entry.workItemId && e.executionScope && e.executionScope.kind !== 'slice',
     );
-    const verification = reviews.filter((e) => e.executionScope!.kind === 'slice-verification');
+    const verification = reviews.filter(
+      (e) => required(e.executionScope, 'the review entry’s scope').kind === 'slice-verification',
+    );
     const phase = verification.every((e) => this.selection.complete(roadmap, e, this.storage, true))
       ? 'parent-review'
       : 'verification';
-    if (phase !== reserved.recovery!.phase) {
-      this.writer.updateRecovery(roadmap, reserved, { recovery: { ...reserved.recovery!, phase } });
+    if (phase !== required(reserved.recovery, 'the recovery round’s state').phase) {
+      this.writer.updateRecovery(roadmap, reserved, {
+        recovery: { ...required(reserved.recovery, 'the recovery round’s state'), phase },
+      });
       return MOVED;
     }
     const target = (
       phase === 'verification'
         ? verification
-        : reviews.filter((e) => e.executionScope!.kind === 'parent-acceptance')
+        : reviews.filter(
+            (e) =>
+              required(e.executionScope, 'the review entry’s scope').kind === 'parent-acceptance',
+          )
     ).find((e) => !this.selection.complete(roadmap, e, this.storage, true));
     if (!target) {
       this.writer.updateRecovery(roadmap, reserved, {
-        recovery: { ...reserved.recovery!, phase: 'completed' },
+        recovery: {
+          ...required(reserved.recovery, 'the recovery round’s state'),
+          phase: 'completed',
+        },
       });
       return MOVED;
     }
@@ -898,38 +933,42 @@ export class RoadmapAdmission {
       this.storage,
       ws,
       target.workItemId,
-      target.executionScope!,
+      required(target.executionScope, 'the review entry’s scope'),
       phase === 'verification' ? 'verify' : 'accept',
       { ownerId: cycle.currentRunId },
     );
     if (blockers.length) throw gated(new PhaseGateError(blockers), target.id);
-    const prior = reserved.recovery!.reviewRunIds[target.id];
+    const prior = required(reserved.recovery, 'the recovery round’s state').reviewRunIds[target.id];
     if (
       cycle.status === 'completed' ||
       (cycle.currentRunId === prior && ['needs-attention', 'paused'].includes(cycle.status))
     ) {
-      const restarts = reserved.recovery!.reviewRestarts?.[target.id] ?? 0;
+      const restarts =
+        required(reserved.recovery, 'the recovery round’s state').reviewRestarts?.[target.id] ?? 0;
       const settings =
-        attemptDefinition(this.storage, roadmap, reviewAttempt!)?.scheduling ??
-        DEFAULT_ROADMAP_SCHEDULING;
+        attemptDefinition(this.storage, roadmap, required(reviewAttempt, 'the review’s attempt'))
+          ?.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
       if (restarts >= settings.maxIntegrationRefreshes)
         conflict(
           'Recovery review refresh allowance exhausted. Inspect and refresh this scope manually before resuming.',
         );
       const attach = () => {
         const current = this.writer.find(ws, roadmap.id);
-        const round = current.attempts.find((a) => a.id === reserved.id)!;
+        const round = required(
+          current.attempts.find((a) => a.id === reserved.id),
+          'the recovery round',
+        );
         this.writer.change(current, {
           attempts: current.attempts.map((a) =>
-            a.id === reviewAttempt!.id
+            a.id === required(reviewAttempt, 'the review’s attempt').id
               ? { ...a, status: 'active', completedAt: undefined }
               : a.id === reserved.id
                 ? {
                     ...a,
                     recovery: {
-                      ...round.recovery!,
+                      ...required(round.recovery, 'the recovery round’s state'),
                       reviewRestarts: {
-                        ...round.recovery!.reviewRestarts,
+                        ...required(round.recovery, 'the recovery round’s state').reviewRestarts,
                         [target.id]: restarts + 1,
                       },
                     },
@@ -953,7 +992,10 @@ export class RoadmapAdmission {
     if (['needs-attention', 'paused', 'stopped'].includes(cycle.status)) {
       // This round reached an independent verdict. Any further repair consumes a new round.
       this.writer.updateRecovery(roadmap, reserved, {
-        recovery: { ...reserved.recovery!, phase: 'completed' },
+        recovery: {
+          ...required(reserved.recovery, 'the recovery round’s state'),
+          phase: 'completed',
+        },
       });
       return MOVED;
     }

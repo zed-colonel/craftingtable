@@ -500,6 +500,26 @@ it('rechecks delegated membership and denies viewer control while preserving rea
   expect(control.statusCode).toBe(403);
 });
 
+// The authority rule's first refusal, apart from a lost role (R-B7 scheduler half's mutation
+// round: no row told the two apart).
+it('stops a running roadmap whose delegating user was disabled, saying they are no longer active', async () => {
+  const { state, backend } = await roadmapFixture(undefined, { keepWorktree: true });
+  await saveRoadmapRequest(state);
+  await roadmapControl(state, 'start');
+  const db = openDatabase(state.context.storage.databasePath);
+  try {
+    db.prepare(`UPDATE users SET status = 'disabled' WHERE id = ?`).run(state.userId);
+  } finally {
+    db.close();
+  }
+  await waitFor(
+    () => storedRoadmap(state).status === 'needs-attention',
+    'the disabled delegating user',
+  );
+  expect(storedRoadmap(state).reason).toBe('The initiating user is no longer active.');
+  expect(backend.launches).toHaveLength(0);
+});
+
 it('changes future remediation and review models of a started roadmap cycle without rewriting its earlier runs or budget', async () => {
   const codex = new CycleBackend(
     [

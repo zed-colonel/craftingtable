@@ -12,6 +12,7 @@ import {
   type ConcurrencyDefinitionId,
   type MapActivity,
   type MapActivitySettings,
+  required,
   sameExecutionScope,
   startedAttempts,
   targetClosure,
@@ -172,9 +173,10 @@ export class CrossProjectService {
       if (settings.reviewerRoles?.some((role) => !supportedRoles.has(role)))
         conflict('Only reviewer roles declared in this map may be assigned.');
     const closure = targetClosure(d.source, c.targetId, c.selection),
-      binding = this.storage.imports
-        .bindings(ws, d.id)
-        .find((b) => b.revision === c.bindingRevision)!;
+      binding = required(
+        this.storage.imports.bindings(ws, d.id).find((b) => b.revision === c.bindingRevision),
+        'the exact map binding',
+      );
     const old = this.storage.roadmaps.find(ws, input.roadmapId);
     if (
       !amendment &&

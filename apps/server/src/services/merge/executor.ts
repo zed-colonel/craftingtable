@@ -26,6 +26,7 @@ import {
   type FinalizationId,
   type MergeOperation,
   type RepositoryCheckDeclaration,
+  required,
   type RoadmapId,
   type SourceRepository,
   type WorkspaceId,
@@ -701,7 +702,7 @@ export class MergeExecutor {
       sourcePath: proposal.sourcePath,
       checks: proposal.checks,
       definitionDigests: proposal.definitionDigests,
-      rationale: merge.checkAdoption!.rationale,
+      rationale: required(merge.checkAdoption, 'the merge’s check adoption').rationale,
       adoptedByUserId: merge.authorizedByUserId,
       adoptedAt: at,
       adoptedAtMerge: {

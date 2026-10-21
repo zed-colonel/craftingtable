@@ -3,6 +3,7 @@ import {
   asAgentRunId,
   asConcurrencyDefinitionId,
   asMergeOperationId,
+  asRoadmapEntryId,
   asRuntimeGenerationId,
   asWorkCycleId,
   type CycleStop,
@@ -300,6 +301,16 @@ describe("a roadmap's Resume (controlWithin)", () => {
   it('resumes a paused cycle', async () => {
     const f = await pausedEntry();
     expect(await roadmapResume(f)).toEqual({ resumed: [f.cycle.id], hold: undefined });
+  });
+
+  it('resumes the paused slice cycle of an attempt whose entry the definition no longer has (R-B7 increment 12)', async () => {
+    const f = await pausedEntry();
+    const outcome = await roadmapResume(
+      f,
+      () => writeAttempt(f.state, f.attempt.id, { entryId: asRoadmapEntryId(randomUUID()) }),
+      true,
+    );
+    expect(outcome.resumed).toEqual([f.cycle.id]);
   });
 
   it('resumes a cycle that needs attention at a stop a plain resume continues', async () => {

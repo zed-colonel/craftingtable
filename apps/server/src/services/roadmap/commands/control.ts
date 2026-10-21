@@ -12,11 +12,12 @@ import { ended, RESUMED_REASON, conflict } from '../shared.js';
 import { investigationHolds } from '../../investigation.js';
 import type { RoadmapSettlement } from '../../roadmap-settlement.js';
 import {
+  required,
+  roadmapAttention,
+  type RoadmapEntryId,
   type RoadmapId,
   type RoadmapView,
-  roadmapAttention,
   type WorkspaceId,
-  type RoadmapEntryId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext } from '../../auth-service.js';
@@ -100,7 +101,8 @@ export class RoadmapControl {
         // An item the operator paused stays paused until its own Resume.
         if (roadmap.entryHolds?.[attempt.entryId]?.status === 'paused') continue;
         const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
-        const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId)!;
+        // An attempt can outlive its entry (an amendment dropped it): its slice cycle still resumes.
+        const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId);
         if (!this.holds.resumesCycle(roadmap, entry, attempt, cycle)) continue;
         try {
           await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
@@ -212,7 +214,7 @@ export class RoadmapControl {
             entry,
             cycle,
           );
-          if (decision.escalation) conflict(decision.reason!);
+          if (decision.escalation) conflict(required(decision.reason, 'the escalation’s reason'));
         }
         if (cycle && ['stopped', 'completed'].includes(cycle.status) && !recovery)
           conflict(

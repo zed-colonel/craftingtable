@@ -16,13 +16,14 @@ import {
   asRoadmapAttemptId,
   asWorkCycleId,
   asWorktreeId,
+  required,
   type Roadmap,
   type RoadmapAttempt,
   roadmapAttention,
   sameExecutionScope,
   type WorkCycle,
-  type WorkspaceId,
   type WorkCycleId,
+  type WorkspaceId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import type { AuthContext } from '../auth-service.js';
@@ -61,10 +62,12 @@ export class RoadmapRecoveryRounds {
     const source = this.storage.execution.cycles.find(ws, cycleId);
     const owned = source && cycleOwnership(this.storage, source);
     let roadmap = owned?.roadmap;
-    const sourceEntry = roadmap?.definition.entries.find((e) => e.id === owned!.attempt.entryId);
+    const sourceEntry = roadmap?.definition.entries.find(
+      (e) => e.id === required(owned, 'the source cycle’s owner').attempt.entryId,
+    );
     const owner = roadmap?.definition.entries.find(
       (e) =>
-        e.workItemId === source!.workItemId &&
+        e.workItemId === required(source, 'the source cycle').workItemId &&
         e.executionScope?.kind === 'slice' &&
         e.executionScope.sourceId === input.sourceId,
     );
@@ -82,7 +85,7 @@ export class RoadmapRecoveryRounds {
     // A round this command prepared earlier and that created nothing is retried in place.
     const retry =
       open?.status === 'preparing' &&
-      open.recovery!.requestedByUserId &&
+      required(open.recovery, 'the open recovery round’s state').requestedByUserId &&
       !this.state.preparingRounds.has(open.id) &&
       open.entryId === owner.id &&
       !this.storage.execution.cycles.find(ws, open.cycleId)
@@ -94,16 +97,17 @@ export class RoadmapRecoveryRounds {
     if (!reserved) {
       const turn = this.storage.execution.runEvents.latestOfKind(
         ws,
-        source!.currentRunId,
+        required(source, 'the source cycle').currentRunId,
         'turn-completed',
       );
       const report = turn?.kind === 'turn-completed' ? turn.payload.reviewReport : undefined;
       if (!turn || report?.status !== 'complete')
         conflict('Source fixes need the review’s complete report.');
       // The owning slice's existing worktree, if any, is where the repair continues.
-      const existing = collectScopeRepair(mapReadSnapshot(this.storage), source!).candidates.find(
-        (c) => c.scope.sourceId === input.sourceId,
-      )?.worktreeId;
+      const existing = collectScopeRepair(
+        mapReadSnapshot(this.storage),
+        required(source, 'the source cycle'),
+      ).candidates.find((c) => c.scope.sourceId === input.sourceId)?.worktreeId;
       reserved = {
         id: asRoadmapAttemptId(randomUUID()),
         entryId: owner.id,
@@ -114,7 +118,7 @@ export class RoadmapRecoveryRounds {
         createdAt: this.state.now().toISOString(),
         recovery: {
           sourceEntryId: sourceEntry.id,
-          sourceRunId: source!.currentRunId,
+          sourceRunId: required(source, 'the source cycle').currentRunId,
           sourceSequence: turn.sequence,
           findingFingerprint: findingFingerprint(report.report.findings),
           phase: 'repair',
@@ -248,7 +252,7 @@ export class RoadmapRecoveryRounds {
         cycle.scopeRepair.sources.find(
           (s) =>
             this.storage.execution.runs.find(ws, asAgentRunId(s.runId))?.worktreeId ===
-            source!.worktreeId,
+            required(source, 'the source cycle').worktreeId,
         ) ?? cycle.scopeRepair.sources[0];
       if (!pinned) continue;
       const turn = this.storage.execution.runEvents.latestOfKind(

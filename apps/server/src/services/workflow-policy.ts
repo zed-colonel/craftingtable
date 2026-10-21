@@ -5,13 +5,14 @@ import type { WorkflowOutput } from './brief-output.js';
 import { createHash } from 'node:crypto';
 import { parseWorkflowReport } from '@craftingtable/contracts';
 import {
-  openQuestionsSection,
+  type AgentRun,
   asAgentRunId,
   asCheckpointId,
-  type AgentRun,
+  heldStop,
+  openQuestionsSection,
+  required,
   type WorkCycle,
   type WorkflowQuestion,
-  heldStop,
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { resolveScope } from './execution-scope.js';
@@ -72,10 +73,18 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
     .filter((c) => ids.has(c.id))
     .map((checkpoint) => {
       const subject = { kind: 'checkpoint' as const, sourceId: checkpoint.id };
-      const spec = subjectRequirements(scope.definition, subject, cycle.executionScope!.sourceId);
+      const spec = subjectRequirements(
+        scope.definition,
+        subject,
+        required(cycle.executionScope, 'the slice cycle’s scope').sourceId,
+      );
       const alias = tx.imports
         .bindings(cycle.workspaceId, scope.definition.id)
-        .find((b) => b.revision === cycle.executionScope!.bindingRevision)
+        .find(
+          (b) =>
+            b.revision ===
+            required(cycle.executionScope, 'the slice cycle’s scope').bindingRevision,
+        )
         ?.bindings.find((b) => b.workItems.some((w) => w.workItemId === cycle.workItemId))?.alias;
       const supported = supportsTechnicalCheckpoint(scope.definition, checkpoint.id, alias);
       // One evaluation says what is pending and what met the rest; the reviewer's evidence
@@ -83,7 +92,7 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
       const prerequisites = prerequisiteEvaluation(
         tx,
         scope.definition,
-        cycle.executionScope!.bindingRevision,
+        required(cycle.executionScope, 'the slice cycle’s scope').bindingRevision,
         subject,
       );
       return {
@@ -100,11 +109,17 @@ export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
             tx,
             cycle.workspaceId,
             scope.definition.id,
-            cycle.executionScope!.bindingRevision,
+            required(cycle.executionScope, 'the slice cycle’s scope').bindingRevision,
             subject,
             new Set(),
             cycle.executionScope,
-          ) || !!stagedDecision(tx, cycle.workspaceId, cycle.executionScope!, checkpoint.id),
+          ) ||
+          !!stagedDecision(
+            tx,
+            cycle.workspaceId,
+            required(cycle.executionScope, 'the slice cycle’s scope'),
+            checkpoint.id,
+          ),
         requirements: spec.requirements,
         caseIds: spec.cases.map((c) => c.id),
         roles: spec.reviewerRoles,
@@ -314,7 +329,11 @@ export function operatorQuestionRoutes(
     tx.imports.definition(cycle.workspaceId, cycle.executionScope.definitionId);
   const ids =
     definition?.source.checkpoints
-      .filter((c) => supportsArchitectureDecision(definition!, c.id) && section.includes(c.id))
+      .filter(
+        (c) =>
+          supportsArchitectureDecision(required(definition, 'the map definition'), c.id) &&
+          section.includes(c.id),
+      )
       .map((c) => asCheckpointId(c.id)) ?? [];
   return ids.length
     ? ids.map((checkpointId) => ({

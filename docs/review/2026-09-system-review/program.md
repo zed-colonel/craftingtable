@@ -1271,6 +1271,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **Increments 8 and 9 (2026-10-21).** The cycle side reads its owning roadmap only through the scheduler's `OwnerPolicy` (check:scope rule 14 holds it), and the scheduler acts on cycles, merges, worktrees and launches through one `RoadmapActor` in place of its loose closures; both change no answer (increment 1's owner rows and closure counts unchanged).
 
+**Increments 10–12 (2026-10-21).** The merge's Git-free checks are pure functions of the merge gate, which check:scope rule 11 holds to the cycle core's rule; the merge and the scope receipt leave `ExecutionService` (1,154 lines) as `MergeExecutor` and `ScopeReceipts`, and the cycle projection and the step outcome's application leave `WorkCycleService` (1,129) as `CycleProjections` and `CycleOutcomes`, by script and checked against the original text. The files this half moved or made take Biome's non-null rule (decision 4); one `!` that was not a fact (a roadmap's Resume of an attempt whose entry an amendment dropped) keeps its answer, pinned by a characterization row.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

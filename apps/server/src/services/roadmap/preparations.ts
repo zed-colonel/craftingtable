@@ -26,6 +26,7 @@ import {
   asCheckpointId,
   asDecisionPreparationId,
   asWorktreeId,
+  required,
   type Roadmap,
   type RoadmapId,
   type RoadmapView,
@@ -113,7 +114,10 @@ export class RoadmapPreparations {
       !supportsArchitectureDecision(d, checkpointId)
     )
       return { refused: 'Choose an architecture decision from the exact current map binding.' };
-    const checkpoint = d.source.checkpoints.find((c) => c.id === checkpointId)!;
+    const checkpoint = required(
+      d.source.checkpoints.find((c) => c.id === checkpointId),
+      'the architecture decision’s checkpoint',
+    );
     const owner = binding.bindings.find((b) => b.alias === checkpoint.owner);
     if (
       !owner?.repositoryId ||
@@ -188,7 +192,10 @@ export class RoadmapPreparations {
     if (!repo) throw new NotFoundError();
     let reserved: import('@craftingtable/domain').DecisionPreparation | undefined;
     try {
-      const result = await this.git!.resolveBranch(repo.rootPath, owner.integrationBranch);
+      const result = await required(this.git, 'the daemon’s Git').resolveBranch(
+        repo.rootPath,
+        owner.integrationBranch,
+      );
       if (!result.ok) conflict(result.failure.message);
       const latest = this.writer.find(ws, roadmap.id);
       if (
@@ -259,11 +266,15 @@ export class RoadmapPreparations {
           current,
           {
             decisionPreparations: transient
-              ? current.decisionPreparations!.filter((p) => p.id !== reserved!.id)
-              : current.decisionPreparations!.map((p) =>
-                  p.id === reserved!.id
-                    ? { ...p, failure: e instanceof Error ? e.message : 'Preparation failed' }
-                    : p,
+              ? required(
+                  current.decisionPreparations,
+                  'the roadmap’s decision preparations',
+                ).filter((p) => p.id !== required(reserved, 'the reserved preparation').id)
+              : required(current.decisionPreparations, 'the roadmap’s decision preparations').map(
+                  (p) =>
+                    p.id === required(reserved, 'the reserved preparation').id
+                      ? { ...p, failure: e instanceof Error ? e.message : 'Preparation failed' }
+                      : p,
                 ),
           },
           'decision-preparation-failed',

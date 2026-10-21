@@ -7,10 +7,11 @@ import type { RoadmapSelection } from './selection.js';
 import type { RoadmapState } from './state.js';
 import { roadmapPath } from '../roadmap-paths.js';
 import {
-  type Roadmap,
-  type WorkspaceId,
   type ConcurrencyDefinitionId,
   holdStop,
+  required,
+  type Roadmap,
+  type WorkspaceId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { ProjectedItem } from '../attention-projector.js';
@@ -137,7 +138,7 @@ export class RoadmapAttention {
       // Each checkpoint ready for the operator's acceptance is its own item, named by its kind
       // and counting the unfinished selected slices that wait on it (R-A5, R-C3b).
       const selection = roadmap.definition.crossProject;
-      const nodes = operator.mapState()!.nodes;
+      const nodes = required(operator.mapState(), 'the cross-project map’s state').nodes;
       const source = tx.imports.definition(workspaceId, selection.definitionId)?.source;
       const needed = operator.needs(entryProgress)?.all ?? new Set();
       for (const node of nodes) {

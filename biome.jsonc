@@ -42,7 +42,9 @@
       // The non-null rule, file by file as R-B7 converts them (operator decision 6, 2026-10-17):
       // a production `!` that is wrong surfaces as an anonymous TypeError far from its cause, so
       // these files use `required` (packages/domain/src/invariant.ts), which names what was absent.
-      // The scheduler half converts the rest and turns the rule on everywhere, removing this list.
+      // The scheduler half adds the files it moved or made (operator decision 4, 2026-10-21, which
+      // amends decision 6); the rest convert after R-B7's third part, which turns the rule on
+      // everywhere and removes this list.
       "includes": [
         "packages/domain/src/invariant.ts",
         "apps/server/src/services/agent-run-service.ts",
@@ -61,7 +63,18 @@
         "apps/server/src/services/scope-resolution.ts",
         "apps/server/src/services/milestone-policy.ts",
         "apps/server/src/services/authority-policy.ts",
-        "apps/server/src/services/command-bounds.ts"
+        "apps/server/src/services/command-bounds.ts",
+        "apps/server/src/services/roadmap-service.ts",
+        "apps/server/src/services/roadmap/**",
+        "apps/server/src/services/roadmap-actor.ts",
+        "apps/server/src/services/roadmap-settlement.ts",
+        "apps/server/src/services/map-state.ts",
+        "apps/server/src/services/cross-project-service.ts",
+        "apps/server/src/services/execution-service.ts",
+        "apps/server/src/services/merge/**",
+        "apps/server/src/services/git-required.ts",
+        "apps/server/src/services/workflow-policy.ts",
+        "apps/server/src/services/cycle-priority.ts"
       ],
       "linter": { "rules": { "style": { "noNonNullAssertion": "error" } } }
     },

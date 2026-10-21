@@ -12,6 +12,7 @@ import {
   type FinalizationId,
   heldStop,
   mergeAdoptsChecks,
+  required,
   type SourceRepository,
   type SourceRepositoryId,
   type WorkItemId,
@@ -803,12 +804,15 @@ export class ExecutionService {
     value: import('@craftingtable/domain').DecisionPreparation,
     actor: RoadmapActor,
   ): Promise<Worktree> {
-    return (await this.createPlanWorktree(
-      context,
-      { ...value, targetBranch: value.integrationBranch },
-      actor.check,
-      'decision',
-    ))!;
+    return required(
+      await this.createPlanWorktree(
+        context,
+        { ...value, targetBranch: value.integrationBranch },
+        actor.check,
+        'decision',
+      ),
+      'the decision worktree',
+    );
   }
 
   private async createPlanWorktree(

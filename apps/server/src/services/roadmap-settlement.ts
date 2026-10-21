@@ -7,8 +7,10 @@ import {
   asRoadmapWindDownId,
   isTerminalAgentRunStatus,
   ownsIntegrationResolution,
+  required,
   type RetirementChoice,
   type Roadmap,
+  type RoadmapId,
   type RoadmapWindDown,
   type RoadmapWindDownView,
   startedAttempts,
@@ -20,7 +22,6 @@ import {
   type WindDownVersion,
   type WorkspaceId,
   type WorktreeId,
-  type RoadmapId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { AgentRunService } from './agent-run-service.js';
@@ -726,7 +727,7 @@ export class RoadmapSettlement {
         if (!repeated)
           this.audit(tx, next, 'incomplete', undefined, {
             step,
-            message: next.incomplete!.message,
+            message: required(next.incomplete, 'the incomplete step').message,
           });
         this.recorded.set(record.roadmapId, cause);
       });

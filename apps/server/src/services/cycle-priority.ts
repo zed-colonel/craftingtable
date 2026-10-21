@@ -1,4 +1,4 @@
-import type { WorkCycle } from '@craftingtable/domain';
+import { required, type WorkCycle } from '@craftingtable/domain';
 import type { OwnerPolicy } from './roadmap/owner-policy.js';
 
 /** Reorder only a running roadmap's own cycles; unrelated/manual work keeps its place. */
@@ -22,9 +22,18 @@ export function prioritizeRoadmapCycles(
     queues.set(owner.roadmapId, queue);
   }
   for (const queue of queues.values())
-    queue.sort((a, b) => owners.get(a.id)!.priority - owners.get(b.id)!.priority);
+    queue.sort(
+      (a, b) =>
+        required(owners.get(a.id), 'the owned cycle’s priority').priority -
+        required(owners.get(b.id), 'the owned cycle’s priority').priority,
+    );
   return cycles.map((cycle) => {
     const owner = owners.get(cycle.id);
-    return owner ? queues.get(owner.roadmapId)!.shift()! : cycle;
+    return owner
+      ? required(
+          required(queues.get(owner.roadmapId), 'the roadmap’s queue').shift(),
+          'the next owned cycle',
+        )
+      : cycle;
   });
 }

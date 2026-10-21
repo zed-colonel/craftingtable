@@ -21,19 +21,20 @@ import type {
 import {
   type AttentionItem,
   DEFAULT_ROADMAP_SCHEDULING,
+  ENTRY_WAIT,
+  holdStop,
+  operatorOwnsAll,
+  PHASE_BLOCKERS,
+  required,
   type Roadmap,
   type RoadmapDefinition,
   type RoadmapId,
   type RoadmapStatusEntry,
   type RoadmapStatusList,
-  type RoadmapView,
-  ENTRY_WAIT,
-  PHASE_BLOCKERS,
-  operatorOwnsAll,
-  type WorkspaceId,
-  startedAttempts,
   roadmapStop,
-  holdStop,
+  type RoadmapView,
+  startedAttempts,
+  type WorkspaceId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import {
@@ -116,7 +117,7 @@ function operatorNeeds(
     });
     const needed: CheckpointNode[] = [];
     while (queue.length) {
-      const key = queue.pop()!;
+      const key = required(queue.pop(), 'a queued checkpoint');
       if (seen.has(key)) continue;
       seen.add(key);
       const node = byKey.get(key);
@@ -238,7 +239,7 @@ export class RoadmapViews {
       version: roadmap.version,
       status: roadmap.status,
       decisions: (d?.source.checkpoints ?? [])
-        .filter((c) => supportsArchitectureDecision(d!, c.id))
+        .filter((c) => supportsArchitectureDecision(required(d, 'the map definition'), c.id))
         .flatMap((c) => {
           const owner = binding?.bindings.find((b) => b.alias === c.owner);
           const entry = roadmap.definition.entries.find(
@@ -537,7 +538,7 @@ export class RoadmapViews {
             ? entries.every((e) => completed.has(e.id))
             : tx.planning.workItems.find(roadmap.workspaceId, node.workItemId)?.status ===
               'completed',
-          requirements: node.requires.map((r) => graph.nodes[r]!.key),
+          requirements: node.requires.map((r) => required(graph.nodes[r], 'a required node').key),
         };
       };
     }
@@ -604,7 +605,11 @@ export class RoadmapViews {
     const known = this.state.readMaps.get(roadmap.id);
     if (known?.commits === this.storage.commits && known.revision === roadmap.definition.revision)
       return known.view;
-    const view = crossProjectState(tx, roadmap.workspaceId, roadmap.definition.crossProject!);
+    const view = crossProjectState(
+      tx,
+      roadmap.workspaceId,
+      required(roadmap.definition.crossProject, 'the cross-project selection'),
+    );
     this.rememberMap(roadmap, view);
     return view;
   }
@@ -669,17 +674,17 @@ export class RoadmapViews {
       : mapGraph({
           roadmapId,
           revision: definition.revision,
-          source: map!.source,
+          source: required(map, 'the roadmap’s map definition').source,
           bindings:
             tx.imports
-              .bindings(workspaceId, map!.id)
+              .bindings(workspaceId, required(map, 'the roadmap’s map definition').id)
               .find((b) => b.revision === selection.bindingRevision)?.bindings ?? [],
           targetId: selection.targetId,
           selection: selection.selection,
         });
     // A few roadmaps' current revisions; an old one is rebuilt if it is ever read again.
     if (this.state.graphs.size >= 32)
-      this.state.graphs.delete(this.state.graphs.keys().next().value!);
+      this.state.graphs.delete(required(this.state.graphs.keys().next().value, 'the oldest graph'));
     this.state.graphs.set(key, graph);
     return graph;
   }
@@ -763,7 +768,7 @@ export class RoadmapViews {
             if (recovery && entry.executionScope?.kind !== 'slice') {
               const repair = snapshot.execution.cycles.find(roadmap.workspaceId, recovery.cycleId);
               const repairNeedsYou =
-                recovery.recovery!.phase === 'repair' &&
+                required(recovery.recovery, 'the recovery round’s state').phase === 'repair' &&
                 repair &&
                 ['paused', 'needs-attention', 'stopped'].includes(repair.status);
               return {
@@ -775,7 +780,7 @@ export class RoadmapViews {
                     : 'paused',
                 reason: repairNeedsYou
                   ? `Owning-slice recovery: ${repair.reason}`
-                  : `Roadmap recovery: ${recovery.recovery!.phase === 'repair' ? 'repair and integration' : recovery.recovery!.phase === 'verification' ? 'fresh independent verification' : 'parent acceptance'}.`,
+                  : `Roadmap recovery: ${required(recovery.recovery, 'the recovery round’s state').phase === 'repair' ? 'repair and integration' : required(recovery.recovery, 'the recovery round’s state').phase === 'verification' ? 'fresh independent verification' : 'parent acceptance'}.`,
               };
             }
             const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
@@ -855,7 +860,10 @@ export class RoadmapViews {
             const definition = attempt
               ? attemptDefinition(snapshot, roadmap, attempt)
               : roadmap.definition;
-            const entry = roadmap.definition.entries.find((e) => e.id === progress.entryId)!;
+            const entry = required(
+              roadmap.definition.entries.find((e) => e.id === progress.entryId),
+              'the progress row’s entry',
+            );
             return {
               ...progress,
               ...(progress.status !== 'completed' &&
@@ -865,7 +873,10 @@ export class RoadmapViews {
               effectiveAutomation: effectiveDelegation(
                 roadmap,
                 definition?.entries.find((e) => e.id === progress.entryId) ??
-                  roadmap.definition.entries.find((e) => e.id === progress.entryId)!,
+                  required(
+                    roadmap.definition.entries.find((e) => e.id === progress.entryId),
+                    'the progress row’s entry',
+                  ),
                 definition ?? roadmap.definition,
               ).automation,
             };
@@ -893,7 +904,7 @@ export class RoadmapViews {
         selection && tx.imports.definition(roadmap.workspaceId, selection.definitionId)?.source;
       if (!selection || !source) return undefined;
       needs ??= operatorNeeds(
-        mapState()!.nodes,
+        required(mapState(), 'the cross-project map’s state').nodes,
         new Set(
           source.slices.flatMap((slice) =>
             slice.merge_requires.flatMap((r) => (r.kind === 'checkpoint' ? [r.id] : [])),

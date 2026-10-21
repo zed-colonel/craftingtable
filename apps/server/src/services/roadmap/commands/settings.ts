@@ -23,17 +23,18 @@ import type {
 } from '@craftingtable/contracts';
 import { roadmapEntryFieldsSchema } from '@craftingtable/contracts';
 import {
+  type AgentSelection,
   asAgentAssignmentId,
   asDelegationAssignmentId,
   DEFAULT_ROADMAP_SCHEDULING,
+  required,
   type Roadmap,
   type RoadmapEntry,
+  type RoadmapEntryId,
   type RoadmapId,
   type RoadmapView,
-  type WorkspaceId,
   startedAttempts,
-  type AgentSelection,
-  type RoadmapEntryId,
+  type WorkspaceId,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { entryAgentSelections, withPermissions } from '../../agent-profile-policy.js';
@@ -203,7 +204,10 @@ export class RoadmapSettings {
       conflict('Choose reviewer responsibilities declared by this map.');
     if (input.automation.resolutionProfile) {
       this.cycles.validateAgentSelections({
-        ...this.views.agentSettings(context, workspaceId, id).entries[0]!.selections,
+        ...required(
+          this.views.agentSettings(context, workspaceId, id).entries[0],
+          'the cross-project roadmap’s settings',
+        ).selections,
         conflict: input.automation.resolutionProfile,
       });
       this.cycles.requireModelIds(

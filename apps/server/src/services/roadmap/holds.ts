@@ -12,10 +12,11 @@ import { retiredOrRetiring } from '../retired-versions.js';
 import { attemptDefinition } from '../roadmap-delegation-policy.js';
 import { activeEditor } from '../authority-policy.js';
 import {
+  required,
+  resumeRedirect,
   type Roadmap,
   type RoadmapAttempt,
   type RoadmapEntry,
-  resumeRedirect,
   type WorkCycle,
   type WorkspaceId,
 } from '@craftingtable/domain';
@@ -377,7 +378,7 @@ export class RoadmapHolds {
    */
   resumesCycle(
     roadmap: Roadmap,
-    entry: RoadmapEntry,
+    entry: RoadmapEntry | undefined,
     attempt: RoadmapAttempt,
     cycle: WorkCycle | undefined,
   ): cycle is WorkCycle {
@@ -386,7 +387,7 @@ export class RoadmapHolds {
       cycle.executionScope &&
       cycle.executionScope.kind !== 'slice' &&
       ((roadmap.scopeRecovery?.enabled && cycle.status === 'needs-attention') ||
-        !!this.selection.roundFor(roadmap, entry))
+        !!this.selection.roundFor(roadmap, required(entry, 'the resumed review’s entry')))
     )
       return false;
     if (!['paused', 'needs-attention'].includes(cycle.status) || !this.resumable(cycle))

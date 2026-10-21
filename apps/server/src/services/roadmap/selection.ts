@@ -12,14 +12,15 @@ import { inRetiredVersion, retiredVersionIds } from '../retired-versions.js';
 import { itemGate, predecessorGate } from '../transition-gate.js';
 import {
   type AgentRunId,
+  cycleStop,
   DEFAULT_ROADMAP_SCHEDULING,
+  type ExecutionScope,
+  required,
   type Roadmap,
   type RoadmapAttempt,
   type RoadmapEntry,
   sameExecutionScope,
   type Worktree,
-  type ExecutionScope,
-  cycleStop,
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import { decisionBriefs } from '../architecture-decision-inbox.js';
@@ -167,7 +168,9 @@ export class RoadmapSelection {
     const circular = (holders: readonly Worktree[]) =>
       recoveryRound &&
       entry.executionScope?.kind === 'slice' &&
-      holders.some((tree) => this.waitsOnSlice(tx, tree, entry.executionScope!))
+      holders.some((tree) =>
+        this.waitsOnSlice(tx, tree, required(entry.executionScope, 'the round’s slice scope')),
+      )
         ? ` Work holding those slots waits on ${entry.sourceId}, which this recovery round repairs, so they cannot free by themselves. Raise the limit, or pause or finish a holder.`
         : undefined;
     if (!reviewOnly && parallel && activeAttempts.length >= policy.maxInFlight) {
@@ -333,7 +336,7 @@ export class RoadmapSelection {
       if (
         !cached ||
         cached.generation !== generation ||
-        [...merge].some((id) => !cached!.checkpoints.has(id))
+        [...merge].some((id) => !required(cached, 'the cached inbox').checkpoints.has(id))
       ) {
         const checkpoints = new Set([
           ...(cached?.generation === generation ? cached.checkpoints : []),
@@ -343,7 +346,9 @@ export class RoadmapSelection {
             e.executionScope.definitionId === definition.id &&
             !roadmap.attempts.some((a) => a.entryId === e.id)
               ? (definition.source.slices
-                  .find((s) => s.id === e.executionScope!.sourceId)
+                  .find(
+                    (s) => s.id === required(e.executionScope, 'the slice entry’s scope').sourceId,
+                  )
                   ?.merge_requires.filter((r) => r.kind === 'checkpoint')
                   .map((r) => r.id) ?? [])
               : [],

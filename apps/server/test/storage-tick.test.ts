@@ -5,6 +5,7 @@ import {
   realpathSync,
   rmSync,
   type Stats,
+  statSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -961,4 +962,50 @@ it("reads at the next tick, outside the budget, a run the operator's Clean could
   f.advance(1 / 1440);
   expect(await tick(f.service)).toBeUndefined();
   expect(existsSync(heldCache)).toBe(false);
+});
+
+it("refuses no directory it does not act on, even one moved or replaced (increment 1's mutation round)", async () => {
+  const f = await tickFixture();
+  // Failed without an observed exit: neither eligible nor build-eligible, so never read.
+  const unread = f.addRun({ status: 'failed', tree: 'active', exited: false, retained: 1 });
+  rmSync(unread.path, { recursive: true });
+  mkdirSync(join(f.outside, 'moved'));
+  symlinkSync(join(f.outside, 'moved'), unread.path);
+  expect(await tick(f.service)).toBeUndefined();
+  // The same replacement in a run it acts on is refused.
+  const ended = f.addRun({ status: 'finished', tree: 'active', exited: true, retained: 1 });
+  rmSync(ended.path, { recursive: true });
+  mkdirSync(join(f.outside, 'moved-too'));
+  symlinkSync(join(f.outside, 'moved-too'), ended.path);
+  expect(refused(await tick(f.service), { unread, ended })).toEqual(['ended']);
+});
+
+it("keeps a merged worktree's shared build cache with automatic cache cleanup off (increment 1's mutation round)", async () => {
+  const f = await tickFixture();
+  const run = f.addRun({ status: 'finished', tree: 'merged', exited: true, retained: 1 });
+  const shared = makeCargo(
+    join(f.service.executionConfig.runsRoot, 'worktree-caches', run.worktreeId),
+  );
+  f.context.storage.maintenance.registerWorktreeCache({
+    worktreeId: run.worktreeId,
+    workspaceId: f.workspaceId,
+    path: realpathSync(shared),
+    device: statSync(shared).dev,
+    createdAt: new Date(f.instant()).toISOString(),
+  });
+  const status = f.service.get(f.auth, f.workspaceId);
+  f.service.save(f.auth, f.workspaceId, {
+    expectedVersion: status.version,
+    policy: { ...status.policy, autoCleanBuildCaches: false },
+  });
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(shared)).toBe(true);
+  const off = f.service.get(f.auth, f.workspaceId);
+  f.service.save(f.auth, f.workspaceId, {
+    expectedVersion: off.version,
+    policy: { ...off.policy, autoCleanBuildCaches: true },
+  });
+  f.advance(1 / 1440);
+  expect(await tick(f.service)).toBeUndefined();
+  expect(existsSync(shared)).toBe(false);
 });

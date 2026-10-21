@@ -29,7 +29,9 @@ import {
 
 afterEach(cleanupExecutionFixtures);
 
-const cycle = (fields: Partial<WorkCycle>) => ({ id: 'cycle-1', ...fields }) as WorkCycle;
+/** A cycle with only the fields `delegationWaits` reads. */
+const cycle = (fields: Record<string, unknown>) =>
+  ({ id: 'cycle-1', ...fields }) as unknown as WorkCycle;
 
 it('a grant waits for its named entries’ controller reviews, integration refreshes and resolutions at work, and nothing else', () => {
   const refreshing = new Set(['refreshing']);
@@ -52,7 +54,7 @@ it('a grant waits for its named entries’ controller reviews, integration refre
         cycle({
           status: 'running',
           workflow: { reassessments: 0, questions: [], activeReview: { kind } },
-        } as Partial<WorkCycle>),
+        }),
       ]),
     ).toEqual([`AQ-01's ${kind} review`]);
   expect(waits([cycle({ id: 'refreshing', status: 'awaiting-merge' })])).toEqual([
@@ -64,7 +66,7 @@ it('a grant waits for its named entries’ controller reviews, integration refre
         cycle({
           status: 'needs-attention',
           integrationResolution: { status },
-        } as Partial<WorkCycle>),
+        }),
       ]),
     ).toEqual(["AQ-01's conflict resolution"]);
   // A conflict detected but not yet taken up waits for the grant, not the other way round.
@@ -74,7 +76,7 @@ it('a grant waits for its named entries’ controller reviews, integration refre
         cycle({
           status: 'needs-attention',
           integrationResolution: { status },
-        } as Partial<WorkCycle>),
+        }),
       ]),
     ).toEqual([]);
 });

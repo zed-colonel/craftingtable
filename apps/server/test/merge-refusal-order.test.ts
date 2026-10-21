@@ -19,9 +19,9 @@ import {
 
 /**
  * The merge's refusals ahead of its own checks (R-B7 scheduler half, increment 1; "Merges"):
- * `mergeWorktree` refuses a decision preparation's worktree before its scope, then takes the
- * phase reservation, then the repository's merge lane, and only inside them builds and asks its
- * check. `server-execution-merge-gate.test.ts` pins the gate's own refusals and two operator
+ * `mergeWorktree` refuses on the worktree's guard, then a decision preparation's worktree, then a
+ * tree its scope refuses (`requireTreeScope`, unless recovering), then takes the phase
+ * reservation, then the repository's merge lane, and only inside them builds and asks its check. `server-execution-merge-gate.test.ts` pins the gate's own refusals and two operator
  * merges meeting on the lane; these rows pin the order of the refusals before the gate, which the
  * merge-executor split must keep.
  *
@@ -39,6 +39,8 @@ const GATE =
   'The review needs a successful run of each declared check on its exact clean reviewed commit: ct-check --declared fixture. Checks the agent chooses are supplemental.';
 const PREPARATION =
   'Decision preparation worktrees cannot be merged. Approve the decision separately.';
+/** `requireTreeScope`'s refusal for a tree whose integration branch left its frozen binding. */
+const SCOPE = 'The worktree no longer matches its frozen scope binding.';
 
 async function sliceTree() {
   const f = await supervisedMapFixture();
@@ -134,11 +136,23 @@ async function sliceTree() {
       ),
     ).toBe(true);
   };
+  /** Moves the tree's integration branch off its frozen binding, so `requireTreeScope` refuses. */
+  const driftTree = () => {
+    const stored = storage.execution.worktrees.find(f.state.workspaceId, tree.id)!;
+    expect(
+      storage.execution.worktrees.setIntegrationBranch({
+        workspaceId: f.state.workspaceId,
+        worktreeId: tree.id,
+        integrationBranch: 'elsewhere',
+        expectedVersion: stored.version,
+      }),
+    ).toBeDefined();
+  };
   const refusal = async () => {
     const response = await merge(f.state, tree.id);
     return { status: response.statusCode, message: response.json().error.message as string };
   };
-  return { f, tree, occupy, holdLane, holdTree, preparationTree, refusal };
+  return { f, tree, occupy, holdLane, holdTree, preparationTree, driftTree, refusal };
 }
 
 it('refuses an unreviewed slice at its own first check when nothing holds it (the baseline)', async () => {
@@ -176,16 +190,36 @@ it('refuses a decision preparation’s worktree before the reservation and the l
   await release();
 });
 
-it('refuses on the worktree’s guard before everything else', async () => {
-  const { tree, occupy, holdLane, holdTree, preparationTree, refusal } = await sliceTree();
+// R-B7 scheduler half, review LOW-1: `requireTreeScope` refuses before the phase reservation
+// and the lane are taken, not only inside them through the merge's own check.
+it('refuses a tree its scope refuses before the reservation and the lane', async () => {
+  const { occupy, holdLane, driftTree, refusal } = await sliceTree();
+  driftTree();
+  occupy();
+  const release = holdLane();
+  expect(await refusal()).toEqual({ status: 409, message: SCOPE });
+  await release();
+});
+
+// R-B7 scheduler half, review LOW-1: the decision preparation's refusal comes before
+// `requireTreeScope`, so a preparation's tree that its scope also refuses gets the preparation's.
+it('refuses a decision preparation’s worktree before its scope', async () => {
+  const { tree, preparationTree, driftTree, refusal } = await sliceTree();
   preparationTree(tree);
+  driftTree();
+  expect(await refusal()).toEqual({ status: 409, message: PREPARATION });
+});
+
+it('refuses on the worktree’s guard before everything else', async () => {
+  const { tree, occupy, holdLane, holdTree, preparationTree, driftTree, refusal } =
+    await sliceTree();
+  preparationTree(tree);
+  driftTree();
   occupy();
   const lane = holdLane();
   const guard = holdTree();
   const refused = await refusal();
-  expect(refused.status).toBe(409);
-  expect([RESERVED, LANE, PREPARATION]).not.toContain(refused.message);
-  expect(refused.message).toBe('This worktree is being removed.');
+  expect(refused).toEqual({ status: 409, message: 'This worktree is being removed.' });
   await guard();
   await lane();
 });

@@ -124,6 +124,12 @@ interface OwnerState {
   readonly unowned?: true;
   /** A plan finalization's cycle, its finalization started by `creator`. */
   readonly finalization?: { readonly creator: 'operator' | 'lost' };
+  /**
+   * The subject's tree a review scope's: a worktree of that scope, the attempt's. Storage pins a
+   * cycle's worktree, so the stored cycle keeps the fixture's and the claim is asked of the cycle
+   * at this tree (`claimTree`).
+   */
+  readonly scope?: 'slice-verification' | 'parent-acceptance';
 }
 interface Ids {
   readonly roadmapId: ReturnType<typeof asRoadmapId>;
@@ -149,8 +155,15 @@ function entry(id: Ids['subject'], sourceId: string, overrides: Partial<RoadmapE
   } satisfies RoadmapEntry;
 }
 
+interface Arranged {
+  readonly cycle: WorkCycle;
+  readonly sibling: WorkCycle;
+  /** The review scope's tree the claim is asked at, when the row gives one. */
+  readonly claimTree?: WorkCycle['worktreeId'];
+}
+
 /** Writes the row's roadmap and cycle, and returns the stored cycle with its sibling. */
-async function arrange(state: OwnerState): Promise<{ cycle: WorkCycle; sibling: WorkCycle }> {
+async function arrange(state: OwnerState): Promise<Arranged> {
   await setup();
   const storage = f.context.storage;
   const ids: Ids = {
@@ -162,6 +175,7 @@ async function arrange(state: OwnerState): Promise<{ cycle: WorkCycle; sibling: 
   const siblingAttempt = asRoadmapAttemptId(randomUUID());
   const siblingCycle = asWorkCycleId(randomUUID());
   const current = storedCycle(f, base.id);
+  let reviewTree: WorkCycle['worktreeId'] | undefined;
   let cycle: WorkCycle = { ...current, owner: null };
   if (state.finalization) {
     const recorded = JSON.parse(
@@ -219,11 +233,35 @@ async function arrange(state: OwnerState): Promise<{ cycle: WorkCycle; sibling: 
     };
     const first = { ...started, ...state.started?.(started, ids) };
     const later = state.current && { ...first, revision: 2, ...state.current(first, ids) };
+    if (state.scope) {
+      const own = storage.execution.worktrees.find(f.workspaceId, f.worktreeId)!;
+      const id = asWorktreeId(randomUUID());
+      reviewTree = storage.execution.worktrees.insert({
+        id,
+        workspaceId: f.workspaceId,
+        repositoryId: own.repositoryId,
+        projectId: own.projectId,
+        workItemId: own.workItemId,
+        branchName: `ct/review-${id.slice(0, 8)}`,
+        baseSha: own.baseSha,
+        baseBranch: own.baseBranch,
+        integrationBranch: own.integrationBranch,
+        path: `/nonexistent/review-${id}`,
+        createdAt: at,
+        createdByUserId: f.userId,
+        executionScope: {
+          kind: state.scope,
+          definitionId: first.crossProject!.definitionId,
+          bindingRevision: 1,
+          sourceId: state.scope === 'slice-verification' ? 'local/AQ-01/a' : 'local/AQ-01',
+        },
+      }).id;
+    }
     const attempt: RoadmapAttempt = {
       id: subjectAttempt,
       entryId: ids.subject,
       definitionRevision: 1,
-      worktreeId: f.worktreeId,
+      worktreeId: reviewTree ?? f.worktreeId,
       cycleId: base.id,
       status: 'active',
       createdAt: at,
@@ -280,6 +318,7 @@ async function arrange(state: OwnerState): Promise<{ cycle: WorkCycle; sibling: 
   if (!written) throw new Error('The row’s cycle was not written');
   return {
     cycle: written,
+    ...(reviewTree ? { claimTree: reviewTree } : {}),
     sibling: {
       ...written,
       id: siblingCycle,
@@ -311,7 +350,7 @@ function refresh(cycle: WorkCycle, launching: boolean) {
 }
 
 /** Every reader's answer for the cycle as stored. */
-function answers({ cycle, sibling }: { cycle: WorkCycle; sibling: WorkCycle }) {
+function answers({ cycle, sibling, claimTree }: Arranged) {
   const storage = f.context.storage;
   const owner = cycleOwnership(storage, cycle);
   const facts = cycleFacts(storage, cycle, {
@@ -324,11 +363,13 @@ function answers({ cycle, sibling }: { cycle: WorkCycle; sibling: WorkCycle }) {
   const claim = (stopped: WorkCycle) => currentCycleAttention(storage, stopped)?.claim;
   const atMerge = {
     ...cycle,
+    ...(claimTree ? { worktreeId: claimTree } : {}),
     status: 'awaiting-merge',
     stop: stopRecord(cycleAttention('merge-approval'), at),
   } as WorkCycle;
   const atConflict = {
     ...cycle,
+    ...(claimTree ? { worktreeId: claimTree } : {}),
     status: 'needs-attention',
     stop: stopRecord(cycleAttention('integration-conflict'), at),
     integrationResolution: {
@@ -480,22 +521,27 @@ const grant = (ids: Ids, automation: RoadmapAutomation) => ({
 });
 const manualSequential = () => ({ scheduling: sequential, automation: manual });
 
+/** What a cycle no roadmap owns answers. */
+const NO_OWNER = {
+  settling: false,
+  refresh: 'none',
+  refreshLaunching: 'none',
+  onlyOperator: true,
+  onlyOperatorSlice: true,
+  delegation: undefined,
+  claimAtMerge: undefined,
+  claimAtConflict: undefined,
+  priority: 'kept',
+};
+const automaticAcceptance = (d: RoadmapDefinition) => ({
+  crossProject: { ...d.crossProject!, parentAcceptance: 'automatic' as const },
+});
+const manualAcceptance = (d: RoadmapDefinition) => ({
+  crossProject: { ...d.crossProject!, parentAcceptance: 'manual' as const },
+});
+
 const rows: readonly (readonly [string, OwnerState, Partial<typeof RUNNING>])[] = [
-  [
-    'no owner',
-    { unowned: true },
-    {
-      settling: false,
-      refresh: 'none',
-      refreshLaunching: 'none',
-      onlyOperator: true,
-      onlyOperatorSlice: true,
-      delegation: undefined,
-      claimAtMerge: undefined,
-      claimAtConflict: undefined,
-      priority: 'kept',
-    },
-  ],
+  ['no owner', { unowned: true }, NO_OWNER],
   ['the roadmap running', {}, {}],
   ['the roadmap paused', { roadmap: () => ({ status: 'paused' }) }, NOT_RUNNING],
   [
@@ -766,6 +812,45 @@ const rows: readonly (readonly [string, OwnerState, Partial<typeof RUNNING>])[] 
       reviewRunnable: false,
       authorityMissing: 'delegation-unreadable',
     },
+  ],
+  // R-B7 scheduler half, review LOW-5: the claim's review-scope branches. A slice verification's
+  // merge is the roadmap's to verify, whatever the merge automation says.
+  [
+    'the subject’s tree a slice verification’s, at its merge',
+    { scope: 'slice-verification' },
+    { claimAtMerge: 'roadmap-verification' },
+  ],
+  // R-B7 scheduler half, review LOW-5: a parent acceptance's claim reads the attempt's frozen
+  // revision's `parentAcceptance`, not the current revision's.
+  [
+    'a parent acceptance’s tree, automatic for the attempt and manual now',
+    { scope: 'parent-acceptance', started: automaticAcceptance, current: manualAcceptance },
+    { claimAtMerge: 'roadmap-acceptance' },
+  ],
+  [
+    'a parent acceptance’s tree, manual for the attempt and automatic now',
+    { scope: 'parent-acceptance', current: automaticAcceptance },
+    { claimAtMerge: undefined },
+  ],
+  // R-B7 scheduler half, review LOW-5: a cycle whose recorded owner names an attempt the roadmap
+  // no longer holds (in neither `attempts` nor `retiredAttempts`) is owned by no roadmap, even
+  // though the roadmap's attempt still names the cycle; the search is only for a cycle with no
+  // recorded owner.
+  [
+    'the cycle’s owner an attempt the roadmap no longer holds',
+    {
+      cycle: (c) => ({ ...c, owner: { ...c.owner!, attemptId: asRoadmapAttemptId(randomUUID()) } }),
+    },
+    NO_OWNER,
+  ],
+  // R-B7 scheduler half, review LOW-5: a cycle written without `owner` (before schema 29) is
+  // resolved by the search over the roadmaps' attempts (`cycleOwnership`), and reads as owned.
+  [
+    'the cycle’s owner unrecorded, found by the search',
+    {
+      cycle: ({ owner: _owner, ...c }) => c,
+    },
+    {},
   ],
   [
     'a plan finalization’s cycle',

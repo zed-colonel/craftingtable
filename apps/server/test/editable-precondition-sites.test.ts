@@ -525,7 +525,12 @@ it.each(SITES)(
           // The view's text on the same states, and (a view has no form, so a row with a stale
           // form is left out) that it blocks exactly when its command refuses.
           expect(read.blocker, `${label} view`).toEqual(read.expect(row));
-          if (!row.includes('stale')) expect(read.blocker !== null, `${label} agrees`).toBe(true);
+          // R-B7 scheduler half, review NIT-1: the capacities view does not list an ended
+          // roadmap (its `undefined` is pinned just above), so it has no blocker to agree with;
+          // those rows are left out rather than passing on `undefined !== null`.
+          const unlisted = site.name === 'saveCapacity' && row.includes('ended');
+          if (!row.includes('stale') && !unlisted)
+            expect(typeof read.blocker, `${label} agrees`).toBe('string');
         }
       });
     }

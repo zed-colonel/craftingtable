@@ -55,6 +55,8 @@ it('gives every module the facade’s own state, writer and modules, and composi
     cycles: services.workCycleService,
     agents: services.agentRunService,
     runtimeEvidence: services.runtimeEvidenceService,
+    // The daemon's one Git, which the execution service holds too.
+    git: (services.executionService as unknown as { git: unknown }).git,
   };
   const modules = modulesOf(roadmaps);
   expect(modules.map(([name]) => name).sort()).toEqual(

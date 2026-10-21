@@ -48,10 +48,31 @@ const evidence = vi.hoisted(() => ({
 vi.mock('../src/services/runtime-evidence-policy.js', async (importOriginal) => {
   const original =
     await importOriginal<typeof import('../src/services/runtime-evidence-policy.js')>();
+  // Each stub finds its subject by shape, not by argument position (review NIT-4), so a rule
+  // that passes it elsewhere still reads the row's answer: the evidence subject is the argument
+  // with a kind and a source id but no definition (an execution scope has one), and the receipt
+  // the argument with a scope and an integration sha. (`SLICE` is not yet defined here.)
+  const field = (a: unknown, key: string) =>
+    typeof a === 'object' && a !== null && key in a
+      ? (a as Record<string, unknown>)[key]
+      : undefined;
+  const subjectIsSliceA = (args: readonly unknown[]) =>
+    args.some(
+      (a) =>
+        field(a, 'kind') === 'slice' &&
+        field(a, 'sourceId') === 'local/AQ-01/a' &&
+        field(a, 'definitionId') === undefined,
+    );
+  const receiptIsSliceA = (args: readonly unknown[]) =>
+    args.some(
+      (a) =>
+        field(a, 'integrationSha') !== undefined &&
+        field(field(a, 'scope'), 'sourceId') === 'local/AQ-01/a',
+    );
   return {
     ...original,
     acceptedEvidence: (...args: Parameters<typeof original.acceptedEvidence>) =>
-      args[4].kind === 'slice' && args[4].sourceId === 'local/AQ-01/a'
+      subjectIsSliceA(args)
         ? evidence.accepted
           ? ({ id: 'accepted-slice-evidence' } as unknown as ReturnType<
               typeof original.acceptedEvidence
@@ -59,7 +80,7 @@ vi.mock('../src/services/runtime-evidence-policy.js', async (importOriginal) => 
           : undefined
         : original.acceptedEvidence(...args),
     currentScopeReceipt: (...args: Parameters<typeof original.currentScopeReceipt>) =>
-      args[2].scope.sourceId === 'local/AQ-01/a' && evidence.receiptCurrent !== undefined
+      receiptIsSliceA(args) && evidence.receiptCurrent !== undefined
         ? evidence.receiptCurrent
         : original.currentScopeReceipt(...args),
   };
@@ -127,8 +148,8 @@ const consumerScope = (f: Fixture, revision = 1): ExecutionScope => ({
   sourceId: 'local/AQ-02/a',
 });
 
-/** A worktree of slice a, as a development attempt records it. */
-function sliceTree(f: Fixture): Worktree {
+/** A worktree of slice a, as a development attempt records it; of `scope` when given. */
+function sliceTree(f: Fixture, scope: ExecutionScope = sliceScope(f)): Worktree {
   const id = asWorktreeId(randomUUID());
   return f.tx.execution.worktrees.insert({
     id,
@@ -143,7 +164,7 @@ function sliceTree(f: Fixture): Worktree {
     path: `/nonexistent/slice-a-${id}`,
     createdAt: new Date().toISOString(),
     createdByUserId: f.state.userId,
-    executionScope: sliceScope(f),
+    executionScope: scope,
   });
 }
 
@@ -189,9 +210,14 @@ function integrate(f: Fixture, tree: Worktree): void {
   });
 }
 
-/** Slice a's scope receipt for the tree's run, at `integrationSha`. */
-function receipt(f: Fixture, tree: Worktree, run: AgentRun, integrationSha: string): void {
-  const scope = sliceScope(f);
+/** A scope receipt for the tree's run, at `integrationSha`; slice a's own unless `scope` says. */
+function receipt(
+  f: Fixture,
+  tree: Worktree,
+  run: AgentRun,
+  integrationSha: string,
+  scope: ExecutionScope = sliceScope(f),
+): void {
   f.tx.scopeReceipts.add({
     id: randomUUID(),
     workspaceId: f.ws,
@@ -327,6 +353,14 @@ describe('the slice requirement, both copies', () => {
       parent: ['required-slice-unverified'],
     },
     {
+      // R-B7 scheduler half, review LOW-4: only slice a's own trees count. A started run in the
+      // parent's acceptance tree (same work item, another scope) does not start the slice.
+      name: 'a started run in a tree of another scope of the same work item',
+      facts: (f) => void startedRun(f, sliceTree(f, f.parentScope)),
+      expected: met(false, false, false),
+      parent: ['required-slice-unmerged'],
+    },
+    {
       name: 'accepted slice evidence, and nothing else',
       facts: () => {
         evidence.accepted = true;
@@ -358,6 +392,19 @@ describe('the slice requirement, both copies', () => {
       facts: (f) => {
         const { tree, run } = developed(f, { merged: true });
         receipt(f, tree, run, OTHER_SHA);
+        evidence.receiptCurrent = true;
+      },
+      expected: met(true, true, false),
+      parent: ['required-slice-unverified'],
+    },
+    {
+      // R-B7 scheduler half, review LOW-4: only receipts of slice a's own scope count. A current
+      // receipt of the same slice under binding revision 2 (same work item, another scope) at
+      // the merge does not verify it.
+      name: 'a current receipt of another binding revision at the integrated merge',
+      facts: (f) => {
+        const { tree, run } = developed(f, { merged: true });
+        receipt(f, tree, run, MERGE_SHA, sliceScope(f, 2));
         evidence.receiptCurrent = true;
       },
       expected: met(true, true, false),

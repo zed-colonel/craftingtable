@@ -1,3 +1,5 @@
+import { RoadmapSelection } from './roadmap/selection.js';
+import { RoadmapHolds } from './roadmap/holds.js';
 import { RoadmapWriter } from './roadmap/writer.js';
 import { RoadmapState } from './roadmap/state.js';
 import {
@@ -7,16 +9,13 @@ import {
   TARGET_MOVED_RETRY_MS,
   retried,
   ended,
-  openRecoveries,
   PREPARATION_RETRY_MS,
   holdCause,
   gated,
   holdRefs,
   stopAttention,
-  releaseRecord,
   refuseBlocked,
   EntryHoldError,
-  type ReverificationRefusal,
   RESUMED_REASON,
   type PreparationTarget,
   answeredHolds,
@@ -45,9 +44,9 @@ import {
   systemClock,
 } from './kernel/controller-kernel.js';
 import { type DrainSummary, drainSummary } from './kernel/figures.js';
-import { inRetiredVersion, retiredOrRetiring, retiredVersionIds } from './retired-versions.js';
+import { retiredOrRetiring } from './retired-versions.js';
 import { cycleOwnership, ownerOf } from './cycle-ownership.js';
-import { itemGate, predecessorGate } from './transition-gate.js';
+import { itemGate } from './transition-gate.js';
 import {
   currentDecisionPreparation,
   preparedDecisionAccepted,
@@ -86,7 +85,6 @@ import {
   asRoadmapAttemptId,
   asWorkCycleId,
   asWorktreeId,
-  type AgentRunId,
   type AttentionItem,
   DEFAULT_ROADMAP_SCHEDULING,
   type Roadmap,
@@ -102,12 +100,9 @@ import {
   roadmapAttention,
   PHASE_BLOCKERS,
   operatorOwnsAll,
-  resumeRedirect,
   sameExecutionScope,
   type WorkCycle,
   type WorkspaceId,
-  type Worktree,
-  type ExecutionScope,
   startedAttempts,
   type AgentSelection,
   type RoadmapEntryId,
@@ -129,39 +124,19 @@ import {
   withPermissions,
 } from './agent-profile-policy.js';
 import { selectionSet } from './agent-resolution.js';
-import { decisionBriefs } from './architecture-decision-inbox.js';
 import type { ControllerPasses } from './attention-gates.js';
 import type { AttentionProjector, ProjectedItem } from './attention-projector.js';
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
 import { checkpointSubjectKey } from './checkpoint-subject.js';
 import { bindingIssues } from './map-binding-policy.js';
-import {
-  crossProjectState,
-  effectiveMapLevel,
-  evidenceChangedAt,
-  evidenceStaleness,
-  mapActivity,
-} from './map-state.js';
-import { milestoneSatisfied } from './milestone-policy.js';
+import { crossProjectState, effectiveMapLevel, mapActivity } from './map-state.js';
 import { neededDecisions, slicesHeldBy, slicesWaitingOn } from './decision-demand.js';
 import { decisionSettlement, settlementLines } from './decision-settlement.js';
-import {
-  cycleCarriesOn,
-  gatePhase,
-  holdCheck,
-  phaseGateClears,
-  type ReleaseCheck,
-  REVERIFY_SETTLE_MS,
-  roadmapHeld,
-  selfReverification,
-  stopCheck,
-} from './entry-holds.js';
 import {
   blockerWait,
   cycleStep,
   cycleWait,
-  type EntryBlocker,
   type EntryStep,
   MOVED,
   nextEntryWaits,
@@ -180,19 +155,12 @@ import {
   TypedRefusalError,
   windDownRefused,
 } from './errors.js';
-import {
-  requireScopeOwnership,
-  resolveScope,
-  scopeBlockers,
-  scopePhaseBlockers,
-  unsupportedScopeCapabilities,
-} from './execution-scope.js';
+import { resolveScope, scopePhaseBlockers } from './execution-scope.js';
 import type { ExecutionService } from './execution-service.js';
 import { carryPlanAcceptance } from './generated-plan-evidence.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { operatorSetupItem } from './operator-setup-item.js';
 import { PhaseGateError } from './phase-resources.js';
-import { planCheckpoint } from './plan-acceptance-policy.js';
 import {
   buildBoard,
   type ItemSubject,
@@ -202,7 +170,6 @@ import {
   type NodeEvaluation,
   sequenceGraph,
 } from './roadmap-board.js';
-import { acceptedEvidence } from './runtime-evidence-policy.js';
 import {
   findingFingerprint,
   roadmapCarriesRound,
@@ -211,12 +178,7 @@ import {
 import { collectScopeRepair } from './scope-repair.js';
 import type { WorkCycleService } from './work-cycle-service.js';
 import type { WorkItemService } from './work-item-service.js';
-import {
-  securityReviewCurrent,
-  unsettledDecisionsAt,
-  unsettledSliceDecisions,
-  workflowContext,
-} from './workflow-policy.js';
+import { securityReviewCurrent, workflowContext } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
 import { WorktreeMutationBusyError } from './worktree-mutation-guard.js';
@@ -348,6 +310,8 @@ export {
 export class RoadmapService {
   private readonly state: RoadmapState;
   private readonly writer: RoadmapWriter;
+  private readonly selection: RoadmapSelection;
+  private readonly holds: RoadmapHolds;
   constructor(
     private readonly storage: CraftingTableStorage,
     private readonly workspaces: WorkspaceService,
@@ -366,6 +330,15 @@ export class RoadmapService {
     // on, by its own due times, and by the cycle kernel's sweep.
     this.state = new RoadmapState(now, new ControllerKernel(clock, SWEEP_MS, false));
     this.writer = new RoadmapWriter(storage, notifier, this.state);
+    this.selection = new RoadmapSelection(storage, execution, notifier, this.state);
+    this.holds = new RoadmapHolds(
+      storage,
+      execution,
+      cycles,
+      this.state,
+      this.writer,
+      this.selection,
+    );
     cycles.followSweep(this.state.kernel);
     notifier.onWorkflow(() => this.state.kernel.mark('workflow'));
     cycles.onLockRelease((key) => this.lockReleased(key));
@@ -1243,7 +1216,7 @@ export class RoadmapService {
       if (!state || state.status === 'completed') continue;
       // The recovery round that carries this work item's review, if any: its repair cycle is
       // where the entry's work happens while the round repairs.
-      const round = this.roundFor(roadmap, entry);
+      const round = this.selection.roundFor(roadmap, entry);
       const repair =
         round?.recovery?.phase === 'repair'
           ? snapshot.execution.cycles.find(ws, round.cycleId)
@@ -1612,7 +1585,7 @@ export class RoadmapService {
           reason: roadmap.reason,
           ...(attention ? { attentionCode: attention.code } : {}),
           completed: roadmap.definition.entries.filter((entry) =>
-            this.complete(roadmap, entry, snapshot),
+            this.selection.complete(roadmap, entry, snapshot),
           ).length,
           entries: roadmap.definition.entries.length,
         };
@@ -2029,7 +2002,7 @@ export class RoadmapService {
     if (action === 'pause' && roadmap.status === 'draft')
       conflict('Start the roadmap before pausing it.');
     if (action === 'start' || action === 'resume') {
-      this.assertRunnable(workspaceId, roadmap, action);
+      this.holds.assertRunnable(workspaceId, roadmap, action);
       // Explicit resume may adopt the owned cycle's manual handoff, using its normal guards.
       // Resume in priority order too: the cycle worker can wake while these async
       // commands run, before the final roadmap status update has been persisted.
@@ -2046,7 +2019,7 @@ export class RoadmapService {
         if (roadmap.entryHolds?.[attempt.entryId]?.status === 'paused') continue;
         const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
         const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId)!;
-        if (!this.resumesCycle(roadmap, entry, attempt, cycle)) continue;
+        if (!this.holds.resumesCycle(roadmap, entry, attempt, cycle)) continue;
         try {
           await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
         } catch (error) {
@@ -2087,131 +2060,6 @@ export class RoadmapService {
     return this.view(this.writer.find(workspaceId, id));
   }
 
-  /**
-   * What Start and Resume ask before the roadmap runs again; the scheduler's own resume of a
-   * stop whose fact cleared asks the same (R-C10's follow-up, decision 2).
-   */
-  private assertRunnable(
-    workspaceId: WorkspaceId,
-    roadmap: Roadmap,
-    action: 'start' | 'resume',
-  ): void {
-    if (ended(roadmap)) conflict('This roadmap has ended.');
-    if (this.storage.windDowns.find(workspaceId, roadmap.id)?.status === 'settling')
-      windDownRefused('wind-down-in-progress', 'This roadmap is being stopped.');
-    if (this.storage.amendments.list(workspaceId).some((a) => !a.decision))
-      conflict('Apply or reject the pending planning amendment before resuming.');
-    if (
-      action === 'start'
-        ? roadmap.status !== 'draft'
-        : !['paused', 'needs-attention'].includes(roadmap.status)
-    )
-      conflict('Only a draft can start; only a paused roadmap can resume.');
-    if (
-      this.storage.roadmaps
-        .list(workspaceId)
-        .some((r) => r.id !== roadmap.id && r.status !== 'draft' && !ended(r))
-    )
-      conflict('This workspace already has a delegated roadmap. Stop or finish it first.');
-    // A draft saved before its version was retired cannot run it (R-B11).
-    const retiredEntry = roadmap.definition.entries.find((e) =>
-      retiredOrRetiring(this.storage, workspaceId, e.planVersionId),
-    );
-    if (retiredEntry)
-      windDownRefused(
-        'plan-version-retired',
-        `${retiredEntry.sourceId} belongs to a plan version that is retired or being retired. Edit the roadmap's entries first.`,
-      );
-    if (roadmap.definition.crossProject) {
-      const preview = crossProjectState(this.storage, workspaceId, roadmap.definition.crossProject);
-      if (preview.blockers.length) conflict(preview.blockers.join(' '));
-      const definition = this.storage.imports.definition(
-        workspaceId,
-        roadmap.definition.crossProject.definitionId,
-      );
-      const checkpoint = definition && planCheckpoint(definition);
-      const plan = checkpoint
-        ? acceptedEvidence(
-            this.storage,
-            workspaceId,
-            roadmap.definition.crossProject.definitionId,
-            roadmap.definition.crossProject.bindingRevision,
-            { kind: 'checkpoint', sourceId: checkpoint },
-          )
-        : undefined;
-      if (plan?.generatedPlan && plan.generatedPlan.roadmapId !== roadmap.id)
-        conflict(
-          'Generate and review plan-acceptance evidence for this saved roadmap before Start or Resume.',
-        );
-    }
-    {
-      const snapshot = mapReadSnapshot(this.storage);
-      for (const entry of roadmap.definition.entries) {
-        if (!entry.executionScope) continue;
-        const unsupported = unsupportedScopeCapabilities(
-          resolveScope(snapshot, workspaceId, entry.workItemId, entry.executionScope),
-          snapshot,
-        );
-        if (unsupported.length)
-          conflict(`This map scope cannot start yet: ${unsupported.join(' ')}`);
-      }
-    }
-  }
-
-  /**
-   * Whether a Resume resumes this attempt's stopped cycle: one rule for the roadmap's Resume and
-   * an item's (R-B7, CTRL-12; decision 1 A). Not a queued review (the scheduler runs it), not a
-   * stop recovery owns (a repair round, not another review of unchanged source, answers it), not
-   * a stop `resumable` keeps, and not a cycle whose worktree merged or whose merge is reserved
-   * (the scheduler, or the operator's merge recovery, finishes those).
-   */
-  private resumesCycle(
-    roadmap: Roadmap,
-    entry: RoadmapEntry,
-    attempt: RoadmapAttempt,
-    cycle: WorkCycle | undefined,
-  ): cycle is WorkCycle {
-    if (attempt.dependencyRefresh || attempt.reverification || !cycle) return false;
-    if (
-      cycle.executionScope &&
-      cycle.executionScope.kind !== 'slice' &&
-      ((roadmap.scopeRecovery?.enabled && cycle.status === 'needs-attention') ||
-        !!this.roundFor(roadmap, entry))
-    )
-      return false;
-    if (!['paused', 'needs-attention'].includes(cycle.status) || !this.resumable(cycle))
-      return false;
-    const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
-    return (
-      !worktree?.mergedAt &&
-      this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status !==
-        'reserved'
-    );
-  }
-  /**
-   * A stop that a plain resume would only reproduce keeps its attention when the roadmap
-   * or its item resumes; the operator resolves it with the control it names (R-A7).
-   */
-  private resumable(cycle: WorkCycle): boolean {
-    // A stop's investigation holds it until it ends, and a worktree change it found until the
-    // operator acknowledges it (R-C16).
-    if (investigationHolds(cycle)) return false;
-    // Unsettled shared decisions hold the stop, paused or not; resuming would review into it
-    // again (LIVE-18). A report with open questions waits for guidance, not a resume.
-    if (
-      unsettledDecisionsAt(this.storage, cycle).length ||
-      (['paused', 'needs-attention'].includes(cycle.status) &&
-        this.cycles.resumeNeedsGuidance(cycle))
-    )
-      return false;
-    return (
-      cycle.status !== 'needs-attention' ||
-      resumeRedirect(
-        cycle,
-        this.storage.execution.runs.listForWorktree(cycle.workspaceId, cycle.worktreeId)[0]?.id,
-      ) === undefined
-    );
-  }
   async controlEntry(
     context: AuthContext,
     workspaceId: WorkspaceId,
@@ -2230,12 +2078,12 @@ export class RoadmapService {
       if (roadmap.status !== 'running' || roadmap.definition.scheduling?.mode !== 'parallel')
         conflict('Item controls require a running parallel roadmap.');
       const entry = roadmap.definition.entries.find((e) => e.id === entryId);
-      if (!entry || this.complete(roadmap, entry))
+      if (!entry || this.selection.complete(roadmap, entry))
         conflict('This entry is unavailable or completed.');
       const holds = { ...roadmap.entryHolds };
       const attempt = roadmap.attempts.find((a) => a.entryId === entryId);
       const cycle = attempt && this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
-      const recovery = this.recoveryFor(roadmap, entry);
+      const recovery = this.selection.recoveryFor(roadmap, entry);
       const repairCycle =
         recovery && this.storage.execution.cycles.find(workspaceId, recovery.cycleId);
       if (action === 'pause') {
@@ -2288,7 +2136,7 @@ export class RoadmapService {
           conflict(
             'This cycle has ended. For imported maps, use Planning amendments and reconciliation to review a replacement attempt.',
           );
-        if (attempt && this.resumesCycle(roadmap, entry, attempt, cycle))
+        if (attempt && this.holds.resumesCycle(roadmap, entry, attempt, cycle))
           await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
         if (repairCycle?.status === 'paused' && !investigationHolds(repairCycle))
           await this.cycles.control(
@@ -2333,7 +2181,7 @@ export class RoadmapService {
         conflict('Roadmap changed; refresh before issuing this command.');
       const entry = roadmap.definition.entries.find((e) => e.id === entryId);
       if (!entry) conflict('This entry is unavailable.');
-      const plan = this.reverification(roadmap, entry);
+      const plan = this.selection.reverification(roadmap, entry);
       if ('refused' in plan) conflict(plan.refused.message);
       const at = this.state.now().toISOString();
       const { [entry.id]: _released, ...entryHolds } = roadmap.entryHolds ?? {};
@@ -2377,87 +2225,6 @@ export class RoadmapService {
       this.state.endControl(id);
       this.notifier.notify();
     }
-  }
-  /** Whether an entry may be re-verified, and how; the view and the command share it. */
-  private reverification(
-    roadmap: Roadmap,
-    entry: RoadmapEntry,
-    tx: StorageRepositories = this.storage,
-  ):
-    | { refused: ReverificationRefusal }
-    | { attempt: RoadmapAttempt; inPlace: true; sourceRunId: AgentRunId }
-    | { attempt: RoadmapAttempt; inPlace: false } {
-    const refused = (code: ReverificationRefusal['code'], message: string) => ({
-      refused: { code, message },
-    });
-    if (['draft', 'stopped', 'completed'].includes(roadmap.status))
-      return refused('roadmap-inactive', 'Re-verification needs an active roadmap.');
-    if (!entry.executionScope || entry.executionScope.kind === 'slice')
-      return refused(
-        'not-a-review',
-        'Only verification and parent acceptance entries can be re-verified.',
-      );
-    if (this.recoveryFor(roadmap, entry))
-      return refused(
-        'recovery-owns-entry',
-        'Scope recovery owns this entry; finish its recovery first.',
-      );
-    const hold = roadmap.entryHolds?.[entry.id];
-    if (hold?.status === 'paused')
-      return refused(
-        'entry-paused',
-        'This item is paused. Resume the item before re-verifying it.',
-      );
-    const attempt = roadmap.attempts.find((a) => a.entryId === entry.id && !a.recovery);
-    if (!attempt) return refused('not-started', 'This entry has not run yet; resume the roadmap.');
-    // A queued review that failed holds the item; re-verifying replaces it with a fresh route.
-    if (attempt.dependencyRefresh || (attempt.reverification && !hold))
-      return refused('review-queued', 'A fresh review is already queued for this entry.');
-    const cycle = tx.execution.cycles.find(roadmap.workspaceId, attempt.cycleId);
-    if (!cycle && !hold)
-      return refused('preparing', 'This entry is still being prepared; wait for its review cycle.');
-    // An entry held for a refusal the scheduler met at its record-scope-evidence gate (usually its
-    // receipt's; the refusal hold, `entry-preparation-failed`) while its approved review waits
-    // there reviews again in place, as a pause and resume of the cycle would (R-C10 follow-up 2,
-    // operator decision 2026-10-17). Any other gate is left to whoever records it: the scheduler,
-    // or the operator under manual acceptance.
-    const gated =
-      hold?.attention?.code === 'entry-preparation-failed' &&
-      cycle?.status === 'awaiting-merge' &&
-      cycleStop(cycle)?.code === 'record-scope-evidence';
-    if (cycle && !['completed', 'stopped'].includes(cycle.status) && !gated)
-      return refused('review-open', 'Its review cycle is still open; finish or stop it first.');
-    if (this.complete(roadmap, entry, tx))
-      return refused(
-        'evidence-current',
-        'This evidence is current; there is nothing to re-verify.',
-      );
-    const tree = tx.execution.worktrees.find(roadmap.workspaceId, attempt.worktreeId);
-    if (
-      (cycle?.status === 'completed' || gated) &&
-      tree?.status === 'active' &&
-      !tx.amendments.retired(roadmap.workspaceId, tree.id) &&
-      sameExecutionScope(tree.executionScope, entry.executionScope)
-    )
-      return { attempt, inPlace: true, sourceRunId: cycle.currentRunId };
-    // The fresh route retires an ended attempt; a gated cycle has not ended.
-    if (gated)
-      return refused('review-open', 'Its review cycle is still open; finish or stop it first.');
-    // A scope has one active worktree; a fresh attempt needs the unused one removed first.
-    const other = tx.execution.worktrees
-      .listForWorkItem(roadmap.workspaceId, entry.workItemId)
-      .find(
-        (t) =>
-          t.status === 'active' &&
-          !tx.amendments.retired(roadmap.workspaceId, t.id) &&
-          sameExecutionScope(t.executionScope, entry.executionScope),
-      );
-    if (other)
-      return refused(
-        'other-worktree',
-        `Remove the unused worktree ${other.branchName} first; a verification scope has one active worktree.`,
-      );
-    return { attempt, inPlace: false };
   }
 
   /**
@@ -2674,9 +2441,9 @@ export class RoadmapService {
             // Adoption is retried on the next pass.
           }
           // A stop whose typed fact cleared resumes by itself; a pause never does (decision 2).
-          await this.resumeCleared(this.writer.find(roadmap.workspaceId, roadmap.id)).catch(
-            () => undefined,
-          );
+          await this.holds
+            .resumeCleared(this.writer.find(roadmap.workspaceId, roadmap.id))
+            .catch(() => undefined);
           continue;
         }
         if (roadmap.status !== 'running') continue;
@@ -2753,7 +2520,7 @@ export class RoadmapService {
       roadmap = this.reconcileCompletedAttempts(roadmap);
       // Advisory deferral only. Read once synchronously, then discard the snapshot before
       // any await/mutation. Eligible entries still pass every fresh admission check below.
-      const deferred = this.deferredEntries(roadmap);
+      const deferred = this.selection.deferredEntries(roadmap);
       // What this pass left each evaluated entry waiting on (R-C12).
       const evaluated = new Map<string, EntryStep | 'keep'>();
       for (const entry of roadmap.definition.entries) {
@@ -2774,7 +2541,7 @@ export class RoadmapService {
         )
           return;
         this.writer.authority(current);
-        if (this.complete(current, entry)) {
+        if (this.selection.complete(current, entry)) {
           this.state.observer?.entry(current, entry, { kind: 'complete' });
           const attempt = current.attempts.find((a) => a.entryId === entry.id);
           // Evidence that became current again also ends a queued re-verification.
@@ -2801,7 +2568,7 @@ export class RoadmapService {
         if (current.entryHolds?.[entry.id] && !merged) {
           // A hold whose typed fact cleared is released, and the entry evaluated as any other
           // (R-C10's follow-up, decision 2).
-          const released = await this.releaseHold(current, entry);
+          const released = await this.holds.releaseHold(current, entry);
           if (!released) {
             this.state.observer?.entry(current, entry, { kind: 'held' });
             continue;
@@ -2860,7 +2627,7 @@ export class RoadmapService {
       if (!sameEntryWaits(current.entryWaits, waits))
         current = this.writer.change(current, { entryWaits: waits });
       if (
-        this.entriesComplete(current) &&
+        this.selection.entriesComplete(current) &&
         (!current.definition.crossProject ||
           crossProjectState(this.storage, current.workspaceId, current.definition.crossProject)
             .selectedScopeComplete)
@@ -2899,7 +2666,7 @@ export class RoadmapService {
         );
       return;
     }
-    const entry = roadmap.definition.entries.find((e) => !this.complete(roadmap, e));
+    const entry = roadmap.definition.entries.find((e) => !this.selection.complete(roadmap, e));
     if (!entry) {
       this.writer.change(roadmap, {
         status: 'completed',
@@ -3052,7 +2819,7 @@ export class RoadmapService {
           }
           if (
             !reviewingRecovery &&
-            (roadmap.scopeRecovery?.enabled || this.roundFor(roadmap, entry))
+            (roadmap.scopeRecovery?.enabled || this.selection.roundFor(roadmap, entry))
           ) {
             const recovery = await this.advanceScopeRecovery(roadmap, entry, cycle);
             if (recovery) return recovery;
@@ -3306,7 +3073,7 @@ export class RoadmapService {
         return this.leaveToCycle(roadmap, entry, cycle, parallel);
       }
     }
-    const blocker = this.blocker(roadmap, entry, attempt);
+    const blocker = this.selection.blocker(roadmap, entry, attempt);
     if (blocker) {
       if (parallel) {
         if (blocker.needsAttention) refuseBlocked(blocker);
@@ -3327,7 +3094,7 @@ export class RoadmapService {
     // A slice waits for the decisions its merge needs once each has a brief, rather than
     // starting a design that would stop to ask for them (R-C3b, operator decision 2026-09-29).
     if (!attempt) {
-      const held = this.decisionHold(this.storage, roadmap, entry);
+      const held = this.selection.decisionHold(this.storage, roadmap, entry);
       if (held.length) {
         const wait = phaseWait(new PhaseGateError(held));
         if (!parallel) this.writer.reason(roadmap, `${entry.sourceId}: ${wait.reason}`);
@@ -3372,7 +3139,7 @@ export class RoadmapService {
       if (current.version !== roadmap.version || current.status !== 'running')
         throw new SupersededRoadmapOperation();
       this.writer.authority(current);
-      const blocked = this.blocker(current, entry, reserved);
+      const blocked = this.selection.blocker(current, entry, reserved);
       if (blocked) refuseBlocked(blocked);
     };
     check();
@@ -3426,229 +3193,6 @@ export class RoadmapService {
     });
     return MOVED;
   }
-  /**
-   * Releases a stored hold whose typed fact cleared (R-C10's follow-up, decision 2): one write,
-   * audited as the system's with what it released and why, after which the hold's item resolves.
-   */
-  private async releaseHold(roadmap: Roadmap, entry: RoadmapEntry): Promise<Roadmap | undefined> {
-    const hold = roadmap.entryHolds?.[entry.id];
-    const check = hold && holdCheck(entry.id, hold);
-    if (!hold?.attention || !check || !(await this.releasable(roadmap, entry, check))) return;
-    const current = this.writer.find(roadmap.workspaceId, roadmap.id);
-    if (current.version !== roadmap.version || current.status !== 'running') return;
-    const { [entry.id]: _released, ...entryHolds } = current.entryHolds ?? {};
-    if (check.fact !== 'reverify')
-      return this.writer.change(
-        current,
-        { entryHolds },
-        'release-hold',
-        undefined,
-        releaseRecord(entry.id, hold.attention, check),
-      );
-    // Stale evidence the scheduler re-verifies itself, in place, as Re-verify would (decision 4):
-    // the queued review names the grantor as its requester; the audit's system actor tells it
-    // apart from the operator's own Re-verify.
-    const queued = this.selfReverify(current, entry);
-    if (!queued) return;
-    return this.writer.change(
-      current,
-      {
-        entryHolds,
-        attempts: current.attempts.map((a) =>
-          a.id === queued.attempt.id
-            ? {
-                ...a,
-                reverification: {
-                  requestedAt: this.state.now().toISOString(),
-                  requestedByUserId: queued.requestedByUserId,
-                  sourceRunId: queued.sourceRunId,
-                },
-              }
-            : a,
-        ),
-      },
-      'reverify-entry',
-      undefined,
-      // The audit names the grantor the review is queued for (increment 5 review NIT-4).
-      {
-        ...releaseRecord(entry.id, hold.attention, check),
-        requestedByUserId: queued.requestedByUserId,
-      },
-    );
-  }
-
-  /** The in-place re-verification the scheduler makes itself, if decision 4's facts all hold. */
-  private selfReverify(roadmap: Roadmap, entry: RoadmapEntry) {
-    const scope = entry.executionScope;
-    const grant = roadmap.reverificationGrant;
-    if (!scope || !grant) return undefined;
-    const plan = this.reverification(roadmap, entry);
-    const inPlace = 'refused' in plan ? undefined : plan.inPlace ? plan : undefined;
-    const definition = inPlace && attemptDefinition(this.storage, roadmap, inPlace.attempt);
-    const { reasons, receipt } = evidenceStaleness(
-      this.storage,
-      roadmap.workspaceId,
-      scope,
-      entry.workItemId,
-    );
-    const changedAt = evidenceChangedAt(this.storage, roadmap.workspaceId, scope, entry.workItemId);
-    const verdict = selfReverification({
-      // The review names its grantor as requester, so they must still be able to request it,
-      // as a standing preparation's grantor must (R-C3b).
-      granted:
-        grant.enabled && !!activeEditor(this.storage, grant.grantedByUserId, roadmap.workspaceId),
-      inPlace: !!inPlace,
-      // The roadmap verifies the entry itself: a slice verification, or a parent acceptance
-      // under automatic acceptance.
-      automatic:
-        scope.kind === 'slice-verification' ||
-        (scope.kind === 'parent-acceptance' &&
-          definition?.crossProject?.parentAcceptance === 'automatic'),
-      reasons,
-      receiptRunId: receipt?.reviewRunId,
-      sourceRunId: inPlace?.sourceRunId,
-      reverifiedRunId: inPlace?.attempt.reverification?.sourceRunId,
-      changedAt,
-      now: this.state.now(),
-    });
-    // Approvals still settling: the roadmap is looked at again once they have (R-B5 part 2).
-    if (verdict === 'settling' && changedAt !== undefined)
-      this.state.lookAgain(roadmap.id, Date.parse(changedAt) + REVERIFY_SETTLE_MS);
-    return verdict === 'reverifies' && inPlace
-      ? {
-          attempt: inPlace.attempt,
-          sourceRunId: inPlace.sourceRunId,
-          requestedByUserId: grant.grantedByUserId,
-        }
-      : undefined;
-  }
-
-  /**
-   * Resumes a roadmap stopped for a typed fact that cleared (a sequential stop on its entry,
-   * decision 2), asking first what the operator's Resume asks: if anything refuses, the stop
-   * stays the operator's. The delegator stays the one it has; the reason is a Resume's.
-   */
-  private async resumeCleared(roadmap: Roadmap): Promise<void> {
-    if (roadmap.status !== 'needs-attention' || !roadmap.attention) return;
-    const check = stopCheck(roadmap.attention);
-    const entry = check && roadmap.definition.entries.find((e) => e.id === check.entryId);
-    if (!check || !entry || !(await this.releasable(roadmap, entry, check))) return;
-    try {
-      this.assertRunnable(roadmap.workspaceId, roadmap, 'resume');
-    } catch {
-      return;
-    }
-    const current = this.writer.find(roadmap.workspaceId, roadmap.id);
-    if (current.version !== roadmap.version) return;
-    this.writer.change(
-      current,
-      { status: 'running', reason: RESUMED_REASON },
-      'resume-cleared',
-      undefined,
-      releaseRecord(entry.id, roadmap.attention, check),
-    );
-  }
-
-  /**
-   * Decision 2's guards, then the fact, then the guards again: a fact read can wait on Git, and a
-   * command that has not written yet (a Stop's start, a Resume awaiting its cycle) leaves the
-   * roadmap's version alone, so the version check alone would miss it (increment 4 review LOW-1).
-   * A read that fails keeps the hold.
-   */
-  private async releasable(
-    roadmap: Roadmap,
-    entry: RoadmapEntry,
-    check: ReleaseCheck,
-  ): Promise<boolean> {
-    if (!this.releaseGuarded(roadmap, entry)) return false;
-    try {
-      if (!(await this.cleared(roadmap, check))) return false;
-    } catch {
-      return false;
-    }
-    return this.releaseGuarded(this.writer.find(roadmap.workspaceId, roadmap.id), entry);
-  }
-
-  /**
-   * Never while something holds the whole roadmap (it ended, a wind-down settles it, an amendment
-   * awaits, the entry's plan version is retired or being retired), while a roadmap command runs or
-   * admissions are held, or once the delegating user lost their authority.
-   */
-  private releaseGuarded(roadmap: Roadmap, entry: RoadmapEntry): boolean {
-    if (
-      roadmapHeld(this.storage, roadmap, entry) ||
-      this.state.controlling.has(roadmap.id) ||
-      this.state.admissionsHeld ||
-      this.state.abort.signal.aborted
-    )
-      return false;
-    try {
-      this.writer.authority(roadmap);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Whether the typed fact a stored hold or stop waits on has cleared: the same gate the pass
-   * refused with, asked again of the entry it names.
-   */
-  private async cleared(roadmap: Roadmap, check: ReleaseCheck): Promise<boolean> {
-    const entry = roadmap.definition.entries.find((e) => e.id === check.entryId);
-    if (!entry) return false;
-    const ws = roadmap.workspaceId;
-    // A round's owner is asked with the round's attempt; any other entry with its own. A review
-    // entry is never a round's owner (a round's target review is gated with its own id), so it is
-    // asked with its own attempt (increment 4 review NIT-1).
-    const asRound =
-      check.asRound && (!entry.executionScope || entry.executionScope.kind === 'slice');
-    const attempt = roadmap.attempts.find((a) =>
-      asRound
-        ? a.entryId === entry.id && a.recovery !== undefined && a.recovery.phase !== 'completed'
-        : a.entryId === entry.id && !a.recovery,
-    );
-    switch (check.fact) {
-      case 'blocker': {
-        const blocked = this.blocker(roadmap, entry, attempt, this.storage, asRound);
-        return !blocked?.needsAttention && !blocked?.circular;
-      }
-      case 'phase-gate': {
-        const scope = entry.executionScope;
-        if (!scope) return false;
-        const cycle = attempt && this.storage.execution.cycles.find(ws, attempt.cycleId);
-        return phaseGateClears(
-          scopePhaseBlockers(
-            this.storage,
-            ws,
-            entry.workItemId,
-            scope,
-            gatePhase(scope, !!cycle),
-            cycle && scope.kind !== 'slice' ? { ownerId: cycle.currentRunId } : {},
-          ),
-        );
-      }
-      // A required predecessor that is not complete counts as no missing merge here, as at an
-      // attempt; the merge's phase gate waits on it first, so nothing loops (review NIT-2).
-      case 'predecessor-merge':
-        return !(await this.execution.branches.missingPredecessorMerge(
-          ws,
-          entry.workItemId,
-          entry.repositoryId,
-          entry.integrationBranch,
-          entry.executionScope,
-        ));
-      case 'cycle': {
-        const cycle = check.cycleId
-          ? this.storage.execution.cycles.find(ws, check.cycleId)
-          : undefined;
-        return cycleCarriesOn(cycle?.status, this.complete(roadmap, entry));
-      }
-      // Stale evidence the scheduler re-verifies itself, under the roadmap's grant (decision 4).
-      case 'reverify':
-        return this.selfReverify(roadmap, entry) !== undefined;
-    }
-  }
 
   /** The roadmap leaves this cycle to its own controller or to the operator. */
   private leaveToCycle(
@@ -3676,21 +3220,6 @@ export class RoadmapService {
         `${entry.sourceId}: ${cycle.status === 'awaiting-merge' ? 'Awaiting your merge approval.' : cycle.reason}`,
       );
     return cycleStep(cycle);
-  }
-  private recoveryFor(roadmap: Roadmap, entry: RoadmapEntry) {
-    return openRecoveries(roadmap).get(entry.workItemId);
-  }
-  /** The review each of the work item's verification and parent entries last ran. */
-  private reviewRunIds(roadmap: Roadmap, entry: RoadmapEntry): Record<string, AgentRunId> {
-    return Object.fromEntries(
-      roadmap.attempts.flatMap((a) => {
-        const e = roadmap.definition.entries.find((e) => e.id === a.entryId);
-        const c = this.storage.execution.cycles.find(roadmap.workspaceId, a.cycleId);
-        return e?.workItemId === entry.workItemId && e.executionScope?.kind !== 'slice' && c
-          ? [[e.id, c.currentRunId]]
-          : [];
-      }),
-    );
   }
   /**
    * Delegates source fixes the operator chose from an independent review. When a live roadmap
@@ -3725,7 +3254,7 @@ export class RoadmapService {
       (e) => e.id === owner.id,
     );
     if (!frozen) conflict('The owning slice’s roadmap settings are unavailable.');
-    const open = this.recoveryFor(roadmap, sourceEntry);
+    const open = this.selection.recoveryFor(roadmap, sourceEntry);
     // A round this command prepared earlier and that created nothing is retried in place.
     const retry =
       open?.status === 'preparing' &&
@@ -3765,7 +3294,7 @@ export class RoadmapService {
           sourceSequence: turn.sequence,
           findingFingerprint: findingFingerprint(report.report.findings),
           phase: 'repair',
-          reviewRunIds: this.reviewRunIds(roadmap, sourceEntry),
+          reviewRunIds: this.selection.reviewRunIds(roadmap, sourceEntry),
           requestedByUserId: context.user.id,
         },
       };
@@ -3867,7 +3396,12 @@ export class RoadmapService {
       );
       const ownerAttempt =
         owner && roadmap.attempts.find((a) => a.entryId === owner.id && !a.recovery);
-      if (!sourceEntry || !owner || !ownerAttempt || this.recoveryFor(roadmap, sourceEntry))
+      if (
+        !sourceEntry ||
+        !owner ||
+        !ownerAttempt ||
+        this.selection.recoveryFor(roadmap, sourceEntry)
+      )
         continue;
       // A roadmap's cycles are held to their repository's adopted checks, and fail closed without
       // them (R-G13 increment 4, D2). A repair delegated by hand was not: with no adoption, or a
@@ -3912,7 +3446,7 @@ export class RoadmapService {
             report?.status === 'complete' ? report.report.findings : [],
           ),
           phase: 'repair',
-          reviewRunIds: this.reviewRunIds(roadmap, sourceEntry),
+          reviewRunIds: this.selection.reviewRunIds(roadmap, sourceEntry),
           requestedByUserId: cycle.createdByUserId,
         },
       };
@@ -3967,11 +3501,6 @@ export class RoadmapService {
     }
     return roadmap;
   }
-  /** The live recovery round for this work item that the roadmap carries through. */
-  private roundFor(roadmap: Roadmap, entry: RoadmapEntry) {
-    const round = this.recoveryFor(roadmap, entry);
-    return round && roadmapCarriesRound(roadmap, round) ? round : undefined;
-  }
   /** Each round survives worktree replacement and returns through the original independent reviewers. */
   private async advanceScopeRecovery(
     roadmap: Roadmap,
@@ -3979,7 +3508,7 @@ export class RoadmapService {
     sourceCycle: import('@craftingtable/domain').WorkCycle,
   ): Promise<EntryStep | undefined> {
     const ws = roadmap.workspaceId;
-    let attempt = this.recoveryFor(roadmap, entry);
+    let attempt = this.selection.recoveryFor(roadmap, entry);
     if (attempt && attempt.recovery!.sourceEntryId !== entry.id)
       return waiting('recovery-round', 'A recovery round for this work item is in progress.', {
         entryId: attempt.recovery!.sourceEntryId,
@@ -4014,7 +3543,13 @@ export class RoadmapService {
         (a) => a.entryId === decision.owner!.id && !a.recovery,
       );
       if (!ownerAttempt) conflict('The owning slice has no roadmap-bound implementation settings.');
-      const blocked = this.blocker(roadmap, decision.owner, undefined, this.storage, true);
+      const blocked = this.selection.blocker(
+        roadmap,
+        decision.owner,
+        undefined,
+        this.storage,
+        true,
+      );
       if (blocked) {
         if (blocked.circular)
           throw gated(new EntryHoldError('entry-blocked', blocked.reason), decision.owner.id);
@@ -4035,7 +3570,7 @@ export class RoadmapService {
           sourceSequence: decision.sourceSequence!,
           findingFingerprint: decision.fingerprint!,
           phase: 'repair',
-          reviewRunIds: this.reviewRunIds(roadmap, entry),
+          reviewRunIds: this.selection.reviewRunIds(roadmap, entry),
         },
       };
       roadmap = this.writer.change(
@@ -4102,7 +3637,7 @@ export class RoadmapService {
           conflict(
             'The source review changed during recovery preparation. Inspect the reserved attempt.',
           );
-        const blocked = this.blocker(roadmap, owner, reserved, this.storage, true);
+        const blocked = this.selection.blocker(roadmap, owner, reserved, this.storage, true);
         if (blocked) {
           if (blocked.circular)
             throw gated(new EntryHoldError('entry-blocked', blocked.reason), owner.id);
@@ -4136,7 +3671,7 @@ export class RoadmapService {
               policy: frozen.policy,
               check: () => {
                 check();
-                const blocker = this.blocker(
+                const blocker = this.selection.blocker(
                   this.writer.find(ws, roadmap.id),
                   owner,
                   reserved,
@@ -4177,7 +3712,7 @@ export class RoadmapService {
         e.workItemId === entry.workItemId && e.executionScope && e.executionScope.kind !== 'slice',
     );
     const verification = reviews.filter((e) => e.executionScope!.kind === 'slice-verification');
-    const phase = verification.every((e) => this.complete(roadmap, e, this.storage, true))
+    const phase = verification.every((e) => this.selection.complete(roadmap, e, this.storage, true))
       ? 'parent-review'
       : 'verification';
     if (phase !== reserved.recovery!.phase) {
@@ -4188,7 +3723,7 @@ export class RoadmapService {
       phase === 'verification'
         ? verification
         : reviews.filter((e) => e.executionScope!.kind === 'parent-acceptance')
-    ).find((e) => !this.complete(roadmap, e, this.storage, true));
+    ).find((e) => !this.selection.complete(roadmap, e, this.storage, true));
     if (!target) {
       this.writer.updateRecovery(roadmap, reserved, {
         recovery: { ...reserved.recovery!, phase: 'completed' },
@@ -4281,10 +3816,6 @@ export class RoadmapService {
       cycleId: cycle.id,
     });
   }
-  private entriesComplete(roadmap: Roadmap): boolean {
-    const tx = mapReadSnapshot(this.storage);
-    return roadmap.definition.entries.every((entry) => this.complete(roadmap, entry, tx));
-  }
   private reconcileCompletedAttempts(roadmap: Roadmap): Roadmap {
     const tx = mapReadSnapshot(this.storage);
     let changed = false;
@@ -4310,7 +3841,7 @@ export class RoadmapService {
         tree.integrationBranch === entry.integrationBranch
           ? tree.mergedAt
           : undefined;
-      if (!mergedAt && !this.complete(roadmap, entry, tx)) return attempt;
+      if (!mergedAt && !this.selection.complete(roadmap, entry, tx)) return attempt;
       changed = true;
       delete entryHolds[entry.id];
       return {
@@ -4321,404 +3852,7 @@ export class RoadmapService {
     });
     return changed ? this.writer.change(roadmap, { attempts, entryHolds }) : roadmap;
   }
-  /** Entries this pass skips: complete ones, and unstarted ones a blocker defers. */
-  private deferredEntries(roadmap: Roadmap): ReadonlyMap<string, 'complete' | EntryBlocker> {
-    const tx = mapReadSnapshot(this.storage);
-    return new Map(
-      roadmap.definition.entries.flatMap((entry): [string, 'complete' | EntryBlocker][] => {
-        const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
-        if (this.complete(roadmap, entry, tx))
-          return !attempt || attempt.status === 'completed' ? [[entry.id, 'complete']] : [];
-        if (attempt) return [];
-        const blocker = this.blocker(roadmap, entry, undefined, tx);
-        return blocker && !blocker.needsAttention ? [[entry.id, blocker]] : [];
-      }),
-    );
-  }
-  private complete(
-    roadmap: Roadmap,
-    entry: RoadmapEntry,
-    tx: StorageRepositories = this.storage,
-    ignoreRecovery = false,
-  ): boolean {
-    if (!ignoreRecovery && this.roundFor(roadmap, entry)?.recovery?.sourceEntryId === entry.id)
-      return false;
-    if (entry.executionScope) {
-      const scope = entry.executionScope;
-      const d = tx.imports.definition(roadmap.workspaceId, scope.definitionId);
-      return (
-        !!d &&
-        milestoneSatisfied(tx, roadmap.workspaceId, d, scope.bindingRevision, {
-          ...(scope.kind === 'parent-acceptance'
-            ? { kind: 'work_item' as const, state: 'accepted' as const }
-            : {
-                kind: 'slice' as const,
-                state: scope.kind === 'slice' ? ('merged' as const) : ('verified' as const),
-              }),
-          id: scope.sourceId,
-        })
-      );
-    }
-    const attempt = roadmap.attempts.find((a) => a.entryId === entry.id);
-    return attempt
-      ? attempt.status === 'completed'
-      : entry.executionScope
-        ? tx.execution.worktrees
-            .listForWorkItem(roadmap.workspaceId, entry.workItemId)
-            .some((t) => sameExecutionScope(t.executionScope, entry.executionScope) && !!t.mergedAt)
-        : tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId)?.status === 'completed';
-  }
 
-  /**
-   * The decisions a slice not yet started waits on (R-C3b, operator decision 2026-09-29): each
-   * shared decision its merge needs that is not settled for it and has a brief that would settle
-   * it once approved. The scheduler holds the slice on them instead of starting a design that
-   * would stop to ask. A decision with no brief does not hold it, nor does a brief that could not
-   * release it (R-C3b review): one limited to clauses of other slices, one on a card that cannot
-   * be approved yet, or one the operator has rejected since it was written. Only the roadmap
-   * waits: the operator may still start the slice by hand.
-   */
-  private decisionHold(
-    tx: StorageRepositories,
-    roadmap: Roadmap,
-    entry: RoadmapEntry,
-  ): import('@craftingtable/domain').PhaseBlocker[] {
-    const scope = entry.executionScope;
-    if (scope?.kind !== 'slice') return [];
-    try {
-      const definition = tx.imports.definition(roadmap.workspaceId, scope.definitionId);
-      const slice = definition?.source.slices.find((s) => s.id === scope.sourceId);
-      if (!definition || !slice) return [];
-      const merge = new Set(
-        slice.merge_requires.filter((r) => r.kind === 'checkpoint').map((r) => r.id),
-      );
-      if (!merge.size) return [];
-      let inboxes =
-        tx === this.storage ? this.state.passInboxes : this.state.viewInboxes.get(tx as object);
-      if (!inboxes) {
-        inboxes = new Map();
-        if (tx !== this.storage) this.state.viewInboxes.set(tx as object, inboxes);
-      }
-      // Rebuilt whenever workflow state changed since, within a pass too (R-C3b review): a brief
-      // that finished or a decision settled meanwhile is seen at once. Only the briefs of the
-      // decisions this roadmap's slices not yet started need are read, not the whole inbox (R-D7).
-      const generation = this.notifier.workflowGeneration;
-      let cached = inboxes.get(definition.id);
-      if (
-        !cached ||
-        cached.generation !== generation ||
-        [...merge].some((id) => !cached!.checkpoints.has(id))
-      ) {
-        const checkpoints = new Set([
-          ...(cached?.generation === generation ? cached.checkpoints : []),
-          ...merge,
-          ...roadmap.definition.entries.flatMap((e) =>
-            e.executionScope?.kind === 'slice' &&
-            e.executionScope.definitionId === definition.id &&
-            !roadmap.attempts.some((a) => a.entryId === e.id)
-              ? (definition.source.slices
-                  .find((s) => s.id === e.executionScope!.sourceId)
-                  ?.merge_requires.filter((r) => r.kind === 'checkpoint')
-                  .map((r) => r.id) ?? [])
-              : [],
-          ),
-        ]);
-        cached = {
-          generation,
-          checkpoints,
-          briefs: decisionBriefs(tx, definition, checkpoints),
-          sources: new Map(
-            tx.runtimeEvidence
-              .submissions(roadmap.workspaceId, definition.id)
-              .map((submission) => [submission.id, submission.sourceRunId]),
-          ),
-        };
-        inboxes.set(definition.id, cached);
-      }
-      const { briefs, sources } = cached;
-      const ready = [...briefs.values()].filter((d) => {
-        const brief = d.recommendation.brief;
-        if (!merge.has(d.checkpointId) || !brief || d.blockers.length) return false;
-        if (brief.coverage !== 'full' && !brief.consumers.some((c) => c.sliceId === slice.id))
-          return false;
-        // Released once the operator rejected a proposal made from this very brief that would
-        // have settled this slice; a clause proposal for another slice does not release it.
-        return !d.records.some(
-          (r) =>
-            r.decision?.outcome === 'rejected' &&
-            sources.get(r.id) === d.recommendation.sourceRunId &&
-            (r.proposal.coverage === 'full' ||
-              r.proposal.consumers.some((c) => c.sliceId === slice.id)),
-        );
-      });
-      if (!ready.length) return [];
-      const unsettled = unsettledSliceDecisions(tx, roadmap.workspaceId, entry.workItemId, scope);
-      return ready
-        .filter((d) => unsettled.includes(d.checkpointId))
-        .map((d) => ({
-          kind: 'evidence' as const,
-          code: 'decision-checkpoint-evidence' as const,
-          message: `${d.checkpointId} has a prepared brief awaiting your approval; ${entry.sourceId} starts once it is approved, so its design does not stop to ask. Approve it in Shared architecture decisions.`,
-          refs: { checkpointId: d.checkpointId },
-        }));
-    } catch {
-      return [];
-    }
-  }
-
-  private blocker(
-    roadmap: Roadmap,
-    entry: RoadmapEntry,
-    attempt?: RoadmapAttempt,
-    tx: StorageRepositories = this.storage,
-    /**
-     * A recovery round for this slice may take one repository slot beyond the limit while a
-     * slot holder's merge waits on this very slice, which would otherwise never free (LIVE-06).
-     */
-    recoveryRound = false,
-  ): EntryBlocker | undefined {
-    const blocked = (
-      reason: string,
-      needsAttention = true,
-      kind: EntryBlocker['kind'] = 'dependency-blocked',
-      circular = false,
-      cause?: EntryBlocker['cause'],
-    ): EntryBlocker => ({
-      reason,
-      needsAttention,
-      kind,
-      ...(circular ? { circular } : {}),
-      ...(cause ? { cause } : {}),
-    });
-    // The item-status rule every gate shares (R-B4, decision 2); the scheduler admits a proposed
-    // item itself.
-    const refused = itemGate(
-      tx.planning.workItems.find(roadmap.workspaceId, entry.workItemId),
-      entry.executionScope,
-      { admits: true, planVersionId: entry.planVersionId },
-    );
-    if (refused === 'item-unavailable')
-      return blocked(
-        `${entry.sourceId}: Bound plan item is unavailable.`,
-        true,
-        'dependency-blocked',
-        false,
-        refused,
-      );
-    if (refused)
-      return blocked(
-        `${entry.sourceId}: Marked complete without merging the roadmap worktree. Inspect the item; the queue will not advance.`,
-        true,
-        'dependency-blocked',
-        false,
-        refused,
-      );
-    try {
-      requireScopeOwnership(
-        tx,
-        roadmap.workspaceId,
-        entry.workItemId,
-        entry.executionScope,
-        attempt?.worktreeId,
-      );
-      if (entry.executionScope) {
-        const issues = scopeBlockers(
-          tx,
-          roadmap.workspaceId,
-          entry.workItemId,
-          entry.executionScope,
-          entry.executionScope.kind === 'slice-verification'
-            ? 'verify'
-            : entry.executionScope.kind === 'parent-acceptance'
-              ? 'accept'
-              : 'start',
-        );
-        if (issues.length) return blocked(`${entry.sourceId}: ${issues.join(' ')}`, false);
-      }
-    } catch (error) {
-      return blocked(error instanceof Error ? error.message : 'Execution scope is unavailable.');
-    }
-    // The shared predecessor rule, with this roadmap's unfinished attempts still in flight.
-    const predecessors = predecessorGate(
-      tx,
-      roadmap.workspaceId,
-      entry.workItemId,
-      entry.executionScope,
-      (e) =>
-        roadmap.attempts.some(
-          (a) =>
-            a.status !== 'completed' &&
-            roadmap.definition.entries.some(
-              (bound) => bound.id === a.entryId && bound.workItemId === e.workItemId,
-            ),
-        ),
-    );
-    if (predecessors.blocked)
-      return blocked(
-        `${entry.sourceId}: Waiting for required predecessors: ${predecessors.pending.map((e) => `${e.sourceId}${roadmap.definition.entries.some((item) => item.workItemId === e.workItemId) ? '' : ' (outside this roadmap)'}`).join(', ')}.`,
-        false,
-      );
-    const settings = tx.execution.branchSettings.find(roadmap.workspaceId, entry.planVersionId);
-    if (
-      settings?.repositoryId !== entry.repositoryId ||
-      settings.integrationBranch !== entry.integrationBranch
-    )
-      return blocked(
-        `${entry.sourceId}: Plan branch settings changed. Save queued settings to adopt the new target.`,
-      );
-    const repo = tx.execution.sourceRepositories.find(roadmap.workspaceId, entry.repositoryId);
-    if (repo?.status !== 'active') return blocked(`${entry.sourceId}: Repository is unavailable.`);
-    if (!attempt && this.execution.branches.repositoryBusy(repo.rootPath)) {
-      // Its release marks the roadmap (R-B5 part 2).
-      this.state.waitOnLock(roadmap.id, 'lane');
-      return blocked(
-        `${entry.sourceId}: Waiting for a repository mutation to finish.`,
-        false,
-        'capacity-blocked',
-      );
-    }
-    const policy = roadmap.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
-    const parallel = policy.mode === 'parallel';
-    const activeAttempts = roadmap.attempts.filter(
-      (a) =>
-        a.status !== 'completed' &&
-        a.id !== attempt?.id &&
-        roadmap.definition.entries.some(
-          (e) => e.id === a.entryId && (!e.executionScope || e.executionScope.kind === 'slice'),
-        ),
-    );
-    const reviewOnly = !!entry.executionScope && entry.executionScope.kind !== 'slice';
-    // A recovery round whose slots are held by work that waits on the very slice it repairs
-    // would wait forever: that is the operator's to resolve (LIVE-06).
-    const circular = (holders: readonly Worktree[]) =>
-      recoveryRound &&
-      entry.executionScope?.kind === 'slice' &&
-      holders.some((tree) => this.waitsOnSlice(tx, tree, entry.executionScope!))
-        ? ` Work holding those slots waits on ${entry.sourceId}, which this recovery round repairs, so they cannot free by themselves. Raise the limit, or pause or finish a holder.`
-        : undefined;
-    if (!reviewOnly && parallel && activeAttempts.length >= policy.maxInFlight) {
-      const deadlock = circular(
-        activeAttempts.flatMap(
-          (a) => tx.execution.worktrees.find(roadmap.workspaceId, a.worktreeId) ?? [],
-        ),
-      );
-      return blocked(
-        `${entry.sourceId}: All ${policy.maxInFlight} in-flight slots are occupied (including items awaiting merge or attention).${deadlock ?? ''}`,
-        !!deadlock,
-        'capacity-blocked',
-        !!deadlock,
-      );
-    }
-    // A decision preparation's worktree is read-only and never merges, so it holds no place in
-    // a repository's slice capacity (LIVE-16): two finished preparations held both of a
-    // repository's places for days.
-    const preparing = new Set(
-      tx.roadmaps.list().flatMap((r) => (r.decisionPreparations ?? []).map((p) => p.worktreeId)),
-    );
-    // A retired version's worktrees hold no capacity: its work can never run again (R-B11).
-    const retired = retiredVersionIds(tx);
-    const trees = tx.execution.worktrees
-      .listActive()
-      .filter(
-        (t) =>
-          !tx.amendments.retired(t.workspaceId, t.id) &&
-          !preparing.has(t.id) &&
-          (!t.executionScope || t.executionScope.kind === 'slice') &&
-          !inRetiredVersion(tx, t, retired),
-      );
-    if (
-      trees.some(
-        (tree) =>
-          tree.workspaceId === roadmap.workspaceId &&
-          tree.workItemId === entry.workItemId &&
-          (!tree.executionScope ||
-            !entry.executionScope ||
-            sameExecutionScope(tree.executionScope, entry.executionScope)) &&
-          tree.id !== attempt?.worktreeId,
-      )
-    )
-      return blocked(
-        `${entry.sourceId}: This item already has an unmerged worktree. Finish or remove it before delegating another attempt.`,
-        false,
-        'capacity-blocked',
-      );
-    const occupied = trees.filter(
-      (w) =>
-        w.id !== attempt?.worktreeId &&
-        tx.execution.sourceRepositories.find(w.workspaceId, w.repositoryId)?.rootPath ===
-          repo.rootPath,
-    );
-    // Include reserved preparations before a worktree exists, across workspace schedulers.
-    let reservations = 0;
-    let repositoryLimit = parallel ? policy.maxPerRepository : 1;
-    for (const other of tx.roadmaps.list()) {
-      for (const reservation of other.attempts) {
-        if (reservation.status === 'completed' || reservation.worktreeId === attempt?.worktreeId)
-          continue;
-        const bound = other.definition.entries.find((e) => e.id === reservation.entryId);
-        if (!bound || (bound.executionScope && bound.executionScope.kind !== 'slice')) continue;
-        const tree = trees.find((w) => w.id === reservation.worktreeId);
-        const pending = !ended(other) && reservation.status === 'preparing' && !tree;
-        if (!tree && !pending) continue;
-        if (
-          other.workspaceId === roadmap.workspaceId &&
-          bound.exclusionGroups?.some((group) => entry.exclusionGroups?.includes(group))
-        )
-          return blocked(
-            `${entry.sourceId}: Exclusion group is held by ${bound.sourceId} until merge or worktree removal.`,
-            false,
-            'exclusion-blocked',
-          );
-        if (
-          tx.execution.sourceRepositories.find(other.workspaceId, bound.repositoryId)?.rootPath !==
-          repo.rootPath
-        )
-          continue;
-        if (pending) reservations++;
-        if (!ended(other))
-          repositoryLimit = Math.min(
-            repositoryLimit,
-            other.definition.scheduling?.mode === 'parallel'
-              ? other.definition.scheduling.maxPerRepository
-              : 1,
-          );
-      }
-    }
-    const used = occupied.length + reservations;
-    const deadlock = used >= repositoryLimit ? circular(occupied) : undefined;
-    // The round may take one slot beyond the limit, never more (operator decision 2026-09-27).
-    if (!reviewOnly && used >= repositoryLimit && !(deadlock && used === repositoryLimit))
-      return blocked(
-        `${entry.sourceId}: Repository has ${occupied.length + reservations} unmerged worktree(s) or reservations; capacity is ${repositoryLimit}. Finish or remove existing work before this item starts.${deadlock ?? ''}`,
-        !!deadlock,
-        'capacity-blocked',
-        !!deadlock,
-      );
-    return undefined;
-  }
-  /** Whether this unmerged slice worktree's merge waits on the given slice of the same map. */
-  private waitsOnSlice(tx: StorageRepositories, tree: Worktree, slice: ExecutionScope): boolean {
-    if (
-      tree.executionScope?.kind !== 'slice' ||
-      !tree.workItemId ||
-      tree.executionScope.definitionId !== slice.definitionId ||
-      tree.executionScope.bindingRevision !== slice.bindingRevision
-    )
-      return false;
-    try {
-      return scopePhaseBlockers(
-        tx,
-        tree.workspaceId,
-        tree.workItemId,
-        tree.executionScope,
-        'merge',
-        { resources: false },
-      ).some((b) => b.code === 'slice-requirement' && b.refs?.sliceId === slice.sourceId);
-    } catch {
-      // A scope that no longer resolves lends nothing: the round keeps the ordinary limit.
-      return false;
-    }
-  }
   private view(
     roadmap: Roadmap,
     snapshot = mapReadSnapshot(this.storage),
@@ -4737,7 +3871,7 @@ export class RoadmapService {
       progress: operator.progress(
         roadmap.definition.entries
           .map((entry): import('@craftingtable/domain').RoadmapEntryProgress => {
-            if (this.complete(roadmap, entry, snapshot))
+            if (this.selection.complete(roadmap, entry, snapshot))
               return { entryId: entry.id, status: 'completed', reason: 'Completed.' };
             const hold = roadmap.entryHolds?.[entry.id];
             const currentAttempt = roadmap.attempts.find(
@@ -4754,7 +3888,7 @@ export class RoadmapService {
               };
             if (hold && currentCycle?.status !== 'running')
               return { entryId: entry.id, status: hold.status, reason: hold.reason };
-            const recovery = this.roundFor(roadmap, entry);
+            const recovery = this.selection.roundFor(roadmap, entry);
             if (recovery && entry.executionScope?.kind !== 'slice') {
               const repair = snapshot.execution.cycles.find(roadmap.workspaceId, recovery.cycleId);
               const repairNeedsYou =
@@ -4811,7 +3945,7 @@ export class RoadmapService {
                   { ownerId: cycle?.currentRunId },
                 ),
                 ...(phase === 'start' && !attempt
-                  ? this.decisionHold(snapshot, roadmap, entry)
+                  ? this.selection.decisionHold(snapshot, roadmap, entry)
                   : []),
               ];
               if (blockers.length)
@@ -4838,7 +3972,7 @@ export class RoadmapService {
                       : 'needs-attention',
                 reason: cycle.reason,
               };
-            const reason = this.blocker(roadmap, entry, attempt, snapshot);
+            const reason = this.selection.blocker(roadmap, entry, attempt, snapshot);
             return {
               entryId: entry.id,
               status: reason?.needsAttention ? 'needs-attention' : reason ? reason.kind : 'queued',
@@ -4854,7 +3988,7 @@ export class RoadmapService {
             return {
               ...progress,
               ...(progress.status !== 'completed' &&
-              !('refused' in this.reverification(roadmap, entry, snapshot))
+              !('refused' in this.selection.reverification(roadmap, entry, snapshot))
                 ? { reverifiable: true as const }
                 : {}),
               effectiveAutomation: effectiveDelegation(
@@ -5041,7 +4175,7 @@ export class RoadmapService {
       const cycle = attempt && tx.execution.cycles.find(workspaceId, attempt.cycleId);
       // The recovery round started from this entry's review, whose repair is where its work
       // happens (LIVE-13). A round for another entry of the work item carries other stops.
-      const round = this.roundFor(roadmap, entry);
+      const round = this.selection.roundFor(roadmap, entry);
       const repair =
         round?.recovery?.sourceEntryId === entry.id
           ? tx.execution.cycles.find(workspaceId, round.cycleId)
@@ -5049,7 +4183,7 @@ export class RoadmapService {
       // A manual recovery, or the round's repair, has taken over this checkpoint. The saved
       // hold remains historical until reconciliation; it is not a second task.
       if (cycle?.status === 'running' || repair?.status === 'running') continue;
-      if (entry.executionScope && this.scopeComplete(tx, roadmap, entry)) continue;
+      if (entry.executionScope && this.selection.scopeComplete(tx, roadmap, entry)) continue;
       // The cycle's own item already carries this stop, with its findings and branch.
       if (
         [cycle, repair].some(
@@ -5061,7 +4195,7 @@ export class RoadmapService {
         )
       )
         continue;
-      const reverifiable = !('refused' in this.reverification(roadmap, entry, tx));
+      const reverifiable = !('refused' in this.selection.reverification(roadmap, entry, tx));
       items.push({
         subjectKey: `roadmap:${roadmap.id}:entry:${entry.id}`,
         code: held.code,
@@ -5106,7 +4240,7 @@ export class RoadmapService {
       const reverifiable =
         !!entry.executionScope &&
         entry.executionScope.kind !== 'slice' &&
-        !('refused' in this.reverification(roadmap, entry, tx));
+        !('refused' in this.selection.reverification(roadmap, entry, tx));
       items.push({
         subjectKey: `roadmap:${roadmap.id}:entry:${entry.id}:cycle-ended`,
         code: 'cycle-needs-attention',
@@ -5124,28 +4258,5 @@ export class RoadmapService {
       });
     }
     return items;
-  }
-
-  /** The entry's own milestone is already satisfied, so its old hold needs nobody. */
-  private scopeComplete(tx: StorageRepositories, roadmap: Roadmap, entry: RoadmapEntry): boolean {
-    const scope = entry.executionScope;
-    const d = scope && tx.imports.definition(roadmap.workspaceId, scope.definitionId);
-    return (
-      !!scope &&
-      !!d &&
-      milestoneSatisfied(
-        tx,
-        roadmap.workspaceId,
-        d,
-        scope.bindingRevision,
-        scope.kind === 'parent-acceptance'
-          ? { kind: 'work_item', id: scope.sourceId, state: 'accepted' }
-          : {
-              kind: 'slice',
-              id: scope.sourceId,
-              state: scope.kind === 'slice' ? 'merged' : 'verified',
-            },
-      )
-    );
   }
 }

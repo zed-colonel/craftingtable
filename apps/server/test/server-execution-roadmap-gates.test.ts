@@ -211,7 +211,7 @@ it('keeps the typed cause on a parallel entry’s hold, from a refusal or from i
   expect((await saveRoadmapRequest(state, input)).statusCode).toBe(200);
   const scheduler = state.context.services.roadmapService as unknown as {
     advanceEntry: (...args: unknown[]) => Promise<unknown>;
-    blocker: (...args: unknown[]) => unknown;
+    selection: { blocker: (...args: unknown[]) => unknown };
   };
   const advance = vi.spyOn(scheduler, 'advanceEntry').mockImplementationOnce(async () => {
     throw new TypedRefusalError(
@@ -235,7 +235,7 @@ it('keeps the typed cause on a parallel entry’s hold, from a refusal or from i
   advance.mockRestore();
   // A blocker that holds the entry holds it as `entry-blocked` (decision 2), with the item gate's
   // code as the cause.
-  const blocked = vi.spyOn(scheduler, 'blocker').mockImplementation(() => ({
+  const blocked = vi.spyOn(scheduler.selection, 'blocker').mockImplementation(() => ({
     reason: 'AQ-02: Bound plan item is unavailable.',
     needsAttention: true,
     kind: 'dependency-blocked',
@@ -254,9 +254,9 @@ it('holds a sequential entry its blocker refuses with the typed cause', async ()
   const { state } = await roadmapFixture();
   await saveRoadmapRequest(state);
   const scheduler = state.context.services.roadmapService as unknown as {
-    blocker: (...args: unknown[]) => unknown;
+    selection: { blocker: (...args: unknown[]) => unknown };
   };
-  const blocked = vi.spyOn(scheduler, 'blocker').mockImplementation(() => ({
+  const blocked = vi.spyOn(scheduler.selection, 'blocker').mockImplementation(() => ({
     reason: 'AQ-01: Marked complete without merging the roadmap worktree.',
     needsAttention: true,
     kind: 'dependency-blocked',

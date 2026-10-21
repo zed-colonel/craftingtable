@@ -25,7 +25,7 @@ afterEach(cleanupExecutionFixtures);
 
 type Internals = {
   evaluateEntry: (...args: unknown[]) => Promise<unknown>;
-  blocker: (...args: unknown[]) => unknown;
+  selection: { blocker: (...args: unknown[]) => unknown };
 };
 const internals = (state: { context: { services: { roadmapService: unknown } } }) =>
   state.context.services.roadmapService as unknown as Internals;
@@ -77,7 +77,7 @@ it('stops a sequential roadmap whose blocker refuses the attempt being made as `
   await saveRoadmapRequest(state);
   // The pass finds no blocker; the reserved attempt's own check, a moment later, does.
   const blocked = vi
-    .spyOn(internals(state), 'blocker')
+    .spyOn(internals(state).selection, 'blocker')
     .mockImplementation((_roadmap, _entry, attempt) =>
       attempt
         ? {

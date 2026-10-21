@@ -30,8 +30,8 @@ afterEach(cleanupExecutionFixtures);
 type Internals = {
   state: { controlling: Set<string> };
   writer: { authority: (...args: unknown[]) => unknown };
-  blocker: (...args: unknown[]) => unknown;
-  assertRunnable: (...args: unknown[]) => void;
+  selection: { blocker: (...args: unknown[]) => unknown };
+  holds: { assertRunnable: (...args: unknown[]) => void };
   execution: { branches: { missingPredecessorMerge: (...args: unknown[]) => Promise<unknown> } };
 };
 const internals = (state: Ready) => state.context.services.roadmapService as unknown as Internals;
@@ -40,8 +40,8 @@ const tick = (state: Ready) => state.context.services.roadmapService.tick();
 /** The entry's blocker needs the operator while `blocked` says so (no item-gate cause). */
 function blockWhile(state: Ready, entryId: string, blocked: () => boolean) {
   const scheduler = internals(state);
-  const real = scheduler.blocker.bind(scheduler);
-  return vi.spyOn(scheduler, 'blocker').mockImplementation((...args: unknown[]) =>
+  const real = scheduler.selection.blocker.bind(scheduler.selection);
+  return vi.spyOn(scheduler.selection, 'blocker').mockImplementation((...args: unknown[]) =>
     (args[1] as { id: string }).id === entryId && blocked()
       ? {
           reason: 'AQ-01: Plan branch settings changed. Save them again.',
@@ -141,8 +141,8 @@ it('asks a round’s hold of its owner as a round, and keeps it while the capaci
   let circular = true;
   const asked: unknown[] = [];
   const scheduler = internals(state);
-  const real = scheduler.blocker.bind(scheduler);
-  const spy = vi.spyOn(scheduler, 'blocker').mockImplementation((...args: unknown[]) => {
+  const real = scheduler.selection.blocker.bind(scheduler.selection);
+  const spy = vi.spyOn(scheduler.selection, 'blocker').mockImplementation((...args: unknown[]) => {
     if ((args[1] as { id: string }).id !== owner) return real(...args);
     asked.push(args[4]);
     return circular
@@ -360,7 +360,7 @@ it('leaves a sequential stop to the operator while the roadmap is paused or Resu
   await waitFor(() => storedRoadmap(state).status === 'needs-attention', 'the blocker stop');
   blocked = false;
   // Resume's own preconditions refuse: the stop stays the operator's.
-  const refused = vi.spyOn(internals(state), 'assertRunnable').mockImplementation(() => {
+  const refused = vi.spyOn(internals(state).holds, 'assertRunnable').mockImplementation(() => {
     throw new Error('Resume refuses.');
   });
   await tick(state);
@@ -459,11 +459,13 @@ itNeedsCargo(
     // A round's target review is gated with its own id; only a round's owner borrows a slot.
     const asked: unknown[] = [];
     const scheduler = internals(state);
-    const real = scheduler.blocker.bind(scheduler);
-    const spy = vi.spyOn(scheduler, 'blocker').mockImplementation((...args: unknown[]) => {
-      if ((args[1] as { id: string }).id === review.id) asked.push(args[4]);
-      return real(...args);
-    });
+    const real = scheduler.selection.blocker.bind(scheduler.selection);
+    const spy = vi
+      .spyOn(scheduler.selection, 'blocker')
+      .mockImplementation((...args: unknown[]) => {
+        if ((args[1] as { id: string }).id === review.id) asked.push(args[4]);
+        return real(...args);
+      });
     storeHold(state, slice.id, roadmapAttention('entry-blocked', { entryId: review.id }));
     await tick(state);
     expect(asked.length).toBeGreaterThan(0);

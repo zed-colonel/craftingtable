@@ -144,7 +144,13 @@ itNeedsCargo.each([
       const owner = roadmap.definition.entries.find((e) => e.id === ownerEntryId)!;
       const blocker = (recovery: boolean) =>
         // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-        state.context.services.roadmapService['blocker'](roadmap, owner, undefined, tx, recovery);
+        state.context.services.roadmapService['selection'].blocker(
+          roadmap,
+          owner,
+          undefined,
+          tx,
+          recovery,
+        );
       expect(blocker(false)?.kind).toBe('capacity-blocked');
       expect(blocker(true)).toBeUndefined();
     }
@@ -273,7 +279,7 @@ itNeedsCargo.each(['predecessor merge', 'blocker'] as const)(
     expect(enabled.statusCode, enabled.body).toBe(200);
     const owner = storedRoadmap(state).definition.entries.find((e) => e.id === ownerEntryId)!;
     const scheduler = state.context.services.roadmapService as unknown as {
-      blocker: (...args: unknown[]) => unknown;
+      selection: { blocker: (...args: unknown[]) => unknown };
       execution: { branches: { requirePredecessors: (...args: unknown[]) => Promise<void> } };
     };
     if (gate === 'predecessor merge') {
@@ -291,8 +297,8 @@ itNeedsCargo.each(['predecessor merge', 'blocker'] as const)(
       });
     } else {
       // The owner's blocker, asked as a round, needs the operator.
-      const real = scheduler.blocker.bind(scheduler);
-      vi.spyOn(scheduler, 'blocker').mockImplementation((...args: unknown[]) =>
+      const real = scheduler.selection.blocker.bind(scheduler.selection);
+      vi.spyOn(scheduler.selection, 'blocker').mockImplementation((...args: unknown[]) =>
         args[4] === true
           ? {
               reason: 'local/AQ-01/a: Bound plan item is unavailable.',

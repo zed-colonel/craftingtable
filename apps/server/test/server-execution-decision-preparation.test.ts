@@ -581,9 +581,11 @@ it('a busy repository leaves a standing preparation for the next pass, not faile
 it('a decision that cannot be reserved gives its place to the next, and waits before retrying (R-C3b review)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
-  const roadmaps = f.state.context.services.roadmapService as unknown as {
-    launchPreparation: (...args: unknown[]) => Promise<void>;
-  };
+  const roadmaps = (
+    f.state.context.services.roadmapService as unknown as {
+      preparations: { launchPreparation: (...args: unknown[]) => Promise<void> };
+    }
+  ).preparations;
   const launch = roadmaps.launchPreparation.bind(roadmaps);
   let refused = 0;
   vi.spyOn(roadmaps, 'launchPreparation').mockImplementation(async (...args: unknown[]) => {
@@ -1257,12 +1259,12 @@ it('tries a preparation refused by a lost race again a second on, not on every p
   const fixture = await decisionFixture();
   const { f } = fixture;
   const roadmaps = f.state.context.services.roadmapService as unknown as {
-    launchPreparation: (...args: unknown[]) => Promise<void>;
+    preparations: { launchPreparation: (...args: unknown[]) => Promise<void> };
     tick: () => Promise<void>;
     state: { kernel: { nextDue(): number | undefined } };
   };
   let tries = 0;
-  vi.spyOn(roadmaps, 'launchPreparation').mockImplementation(async () => {
+  vi.spyOn(roadmaps.preparations, 'launchPreparation').mockImplementation(async () => {
     tries += 1;
     throw new ConcurrentModificationError('A newer roadmap version');
   });

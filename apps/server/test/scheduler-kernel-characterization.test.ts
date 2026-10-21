@@ -47,11 +47,11 @@ it('tries a swallowed failure again at the next mark, not on every pass (flipped
   // Before increment 9 a decision preparation that failed was tried again on every pass.
   const { state } = await waitingRoadmap();
   const service = state.context.services.roadmapService as unknown as {
-    prepareNeededDecisions: () => Promise<void>;
+    preparations: { prepareNeededDecisions: () => Promise<void> };
     wake: (cause: 'test') => void;
   };
   let failed = 0;
-  service.prepareNeededDecisions = async () => {
+  service.preparations.prepareNeededDecisions = async () => {
     failed += 1;
     throw new Error('a decision preparation failed');
   };

@@ -1263,6 +1263,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **Operator decisions, 2026-10-21.** All five of R-B7's scheduler-half decisions as recommended (option A each; recorded in [R-B7](register.md#r-b7)): one resume rule for a roadmap's and an item's Resume, one editable precondition with every site's refusal kept, the slice requirement's one rule with the milestone's answer, the non-null assertions outside this half's files converted as R-B7's closing step after its third part (amending the cycle half's decision 6), and this half owning `roadmap-service.ts`, `execution-service.ts` and `work-cycle-service.ts`. Its independent review (1 HIGH, 6 MEDIUM, 17 LOW, 12 NIT, and a re-check's 2 LOW, 2 NIT) is settled in the entry. The half is built next, increments 1 to 12.
 
+**R-B7 scheduler half, increment 1 (2026-10-21).** The characterization is in (106 tests in six files, passing on the code before): the editable precondition's eight sites and two views, both Resumes on each condition (five rows marked to flip under decision 1 A), the slice requirement's two copies on one table (its unbound row marked for decision 3 A), every owner reader over 33 owner states, the scheduler's closures at their callees, and the merge's refusals ahead of its own checks. Odd behaviours found are recorded in R-B7's entry and kept.
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

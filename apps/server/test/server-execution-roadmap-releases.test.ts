@@ -28,8 +28,8 @@ import {
 afterEach(cleanupExecutionFixtures);
 
 type Internals = {
-  controlling: Set<string>;
-  authority: (...args: unknown[]) => unknown;
+  state: { controlling: Set<string> };
+  writer: { authority: (...args: unknown[]) => unknown };
   blocker: (...args: unknown[]) => unknown;
   assertRunnable: (...args: unknown[]) => void;
   execution: { branches: { missingPredecessorMerge: (...args: unknown[]) => Promise<unknown> } };
@@ -212,7 +212,7 @@ it('keeps a hold whose fact cleared while a roadmap command began during its rea
       if (began || args[1] !== third.workItemId) return real(...args);
       // A Stop's start, or a Resume awaiting its cycle, takes the lock and writes no roadmap row.
       began = true;
-      scheduler.controlling.add(roadmapId);
+      scheduler.state.controlling.add(roadmapId);
       return undefined;
     });
   await tick(state);
@@ -220,7 +220,7 @@ it('keeps a hold whose fact cleared while a roadmap command began during its rea
   expect(storedRoadmap(state).entryHolds?.[third.id]).toBeDefined();
   expect(auditRows(state, 'release-hold')).toEqual([]);
   // Once the command is done, the next pass releases it.
-  scheduler.controlling.delete(roadmapId);
+  scheduler.state.controlling.delete(roadmapId);
   await tick(state);
   expect(storedRoadmap(state).entryHolds?.[third.id]).toBeUndefined();
   spy.mockRestore();
@@ -254,7 +254,7 @@ it('resumes a sequential stop for a predecessor’s merge once it is in, not whi
     .mockImplementation(async () => {
       if (!began) {
         began = true;
-        scheduler.controlling.add(roadmapId);
+        scheduler.state.controlling.add(roadmapId);
       }
       return undefined;
     });
@@ -262,7 +262,7 @@ it('resumes a sequential stop for a predecessor’s merge once it is in, not whi
   expect(began).toBe(true);
   expect(storedRoadmap(state).status).toBe('needs-attention');
   expect(auditRows(state, 'resume-cleared')).toEqual([]);
-  scheduler.controlling.delete(roadmapId);
+  scheduler.state.controlling.delete(roadmapId);
   await tick(state);
   expect(storedRoadmap(state).status).toBe('running');
   expect(auditRows(state, 'resume-cleared').at(-1)?.metadata.release).toEqual({
@@ -367,7 +367,7 @@ it('leaves a sequential stop to the operator while the roadmap is paused or Resu
   expect(storedRoadmap(state).status).toBe('needs-attention');
   refused.mockRestore();
   // The delegating user lost their authority: the stop stays the operator's.
-  const authority = vi.spyOn(internals(state), 'authority').mockImplementation(() => {
+  const authority = vi.spyOn(internals(state).writer, 'authority').mockImplementation(() => {
     throw new Error('The initiating user no longer has permission to run this roadmap.');
   });
   await tick(state);

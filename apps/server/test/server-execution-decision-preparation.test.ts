@@ -605,9 +605,9 @@ it('a decision that cannot be reserved gives its place to the next, and waits be
   // part 2): ten minutes after the refusal, not on every pass.
   const kernel = (
     f.state.context.services.roadmapService as unknown as {
-      kernel: { nextDue(): number | undefined };
+      state: { kernel: { nextDue(): number | undefined } };
     }
-  ).kernel;
+  ).state.kernel;
   const due = kernel.nextDue() ?? 0;
   expect(due).toBeGreaterThan(Date.now() + 9 * 60_000);
   expect(due).toBeLessThanOrEqual(Date.now() + 10 * 60_000);
@@ -1259,7 +1259,7 @@ it('tries a preparation refused by a lost race again a second on, not on every p
   const roadmaps = f.state.context.services.roadmapService as unknown as {
     launchPreparation: (...args: unknown[]) => Promise<void>;
     tick: () => Promise<void>;
-    kernel: { nextDue(): number | undefined };
+    state: { kernel: { nextDue(): number | undefined } };
   };
   let tries = 0;
   vi.spyOn(roadmaps, 'launchPreparation').mockImplementation(async () => {
@@ -1272,7 +1272,7 @@ it('tries a preparation refused by a lost race again a second on, not on every p
   await roadmaps.tick();
   await roadmaps.tick();
   expect(tries).toBe(once);
-  const due = roadmaps.kernel.nextDue() ?? 0;
+  const due = roadmaps.state.kernel.nextDue() ?? 0;
   expect(due).toBeGreaterThan(Date.now());
   expect(due).toBeLessThanOrEqual(Date.now() + 1000);
 });

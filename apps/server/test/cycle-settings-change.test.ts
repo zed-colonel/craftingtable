@@ -268,11 +268,11 @@ it('changes a roadmap cycle’s agents through an assignment for its entry, whic
     agents: { review: reviewer },
   };
   const roadmaps = state.context.services.roadmapService as unknown as {
-    controlling: Set<string>;
+    state: { controlling: Set<string> };
   };
-  roadmaps.controlling.add(storedRoadmap(state).id);
+  roadmaps.state.controlling.add(storedRoadmap(state).id);
   const whileControlling = await control(state, stopped.id, attempt0);
-  roadmaps.controlling.delete(storedRoadmap(state).id);
+  roadmaps.state.controlling.delete(storedRoadmap(state).id);
   expect(whileControlling.statusCode).toBe(409);
   expect(whileControlling.json().error.message).toContain('A roadmap command is running');
   const pending = vi

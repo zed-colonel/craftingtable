@@ -206,7 +206,7 @@ itNeedsCargo('a reservation that created its worktree is retried in place', asyn
 itNeedsCargo('an explicit pause on the source entry survives the request', async () => {
   const { state, ws, parent, sourceEntry, input } = await stoppedParentReview();
   // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-  state.context.services.roadmapService['change'](storedRoadmap(state), {
+  state.context.services.roadmapService['writer'].change(storedRoadmap(state), {
     entryHolds: { [sourceEntry.id]: { status: 'paused', reason: 'Operator paused this item.' } },
   });
   const response = await state.context.app.inject({
@@ -227,7 +227,7 @@ itNeedsCargo('a request that fails before creating anything keeps the source hol
     attention: roadmapAttention('entry-preparation-failed', { entryId: sourceEntry.id }),
   };
   // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-  state.context.services.roadmapService['change'](storedRoadmap(state), {
+  state.context.services.roadmapService['writer'].change(storedRoadmap(state), {
     entryHolds: { [sourceEntry.id]: hold },
   });
   await state.context.services.roadmapService.tick();
@@ -247,7 +247,7 @@ itNeedsCargo('a request that fails before creating anything keeps the source hol
 itNeedsCargo('a round whose request never finished holds its entry for the operator', async () => {
   const { f, state, ws, parent, sourceEntry, input } = await stoppedParentReview();
   // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-  state.context.services.roadmapService['change'](storedRoadmap(state), {
+  state.context.services.roadmapService['writer'].change(storedRoadmap(state), {
     entryHolds: {
       [sourceEntry.id]: {
         status: 'needs-attention',
@@ -390,7 +390,7 @@ itNeedsCargo(
       },
     };
     // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-    state.context.services.roadmapService['change'](roadmap, {
+    state.context.services.roadmapService['writer'].change(roadmap, {
       attempts: [...roadmap.attempts, reserved],
     });
     for (let i = 0; i < 2; i++) await state.context.services.roadmapService.tick();

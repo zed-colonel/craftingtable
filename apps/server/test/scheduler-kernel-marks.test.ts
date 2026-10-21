@@ -139,10 +139,9 @@ it('is not woken by the locks its own round takes and releases (review HIGH-1)',
     return advance(...args);
   };
   // Another roadmap waits on the lane: the own round's release does not wake it either.
-  (service as unknown as { lockWaiters: Map<string, Set<string>> }).lockWaiters.set(
-    'lane',
-    new Set(['another-roadmap']),
-  );
+  (
+    service as unknown as { state: { lockWaiters: Map<string, Set<string>> } }
+  ).state.lockWaiters.set('lane', new Set(['another-roadmap']));
   const released = drain.cause('release');
   service.wake('test');
   await waitUntil(() => rounds.calls() >= 1, 'a round');
@@ -194,7 +193,8 @@ it('runs no round and does not spin while admissions are held; their release loo
   const rounds = counted(service, 'roundBody');
   service.holdAdmissions(true);
   await waitUntil(
-    () => (service as unknown as { rounding?: Promise<void> }).rounding === undefined,
+    () =>
+      (service as unknown as { state: { rounding?: Promise<void> } }).state.rounding === undefined,
     'no round in flight',
   );
   const before = rounds.calls();
@@ -261,10 +261,11 @@ it("is swept with the cycle controller's sweep, delivery too: one timer for ever
 
 it("looks again when a roadmap command's hold on it ends (endControl)", async () => {
   const { state } = await waitingRoadmap();
-  const service = state.context.services.roadmapService as unknown as {
-    controlling: Set<string>;
-    endControl(id: string): void;
-  };
+  const service = (
+    state.context.services.roadmapService as unknown as {
+      state: { controlling: Set<string>; endControl(id: string): void };
+    }
+  ).state;
   const drain = drainOf(state);
   const id = storedRoadmap(state).id;
   service.controlling.add(id);
@@ -281,7 +282,7 @@ it('marks at the round end the roadmaps that met a lock after its release in tha
   const service = state.context.services.roadmapService;
   const rounds = counted(service, 'roundBody');
   const target = service as unknown as Advance & {
-    waitOnLock(id: string, key: string): void;
+    state: { waitOnLock(id: string, key: string): void };
   };
   // Its units write nothing, so only the release can bring another round.
   let gate: () => void = () => undefined;
@@ -294,7 +295,7 @@ it('marks at the round end the roadmaps that met a lock after its release in tha
       await new Promise<void>((resolve) => {
         gate = resolve;
       });
-      target.waitOnLock(storedRoadmap(state).id, 'lane');
+      target.state.waitOnLock(storedRoadmap(state).id, 'lane');
     }
   };
   const drain = drainOf(state);
@@ -349,7 +350,7 @@ it("takes no marks while a test's tick runs, so none is lost (the loop waits for
     }
   };
   // Every batch of marks the loop takes reaches a round: none is taken and dropped.
-  const kernel = (service as unknown as { kernel: { take(): unknown } }).kernel;
+  const kernel = (service as unknown as { state: { kernel: { take(): unknown } } }).state.kernel;
   const taken: unknown[] = [];
   const take = kernel.take.bind(kernel);
   kernel.take = () => {
@@ -370,10 +371,9 @@ it("takes no marks while a test's tick runs, so none is lost (the loop waits for
   await waitUntil(() => rounds.calls() === 1, "the test's tick is in flight");
   // Marked by key, so the loop takes a set of its own, not the `'all'` every round shares
   // (increment 12 review MEDIUM-2).
-  (service as unknown as { kernel: { mark(cause: string, keys: string[]): void } }).kernel.mark(
-    'test',
-    [storedRoadmap(state).id],
-  );
+  (
+    service as unknown as { state: { kernel: { mark(cause: string, keys: string[]): void } } }
+  ).state.kernel.mark('test', [storedRoadmap(state).id]);
   await sleep(100);
   gate();
   await tick;
@@ -432,9 +432,11 @@ it('is not idle for the pushes while a retry is due within seconds (increment 9 
 
 it('records no waiter outside a round: a read of the board waits on nothing (increment 9 review LOW-4)', async () => {
   const { state } = await waitingRoadmap();
-  const service = state.context.services.roadmapService as unknown as {
-    waitOnLock(id: string, key: string): void;
-  };
+  const service = (
+    state.context.services.roadmapService as unknown as {
+      state: { waitOnLock(id: string, key: string): void };
+    }
+  ).state;
   service.waitOnLock(storedRoadmap(state).id, 'lane');
   expect(drainOf(state).waiters('lane')).toEqual([]);
 });

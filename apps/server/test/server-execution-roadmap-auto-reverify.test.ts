@@ -92,7 +92,10 @@ itNeedsCargo(
           (row) => row.action === 'roadmap.updated' && row.metadata.action === 'reverify-entry',
         )
         .reverse();
-    const scheduler = state.context.services.roadmapService as unknown as { now: () => Date };
+    // The scheduler's clock is its state's (R-B7): one assignment moves every module's.
+    const scheduler = (
+      state.context.services.roadmapService as unknown as { state: { now: () => Date } }
+    ).state;
     const settled = () => {
       const later = Date.now() + 11 * 60_000;
       scheduler.now = () => new Date(later);
@@ -178,9 +181,9 @@ itNeedsCargo(
     expect(
       (
         state.context.services.roadmapService as unknown as {
-          kernel: { nextDue(): number | undefined };
+          state: { kernel: { nextDue(): number | undefined } };
         }
-      ).kernel.nextDue(),
+      ).state.kernel.nextDue(),
     ).toBe(adoptedAt + 10 * 60_000);
     expect(reverifyRows()).toEqual([]);
 
@@ -223,7 +226,12 @@ itNeedsCargo(
     // Once they settled, each is re-verified in place, as the system, for the grantor.
     const oldA = cycle(A.id)!;
     const patches: Partial<Roadmap>[] = [];
-    const internals = scheduler as unknown as { change: (...args: unknown[]) => unknown };
+    // The write path is the scheduler's writer's (R-B7).
+    const internals = (
+      state.context.services.roadmapService as unknown as {
+        writer: { change: (...args: unknown[]) => unknown };
+      }
+    ).writer;
     const change = internals.change.bind(internals);
     const spy = vi.spyOn(internals, 'change').mockImplementation((...args: unknown[]) => {
       if (args[2] === 'reverify-entry') patches.push(args[1] as Partial<Roadmap>);

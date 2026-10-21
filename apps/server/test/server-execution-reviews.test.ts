@@ -713,7 +713,7 @@ itNeedsCargo(
     // The attempt now names a definition revision the roadmap never saved.
     const roadmap = storedRoadmap(f.state);
     // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-    f.state.context.services.roadmapService['change'](roadmap, {
+    f.state.context.services.roadmapService['writer'].change(roadmap, {
       attempts: roadmap.attempts.map((a) =>
         a.cycleId === cycle.id ? { ...a, definitionRevision: 999 } : a,
       ),

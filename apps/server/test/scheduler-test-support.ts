@@ -32,7 +32,8 @@ type Drain = {
  * pushes' quiescence, but is quiet for a test.
  */
 export async function quiet(state: Ready): Promise<void> {
-  const roadmaps = state.context.services.roadmapService as unknown as Drain;
+  // The roadmap drain's kernel and round are its state's (R-B7).
+  const roadmaps = (state.context.services.roadmapService as unknown as { state: Drain }).state;
   const cycles = state.context.services.workCycleService as unknown as Drain;
   const still = (drain: Drain) =>
     !drain.kernel.pending() &&
@@ -91,10 +92,14 @@ export function counted<T extends object>(
 
 /** The roadmap drain's kernel and waiters, as the tests read them. */
 export function drainOf(state: Ready) {
-  const service = state.context.services.roadmapService as unknown as {
-    kernel: { causes: ReadonlyMap<string, number>; nextDue(): number | undefined };
-    lockWaiters: ReadonlyMap<string, ReadonlySet<string>>;
-  };
+  const service = (
+    state.context.services.roadmapService as unknown as {
+      state: {
+        kernel: { causes: ReadonlyMap<string, number>; nextDue(): number | undefined };
+        lockWaiters: ReadonlyMap<string, ReadonlySet<string>>;
+      };
+    }
+  ).state;
   return {
     /** Every mark made so far, of any cause. */
     marks: () => [...service.kernel.causes.values()].reduce((sum, n) => sum + n, 0),

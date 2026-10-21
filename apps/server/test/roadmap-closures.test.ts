@@ -641,7 +641,7 @@ itNeedsCargo(
     )!.entryId;
     // The live shape: the stopped review holds its entry for the operator.
     // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-    services.roadmapService['change'](storedRoadmap(state), {
+    services.roadmapService['writer'].change(storedRoadmap(state), {
       entryHolds: {
         [sourceEntryId]: {
           status: 'needs-attention',

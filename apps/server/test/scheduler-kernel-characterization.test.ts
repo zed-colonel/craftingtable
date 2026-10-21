@@ -98,7 +98,8 @@ it('completes no roadmap pass while admissions are held, and passes again at the
   service.holdAdmissions(true);
   // No round is in flight once the hold is set (the scheduler is not idle while it holds).
   await waitUntil(
-    () => (service as unknown as { rounding?: Promise<void> }).rounding === undefined,
+    () =>
+      (service as unknown as { state: { rounding?: Promise<void> } }).state.rounding === undefined,
     'no round in flight',
   );
   const opened = passes.current;
@@ -142,9 +143,9 @@ it('merges once a merge lane it met is released, with nothing written (a release
   // review M-2).
   const ownRound = (
     state.context.services.roadmapService as unknown as {
-      ownRound: { exit<T>(callback: () => T): T };
+      state: { ownRound: { exit<T>(callback: () => T): T } };
     }
-  ).ownRound;
+  ).state.ownRound;
   let release: () => void = () => undefined;
   let held: Promise<void> | undefined;
   let attempts = 0;

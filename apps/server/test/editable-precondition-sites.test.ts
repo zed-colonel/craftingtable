@@ -142,7 +142,8 @@ function setStatus(fx: Fixture, status: RoadmapStatus) {
 
 /** The service's own set of roadmaps a command holds (`controlling`). */
 const controlling = (fx: Fixture) =>
-  (fx.state.context.services.roadmapService as unknown as { controlling: Set<string> }).controlling;
+  (fx.state.context.services.roadmapService as unknown as { state: { controlling: Set<string> } })
+    .state.controlling;
 
 function settle(fx: Fixture, on: boolean) {
   const windDowns = fx.state.context.storage.windDowns;

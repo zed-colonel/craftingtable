@@ -141,3 +141,5 @@ the commit hash from before that rewrite; the Commit column here gives the rewri
 | 2026-10-19-rc17p4-inc2-after | `b8371cb` | 2026-10-19 | 74 (1 phone only) | 1× |
 | 2026-10-19-rc17p4-inc4-after | `2ac35fd` | 2026-10-19 | 74 (1 phone only) | 1× |
 | 2026-10-19-rc17p4-inc5-after | `2ba6e59` | 2026-10-19 | 74 (1 phone only) | 1× |
+| 2026-10-21-rb6-before | `337e401` | 2026-10-21 | 74 (1 phone only) | 1× |
+| 2026-10-21-rb6-after | `f94f26b` | 2026-10-21 | 74 (1 phone only) | 1× |

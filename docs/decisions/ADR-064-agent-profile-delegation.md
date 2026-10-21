@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-09-22
-- **Amended:** 2026-09-28 (R-G5 follow-up): reasoning effort for Claude profiles too; 2026-10-18 (R-C17 part 4): a stopped cycle's own settings change, and the delegated resolver's rank
+- **Amended:** 2026-09-28 (R-G5 follow-up): reasoning effort for Claude profiles too; 2026-10-18 (R-C17 part 4): a stopped cycle's own settings change, and the delegated resolver's rank; 2026-10-20 (R-B6): assignments while the roadmap runs
 
 ## Context
 
@@ -69,3 +69,15 @@ its permissions included; only an assignment that names `conflict` itself does. 
 any agent change to an entry with a delegated resolver silently switched its conflict resolution
 to the assignment's remediation agent with the remediation step's permissions. This holds for the
 roadmap's own assignments and for a cycle's settings change alike.
+
+## Amendment 2026-10-20: assignments while the roadmap runs (R-B6)
+
+Operator decisions 1 and 10. An assignment is appended at any roadmap status but ended, and not
+while the roadmap's wind-down settles, a roadmap command runs or an amendment is pending: the
+roadmap need not be paused. Nothing a running step reads changes under it, since a launch
+resolves the latest assignment and records it, and a session is never reconfigured; each named
+entry's next launch takes the new agents. While the roadmap runs it writes itself as its items
+move, so an assignment is taken as the operator sent it rather than against the roadmap's
+version, the last one winning, each audited. A review whose session resumes after a newer
+assignment still names none and is held to the saved definition (operator decision 11, the rule
+of 2026-10-07 kept).

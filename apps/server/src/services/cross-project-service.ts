@@ -694,6 +694,9 @@ export class CrossProjectService {
       input.roadmapId,
       {
         expectedVersion: input.expectedVersion,
+        ...(input.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: input.expectedRevision }),
         name: input.name,
         entries: entries.map((e) => roadmapEntryFieldsSchema.parse(e)),
         scheduling: input.scheduling,

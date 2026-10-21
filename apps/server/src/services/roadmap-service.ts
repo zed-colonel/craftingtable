@@ -678,11 +678,9 @@ export class RoadmapService {
         ? 'A roadmap command is in progress.'
         : ended(r)
           ? 'This roadmap has ended. Its agents can no longer change.'
-          : r.status === 'running'
-            ? 'Pause scheduling before applying agent profiles. Running agents may finish normally.'
-            : this.storage.amendments.pending(workspaceId, r.id)
-              ? 'Decide the pending planning amendment first.'
-              : null,
+          : this.storage.amendments.pending(workspaceId, r.id)
+            ? 'Decide the pending planning amendment first.'
+            : null,
       entries: r.definition.entries.map((e) => {
         const agents = entryAgents(r, e);
         const assignment = latestAssignment(r, e.id);
@@ -719,12 +717,11 @@ export class RoadmapService {
   ): RoadmapAgentSettings {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const old = this.find(workspaceId, id);
-    if (old.version !== input.expectedVersion || this.controlling.has(id))
+    this.assertSettingsOpen(workspaceId, old);
+    if (this.settingsStale(old, input, 'grant') || this.controlling.has(id))
       conflict(
         'Roadmap changed. Refresh agent settings and review the current selection before applying.',
       );
-    if (!['draft', 'paused', 'needs-attention'].includes(old.status))
-      conflict('Pause roadmap scheduling before applying agent profiles.');
     if (this.storage.amendments.pending(workspaceId, id))
       conflict('Decide the pending planning amendment first.');
     if (
@@ -1174,6 +1171,34 @@ export class RoadmapService {
     const access = this.storage.workspaces.findAuthorized(user.id, roadmap.workspaceId);
     return access && ['owner', 'editor'].includes(access.membership.role) ? user : undefined;
   }
+  /**
+   * A settings command writes at any status but ended, and not while the roadmap's wind-down
+   * settles (R-B6, decisions 1 and 3 to 5): what it changes is read at the next launch, admission
+   * or use, and nothing launched is reconfigured.
+   */
+  private assertSettingsOpen(workspaceId: WorkspaceId, roadmap: Roadmap): void {
+    if (ended(roadmap)) conflict('This roadmap has ended. Ended roadmaps retain their history.');
+    if (this.storage.windDowns.find(workspaceId, roadmap.id)?.status === 'settling')
+      windDownRefused('wind-down-in-progress', 'This roadmap is being stopped.');
+  }
+  /**
+   * Whether the operator's form is out of date (R-B6, decision 10). A stopped roadmap is held to
+   * its version, as before. A running one writes itself as its entries move, so an assignment or
+   * a grant is taken as sent (last writer wins, each audited, as a decision preparation is), and
+   * a definition write is held to the revision its form showed, or to the version when the form
+   * sent none.
+   */
+  private settingsStale(
+    roadmap: Roadmap,
+    view: { readonly expectedVersion: number; readonly expectedRevision?: number | undefined },
+    writes: 'grant' | 'definition',
+  ): boolean {
+    if (roadmap.status !== 'running') return roadmap.version !== view.expectedVersion;
+    if (writes === 'grant') return false;
+    return view.expectedRevision === undefined
+      ? roadmap.version !== view.expectedVersion
+      : roadmap.definition.revision !== view.expectedRevision;
+  }
   applyDelegation(
     context: AuthContext,
     workspaceId: WorkspaceId,
@@ -1260,8 +1285,8 @@ export class RoadmapService {
           scheduling: r.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING,
           editBlocker: this.controlling.has(r.id)
             ? 'A roadmap command is in progress.'
-            : r.status === 'running'
-              ? 'Pause this roadmap before changing its limits.'
+            : this.storage.windDowns.find(workspaceId, r.id)?.status === 'settling'
+              ? 'This roadmap is being stopped.'
               : this.storage.amendments.pending(workspaceId, r.id)
                 ? 'Decide the pending planning amendment first.'
                 : (r.definition.scheduling?.mode ?? 'sequential') !== 'parallel'
@@ -1286,10 +1311,9 @@ export class RoadmapService {
   ): RoadmapCapacities {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const old = this.find(workspaceId, id);
-    if (this.controlling.has(id) || old.version !== input.expectedVersion)
+    this.assertSettingsOpen(workspaceId, old);
+    if (this.controlling.has(id) || this.settingsStale(old, input, 'definition'))
       conflict('Roadmap changed; refresh before saving capacity.');
-    if (!['draft', 'paused', 'needs-attention'].includes(old.status))
-      conflict('Pause the roadmap before changing capacity. Ended roadmaps retain their history.');
     if (this.storage.amendments.pending(workspaceId, id))
       conflict('Decide the pending planning amendment first.');
     const scheduling = old.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
@@ -1318,7 +1342,7 @@ export class RoadmapService {
     const updated = { ...old, definition, version: old.version + 1, updatedAt: at };
     this.storage.transaction((tx) => {
       const persist = () => {
-        this.persist(tx, updated, input.expectedVersion, 'configure-capacity', context);
+        this.persist(tx, updated, old.version, 'configure-capacity', context);
         tx.roadmaps.addDefinition(definition);
       };
       // Limits are no plan-acceptance input, but a saved-plan-v1 acceptance is bound to the
@@ -1771,13 +1795,11 @@ export class RoadmapService {
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const roadmap = this.find(workspaceId, id);
-    if (this.controlling.has(id) || roadmap.version !== input.expectedVersion)
+    this.assertSettingsOpen(workspaceId, roadmap);
+    if (this.controlling.has(id) || this.settingsStale(roadmap, input, 'grant'))
       conflict('Roadmap changed; refresh before changing recovery delegation.');
-    if (
-      !roadmap.definition.crossProject ||
-      !['draft', 'paused', 'needs-attention'].includes(roadmap.status)
-    )
-      conflict('Pause this cross-project roadmap before changing recovery delegation.');
+    if (!roadmap.definition.crossProject)
+      conflict('Recovery delegation is set on a cross-project roadmap.');
     if (this.storage.amendments.pending(workspaceId, id))
       conflict('Decide the pending amendment first.');
     return this.view(
@@ -1809,13 +1831,11 @@ export class RoadmapService {
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const roadmap = this.find(workspaceId, id);
-    if (this.controlling.has(id) || roadmap.version !== input.expectedVersion)
+    this.assertSettingsOpen(workspaceId, roadmap);
+    if (this.controlling.has(id) || this.settingsStale(roadmap, input, 'grant'))
       conflict('Roadmap changed; refresh before changing automatic re-verification.');
-    if (
-      !roadmap.definition.crossProject ||
-      !['draft', 'paused', 'needs-attention'].includes(roadmap.status)
-    )
-      conflict('Pause this cross-project roadmap before changing automatic re-verification.');
+    if (!roadmap.definition.crossProject)
+      conflict('Automatic re-verification is set on a cross-project roadmap.');
     if (this.storage.amendments.pending(workspaceId, id))
       conflict('Decide the pending amendment first.');
     return this.view(
@@ -1842,13 +1862,11 @@ export class RoadmapService {
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const roadmap = this.find(workspaceId, id);
-    if (this.controlling.has(id) || roadmap.version !== input.expectedVersion)
+    this.assertSettingsOpen(workspaceId, roadmap);
+    if (this.controlling.has(id) || this.settingsStale(roadmap, input, 'grant'))
       conflict('Roadmap changed; refresh before changing decision preparation.');
-    if (
-      !roadmap.definition.crossProject ||
-      !['draft', 'paused', 'needs-attention'].includes(roadmap.status)
-    )
-      conflict('Pause this cross-project roadmap before changing decision preparation.');
+    if (!roadmap.definition.crossProject)
+      conflict('Decision preparation is set on a cross-project roadmap.');
     if (this.storage.amendments.pending(workspaceId, id))
       conflict('Decide the pending amendment first.');
     return this.view(
@@ -1929,12 +1947,9 @@ export class RoadmapService {
     this.cycles.requireModelIds(slots(input.entries), slots(old?.definition.entries ?? []));
     if (old?.definition.crossProject && !crossProject)
       conflict('Use the imported map supervisor to edit this roadmap.');
-    if ((old?.version ?? 0) !== input.expectedVersion)
+    if (old) this.assertSettingsOpen(workspaceId, old);
+    if (old ? this.settingsStale(old, input, 'definition') : input.expectedVersion !== 0)
       conflict('Roadmap changed; refresh before saving.');
-    if (old && !['draft', 'paused', 'needs-attention'].includes(old.status))
-      conflict(
-        'Pause the roadmap before editing queued entries. Ended roadmaps retain their history.',
-      );
     const lastStarted =
       old?.definition.entries.findLastIndex((e) =>
         startedAttempts(old).some(
@@ -1991,7 +2006,10 @@ export class RoadmapService {
               : { exclusionGroups: frozen.exclusionGroups }),
           }) !== JSON.stringify(entry)
         )
-          conflict('Started entries keep their original work item and settings.');
+          // Named, since beside a running roadmap it may have started after the form loaded (R-B6).
+          conflict(
+            `${frozen.sourceId} has started, so it keeps its original work item and settings. Refresh to see the current roadmap.`,
+          );
         return frozen;
       }
       if (!parallel && index < started.length)
@@ -2093,7 +2111,7 @@ export class RoadmapService {
         };
     this.storage.transaction((tx) => {
       const persist = () => {
-        this.persist(tx, roadmap, input.expectedVersion, 'save', context);
+        this.persist(tx, roadmap, old?.version ?? 0, 'save', context);
         tx.roadmaps.addDefinition(definition);
       };
       // The operator's save carries a plan acceptance it re-opens (R-C6 D2); an amendment's
@@ -4751,7 +4769,7 @@ export class RoadmapService {
       settings.integrationBranch !== entry.integrationBranch
     )
       return blocked(
-        `${entry.sourceId}: Plan branch settings changed. Pause and save queued settings to adopt the new target.`,
+        `${entry.sourceId}: Plan branch settings changed. Save queued settings to adopt the new target.`,
       );
     const repo = tx.execution.sourceRepositories.find(roadmap.workspaceId, entry.repositoryId);
     if (repo?.status !== 'active') return blocked(`${entry.sourceId}: Repository is unavailable.`);

@@ -103,12 +103,22 @@ function useRoadmapAgents(
   return agents;
 }
 
-const withoutId = ({ id: _, ...input }: Draft) => input;
+/** The draft's content, without what dates it: its id, version and revision. */
+const contentOf = ({ id: _, expectedVersion: _v, expectedRevision: _r, ...input }: Draft) => input;
+/**
+ * Whether the roadmap moved on from the draft: a running roadmap writes itself as its items
+ * move, so it is dated by its revision (R-B6, decision 10); any other by its version.
+ */
+const outdated = (baseline: Roadmap, draft: Draft) =>
+  baseline.status === 'running'
+    ? baseline.definition.revision !== draft.expectedRevision
+    : baseline.version !== draft.expectedVersion;
 
 export function draftOf(roadmap: Roadmap): Draft {
   return {
     id: roadmap.id,
     expectedVersion: roadmap.version,
+    expectedRevision: roadmap.definition.revision,
     name: roadmap.definition.name,
     scheduling: roadmap.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING,
     ...(roadmap.definition.automation ? { automation: roadmap.definition.automation } : {}),
@@ -240,7 +250,7 @@ export function RoadmapEditor({
           // The definition holds each step's permissions; an unchanged one is not saved again.
           const unchanged =
             baseline !== undefined &&
-            JSON.stringify(input) === JSON.stringify(withoutId(draftOf(baseline)));
+            JSON.stringify(contentOf(draft)) === JSON.stringify(contentOf(draftOf(baseline)));
           let saved = savedHere?.view;
           try {
             if (!unchanged) saved = await saveRoadmap(workspaceId, id, input, csrfToken);
@@ -638,7 +648,10 @@ export function RoadmapEditor({
             groups. Refresh limits are fixed for each item when it starts.
           </p>
         </About>
-        {baseline && baseline.version !== draft.expectedVersion && (
+        {baseline?.status === 'running' && (
+          <p>Started items keep their saved settings; the change applies to queued items.</p>
+        )}
+        {baseline && outdated(baseline, draft) && (
           <p role="alert">
             This roadmap changed while you were editing. Cancel and reopen the editor to use its
             current version.
@@ -649,9 +662,7 @@ export function RoadmapEditor({
             type="submit"
             className="primary-button"
             disabled={
-              busy ||
-              draft.entries.length === 0 ||
-              !!(baseline && baseline.version !== draft.expectedVersion)
+              busy || draft.entries.length === 0 || !!(baseline && outdated(baseline, draft))
             }
           >
             Save roadmap

@@ -115,6 +115,8 @@ it('keeps roadmap controls usable for editors without requesting installation au
   const call = vi.mocked(request).mock.calls.find((c) => c[2]?.method === 'POST')!;
   expect(JSON.parse(String(call[2]!.body))).toEqual({
     expectedVersion: 3,
+    // The revision the form showed, which a running roadmap is held to (R-B6, decision 10).
+    expectedRevision: 2,
     maxInFlight: 3,
     maxPerRepository: 2,
   });
@@ -122,7 +124,7 @@ it('keeps roadmap controls usable for editors without requesting installation au
   // Roadmap limits are not a plan-acceptance input (R-C6 D1): no new plan review is asked.
   expect(
     within(screen.getByRole('region', { name: 'Roadmap in-flight limits' })).getByText(
-      'Roadmap limits saved. Resume scheduling separately when ready. Existing attempts are retained.',
+      'Roadmap limits saved. They apply to the next admission; items in flight keep running.',
     ),
   ).toBeTruthy();
 });
@@ -159,4 +161,42 @@ it('says which roadmaps a capacity change leaves without a plan review', async (
     'Elsewhere · paused · A plan accepted there before this release may need review after a capacity change',
   );
   expect(await item('Queue')).toBe('Queue · paused · No cross-project plan review required');
+});
+it('saves workstation capacity while a roadmap runs (R-B6, decision 9)', async () => {
+  const running = {
+    ...status,
+    roadmaps: [
+      {
+        id: 'roadmap',
+        workspaceId: 'workspace',
+        name: 'Running roadmap',
+        status: 'running',
+        crossProject: false,
+      },
+    ],
+  };
+  vi.mocked(request).mockImplementation(async (url, _schema, options) =>
+    url.endsWith('/capacities')
+      ? { roadmaps: [] }
+      : options
+        ? { ...running, version: 2, verificationCapacity: 2 }
+        : running,
+  );
+  render(<HostSchedulingPanel workspaceId="workspace" csrfToken="csrf" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Change workstation capacity' }));
+  fireEvent.change(screen.getByLabelText('Concurrent verification/parent acceptance reviews'), {
+    target: { value: '2' },
+  });
+  expect(screen.queryByText(/Pause these roadmaps first/)).toBeNull();
+  expect(
+    screen.getByText(
+      'Running work keeps its slots; the new capacity applies to the next reservation.',
+    ),
+  ).toBeTruthy();
+  const save = screen.getByRole('button', {
+    name: 'Save workstation capacity',
+  }) as HTMLButtonElement;
+  expect(save.disabled).toBe(false);
+  fireEvent.click(save);
+  await screen.findByText(/Workstation capacity saved/);
 });

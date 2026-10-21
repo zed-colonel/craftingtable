@@ -62,13 +62,32 @@ it('preserves input after a stale-version error', async () => {
     (screen.getByLabelText('Total automatic repair rounds per parent') as HTMLInputElement).value,
   ).toBe('6');
 });
-it('requires pause and hides mutation controls from read-only users', () => {
-  setup({ ...roadmap, status: 'running' });
-  expect(
-    (screen.getByRole('button', { name: 'Configure review recovery' }) as HTMLButtonElement)
-      .disabled,
-  ).toBe(true);
+it('is changed while the roadmap runs, not once it ended, and hides mutation controls from read-only users (R-B6)', () => {
+  setup({
+    ...roadmap,
+    status: 'running',
+    scopeRecovery: {
+      enabled: true,
+      maxRoundsPerParent: 3,
+      grantedAt: '2026-09-18T00:00:00Z',
+      grantedByUserId: 'owner',
+    },
+  } as unknown as Roadmap);
+  fireEvent.click(screen.getByRole('button', { name: 'Configure review recovery' }));
+  // Turning it off says what becomes of a round already open.
+  expect(screen.queryByText(/An automatic round already open is no longer carried/)).toBeNull();
+  fireEvent.click(screen.getByRole('checkbox'));
+  expect(screen.getByText(/An automatic round already open is no longer carried/)).toBeTruthy();
+  expect(screen.queryByText(/Pause roadmap scheduling/)).toBeNull();
   cleanup();
+  for (const status of ['stopped', 'completed'] as const) {
+    setup({ ...roadmap, status });
+    expect(
+      (screen.getByRole('button', { name: 'Configure review recovery' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    cleanup();
+  }
   setup(roadmap, false);
   expect(screen.queryByRole('button', { name: 'Configure review recovery' })).toBeNull();
 });

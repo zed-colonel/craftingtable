@@ -325,14 +325,13 @@ function grant(
   });
 }
 
-it('grants standing decision preparation while paused, and audits it (R-C3b)', async () => {
+it('grants standing decision preparation, and audits it (R-C3b)', async () => {
   const fixture = await decisionFixture();
   const { f, ws, tx } = fixture;
   const standing = { enabled: true, minutes: 10, maxConcurrent: 2 };
   expect((await grant(fixture, standing, { cookie: f.state.cookie })).statusCode).toBe(403);
+  // Changed at any status but ended since R-B6 (pause-scope-characterization.test.ts); here, paused.
   await roadmapControl(f.state, 'start');
-  // Like recovery delegation, the grant is changed only while scheduling is paused.
-  expect((await grant(fixture, standing)).statusCode).toBe(409);
   await roadmapControl(f.state, 'pause');
   expect((await grant(fixture, { ...standing, maxConcurrent: 9 })).statusCode).toBe(400);
   const granted = await grant(fixture, standing);

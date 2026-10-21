@@ -123,11 +123,9 @@ export class HostSchedulingService {
           'conflict',
           'Host settings changed. Reload settings before saving.',
         );
-      if (tx.roadmaps.list().some((r) => r.status === 'running'))
-        throw new ExecutionRequestError(
-          'conflict',
-          'Pause roadmap scheduling in every workspace before changing host capacity.',
-        );
+      // No pause (R-B6, decision 9): each phase reservation compares its claims with the current
+      // capacity in its own transaction, so running work keeps its slots and a new capacity
+      // applies from the next reservation.
       const at = this.now().toISOString();
       const save = () => {
         for (const change of changes) {

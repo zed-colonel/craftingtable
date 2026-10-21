@@ -79,6 +79,8 @@ export const adoptMapSchema = z.strictObject({
 export const saveCrossProjectSchema = z.strictObject({
   roadmapId: branded<RoadmapId>(z.uuid()),
   expectedVersion: z.number().int().nonnegative(),
+  /** As a roadmap's save (R-B6, decision 10). */
+  expectedRevision: z.number().int().positive().optional(),
   name: z.string().trim().min(1).max(120),
   configuration: crossProjectConfigurationInputSchema,
   scheduling: z.strictObject({

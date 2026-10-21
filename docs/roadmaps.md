@@ -46,9 +46,11 @@ worktree, manual or not, is not given another. Entries sharing an **exclusion gr
 separated) never overlap: the group is held until the holder merges or its worktree is removed.
 The workstation's own slots (**Settings → Capacity**) bound every roadmap together.
 
-Change a parallel roadmap's limits in **Settings → Capacity** while it is a draft, paused or
-needing attention.
-The scheduling mode cannot change while attempts are in flight; lowering a limit cancels nothing.
+Change a parallel roadmap's limits in **Settings → Capacity** at any time until it ends, while it
+runs too: they apply to the next admission. The scheduling mode cannot change while attempts are
+in flight; lowering a limit cancels nothing, and nothing new starts while at least as many items
+are in flight as the new limit. The workstation's slots also change at any time; running work
+keeps its slots.
 
 ## Pause, stop, edit and restart
 
@@ -81,8 +83,8 @@ The scheduling mode cannot change while attempts are in flight; lowering a limit
   cleanup that stopped. The tags are local; `git push --tags` would publish them.
 - A wind-down or cleanup step that cannot finish shows as **Wind-down incomplete** in Needs you.
   A wind-down resumes on its own once the cause clears; a cleanup resumes when you repeat it.
-- **Edit queued entries** (draft, paused or needing attention): started entries keep their work
-  item, settings and, in a sequential roadmap, their place at the front. Each save is a new
+- **Edit queued entries** (until the roadmap ends, while it runs too): started entries keep their
+  work item, settings and, in a sequential roadmap, their place at the front. Each save is a new
   revision, listed on the roadmap's **History**; new attempts bind it, started ones keep theirs.
   When a plan's branch settings change, its entries stop for you until you save the queued
   entries again.
@@ -97,7 +99,8 @@ On a roadmap of work items, each entry's agents sit beside its step permissions 
 entries**. Saving writes the permissions to the roadmap's definition and the agents to an agent
 assignment ([ADR-064](decisions/ADR-064-agent-profile-delegation.md)), which reaches the future
 steps of cycles already started; a change of agents alone saves no new revision. Agents change
-only while the roadmap is paused, a draft or needing attention. A map roadmap sets them per
+until the roadmap ends, while it runs too: each entry's next step takes them, and a step already
+running keeps its agent. A map roadmap sets them per
 settings level in its setup's **Automation and agents** step. A form that starts one action (a
 cycle, a hand-off, a recovery, a finalization stage) shows the agent it would use and lets you
 change it for that action only.

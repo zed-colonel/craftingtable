@@ -29,6 +29,8 @@ export function RoadmapCapacityPanel({
     maxInFlight: string;
     maxPerRepository: string;
     expectedVersion: number;
+    /** The revision the form showed: a running roadmap is held to it (R-B6, decision 10). */
+    expectedRevision: number;
   }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -60,6 +62,7 @@ export function RoadmapCapacityPanel({
               roadmap.id,
               {
                 expectedVersion: draft.expectedVersion,
+                expectedRevision: draft.expectedRevision,
                 maxInFlight: Number(draft.maxInFlight),
                 maxPerRepository: Number(draft.maxPerRepository),
               },
@@ -70,7 +73,7 @@ export function RoadmapCapacityPanel({
       if (save) setDraft(undefined);
       setNotice(
         save
-          ? 'Roadmap limits saved. Resume scheduling separately when ready. Existing attempts are retained.'
+          ? 'Roadmap limits saved. They apply to the next admission; items in flight keep running.'
           : 'Roadmap limits and in-flight work refreshed.',
       );
     } catch (e) {
@@ -79,10 +82,14 @@ export function RoadmapCapacityPanel({
       setBusy(false);
     }
   };
+  // A running roadmap writes itself as its items move, so only its revision dates the form.
   const stale =
     draft &&
     roadmap &&
-    (draft.expectedVersion !== roadmap.version || draft.roadmapId !== roadmap.id);
+    (draft.roadmapId !== roadmap.id ||
+      (roadmap.status === 'running'
+        ? draft.expectedRevision !== roadmap.revision
+        : draft.expectedVersion !== roadmap.version));
   const invalid =
     draft &&
     [draft.maxInFlight, draft.maxPerRepository].some(
@@ -187,6 +194,7 @@ export function RoadmapCapacityPanel({
                       maxInFlight: String(roadmap.scheduling.maxInFlight),
                       maxPerRepository: String(roadmap.scheduling.maxPerRepository),
                       expectedVersion: roadmap.version,
+                      expectedRevision: roadmap.revision,
                     },
               )
             }
@@ -219,8 +227,9 @@ export function RoadmapCapacityPanel({
                 </label>
               ))}
               <p className="hint">
-                Lowering a limit delays new admissions; it does not stop current work. Limits are
-                not part of saved-plan acceptance.
+                Applies to the next admission; items already in flight keep running, and none starts
+                while at least as many are in flight as the new limit. Limits are not part of
+                saved-plan acceptance.
               </p>
               {stale && (
                 <p role="alert">

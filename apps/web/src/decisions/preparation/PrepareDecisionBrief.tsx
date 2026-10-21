@@ -207,8 +207,8 @@ export function PrepareDecisionBrief({
 
 /**
  * The roadmap's standing grant to prepare the decisions its slices need while it runs (R-C3b):
- * changed only while scheduling is paused. It stays in the roadmap's setup, on the decisions
- * step (R-A6 rest).
+ * changed at any status but ended, the roadmap running included (R-B6, decision 4). It stays in
+ * the roadmap's setup, on the decisions step (R-A6 rest).
  */
 export function StandingPreparation({
   roadmap,
@@ -235,9 +235,7 @@ export function StandingPreparation({
   }, [standing?.enabled, standing?.minutes, standing?.maxConcurrent]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  // Like recovery delegation, the grant changes only while scheduling is paused.
-  const locked =
-    disabled || busy || !['draft', 'paused', 'needs-attention'].includes(roadmap.status);
+  const locked = disabled || busy || ['stopped', 'completed'].includes(roadmap.status);
   const grant: DecisionPreparationGrantRequest = {
     expectedVersion: roadmap.version,
     enabled,
@@ -263,7 +261,8 @@ export function StandingPreparation({
         <p>
           With standing preparation on, CraftingTable prepares every decision a selected slice still
           needs while the roadmap runs, those that unblock the most slices first. You still approve
-          each decision, with scheduling paused. Change it while the roadmap is paused.
+          each decision. A change applies from the roadmap's next pass; preparations already running
+          finish.
         </p>
       </About>
       <p role="status">

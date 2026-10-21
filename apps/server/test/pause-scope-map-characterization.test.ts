@@ -22,7 +22,8 @@ import {
  * R-B6 characterization (step 2): the map-wide refusals, as they are before scoping. Approving a
  * shared architecture decision, a dependency refresh and a delegation grant each refuse while
  * the map's roadmap runs, and also while work is live: approval and refresh on the map's
- * worktrees, delegation anywhere in the workspace. The roadmap's status is written by hand.
+ * worktrees, delegation anywhere in the workspace. Host capacity no longer waits for a pause
+ * (increment 1, decision 9). The roadmap's status is written by hand.
  */
 
 afterEach(cleanupExecutionFixtures);
@@ -294,7 +295,7 @@ it('delegation: refused on a paused roadmap while any run in the workspace is li
   expect(storedRoadmap(fx.f.state).delegationAssignments).toHaveLength(1);
 });
 
-it('host capacity: refused while any roadmap runs', async () => {
+it('host capacity: saved while a roadmap runs (R-B6, decision 9)', async () => {
   const fx = await fixture();
   const save = () =>
     fx.f.state.context.app.inject({
@@ -309,13 +310,8 @@ it('host capacity: refused while any roadmap runs', async () => {
       },
     });
   setStatus(fx, 'running');
-  const refused = await save();
-  expect(refused.statusCode, refused.body).toBe(409);
-  expect(refused.json().error.message).toBe(
-    'Pause roadmap scheduling in every workspace before changing host capacity.',
-  );
-  setStatus(fx, 'paused');
   const saved = await save();
   expect(saved.statusCode, saved.body).toBe(200);
   expect(fx.tx.phaseScheduling.capacity('local-verification')).toBe(3);
+  expect(storedRoadmap(fx.f.state).status).toBe('running');
 });

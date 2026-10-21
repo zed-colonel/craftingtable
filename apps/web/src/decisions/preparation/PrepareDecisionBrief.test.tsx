@@ -117,7 +117,7 @@ it('waits while a preparation runs, links it, and is offered again once a new vi
   await waitFor(() => expect(prepareButton().disabled).toBe(false));
 });
 
-it('saves the standing grant while paused, and shows it while running (R-C3b)', async () => {
+it('saves the standing grant while paused, and changes it while running but not once ended (R-C3b, R-B6)', async () => {
   vi.mocked(request).mockResolvedValue({});
   const onSaved = vi.fn();
   const { unmount } = render(
@@ -153,8 +153,20 @@ it('saves the standing grant while paused, and shows it while running (R-C3b)', 
       grantedAt: '2026-09-28T00:00:00Z',
     },
   } as unknown as Roadmap;
-  render(<StandingPreparation roadmap={running} csrfToken="t" disabled={false} />);
+  const second = render(<StandingPreparation roadmap={running} csrfToken="t" disabled={false} />);
   expect(screen.getByText('Standing preparation: up to 2 at a time, 20 min each')).toBeTruthy();
+  expect(
+    (screen.getByLabelText('Prepare needed decisions while the roadmap runs') as HTMLInputElement)
+      .disabled,
+  ).toBe(false);
+  second.unmount();
+  render(
+    <StandingPreparation
+      roadmap={{ ...running, status: 'stopped' } as Roadmap}
+      csrfToken="t"
+      disabled={false}
+    />,
+  );
   expect(
     (screen.getByLabelText('Prepare needed decisions while the roadmap runs') as HTMLInputElement)
       .disabled,

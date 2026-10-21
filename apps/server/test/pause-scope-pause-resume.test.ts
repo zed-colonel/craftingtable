@@ -1,13 +1,18 @@
 import { afterEach, expect, it } from 'vitest';
-import { roadmapAttention } from '@craftingtable/domain';
+import { agentSelections, roadmapAttention } from '@craftingtable/domain';
 import {
+  awaitRoadmapMerge,
   cleanupExecutionFixtures,
   controlCycle,
+  cycleProfiles,
   designDone,
   implementationDone,
+  mergeRoadmapAttempt,
+  mutationHeaders,
   parallelFixture,
   reviewText,
   roadmapControl,
+  roadmapId,
   saveRoadmapRequest,
   storedRoadmap,
   waitFor,
@@ -102,4 +107,84 @@ it('a roadmap that needs attention still has its cycles driven', async () => {
   // from design to implement with the roadmap still stopped.
   await waitFor(() => fx.launched('implement-model') === 2, 'both cycles implement');
   expect(storedRoadmap(fx.state).status).toBe('needs-attention');
+});
+
+it('an agent change while the roadmap runs reaches each entry’s next launch, not its live run (R-B6, decision 1)', async () => {
+  const fx = await fixture();
+  const entryIds = storedRoadmap(fx.state).attempts.map((a) => a.entryId);
+  const applied = await fx.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${fx.ws}/roadmaps/${roadmapId}/agent-profiles`,
+    headers: mutationHeaders(fx.state),
+    payload: {
+      expectedVersion: storedRoadmap(fx.state).version,
+      entryIds,
+      selections: {
+        ...agentSelections(cycleProfiles),
+        design: { backend: 'claude-code', model: 'design-new-model' },
+        implement: { backend: 'claude-code', model: 'implement-new-model' },
+      },
+    },
+  });
+  expect(applied.statusCode, applied.body).toBe(200);
+  expect(storedRoadmap(fx.state).status).toBe('running');
+  // The design runs already working keep their agent and their sessions.
+  expect(fx.runs().map((r) => [r.model, r.status])).toEqual([
+    ['design-model', 'running'],
+    ['design-model', 'running'],
+  ]);
+  expect(fx.backend.sessions.map((s) => s.endCount)).toEqual([0, 0]);
+  expect(fx.cycles().map((c) => c.status)).toEqual(['running', 'running']);
+  fx.release();
+  await waitFor(() => fx.launched('implement-new-model') === 2, 'both implement on the new agent');
+  expect(fx.launched('implement-model')).toBe(0);
+});
+
+it('a capacity cut while the roadmap runs stops nothing and admits nothing new (R-B6, decision 3)', async () => {
+  const fx = await fixture();
+  const cut = await fx.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${fx.ws}/roadmaps/${roadmapId}/capacity`,
+    headers: mutationHeaders(fx.state),
+    payload: {
+      expectedVersion: storedRoadmap(fx.state).version,
+      expectedRevision: storedRoadmap(fx.state).definition.revision,
+      maxInFlight: 1,
+      maxPerRepository: 1,
+    },
+  });
+  expect(cut.statusCode, cut.body).toBe(200);
+  expect(storedRoadmap(fx.state)).toMatchObject({
+    status: 'running',
+    definition: { scheduling: { maxInFlight: 1, maxPerRepository: 1 } },
+  });
+  // Both items already in flight run on.
+  expect(fx.cycles().map((c) => c.status)).toEqual(['running', 'running']);
+  fx.release();
+  const [first] = storedRoadmap(fx.state).attempts;
+  await awaitRoadmapMerge(fx.state, 0);
+  await mergeRoadmapAttempt(fx.state, first!.worktreeId);
+  // The first item's successor is now eligible, but one item is still in flight: it waits.
+  const successor = fx.input.entries[1]!.id;
+  const started = () => storedRoadmap(fx.state).attempts.some((a) => a.entryId === successor);
+  for (let pass = 0; pass < 3; pass++) {
+    await fx.state.context.services.workCycleService.tick();
+    await fx.state.context.services.roadmapService.tick();
+  }
+  expect(storedRoadmap(fx.state).attempts.map((a) => a.status)).toEqual(['completed', 'active']);
+  expect(started()).toBe(false);
+  // Raised again while running, the limit admits it: capacity was what held it.
+  const raised = await fx.state.context.app.inject({
+    method: 'POST',
+    url: `/api/workspaces/${fx.ws}/roadmaps/${roadmapId}/capacity`,
+    headers: mutationHeaders(fx.state),
+    payload: {
+      expectedVersion: storedRoadmap(fx.state).version,
+      expectedRevision: storedRoadmap(fx.state).definition.revision,
+      maxInFlight: 2,
+      maxPerRepository: 2,
+    },
+  });
+  expect(raised.statusCode, raised.body).toBe(200);
+  await waitFor(started, 'the successor starts once the limit allows');
 });

@@ -455,3 +455,39 @@ it.each([
     expect(latest?.entries[0]?.policy.maxRunMinutes).toBe(expected);
   },
 );
+
+it('edits a running roadmap’s queued entries, held to the revision it showed rather than the roadmap’s version (R-B6, decisions 5 and 10)', async () => {
+  const running = { ...roadmap, status: 'running' } as Roadmap;
+  const onSaved = vi.fn();
+  vi.mocked(saveRoadmap).mockResolvedValue({ roadmap: running } as never);
+  const { rerender } = render(
+    <Editor current={running} initial={draftOf(running)} onSaved={onSaved} />,
+  );
+  expect(
+    screen.getByText(
+      'Started items keep their saved settings; the change applies to queued items.',
+    ),
+  ).toBeTruthy();
+  // The running roadmap writes itself as its items move: a newer version alone dates nothing.
+  rerender(
+    <Editor current={{ ...running, version: 9 }} initial={draftOf(running)} onSaved={onSaved} />,
+  );
+  expect(screen.queryByText(/This roadmap changed while you were editing/)).toBeNull();
+  fireEvent.change(screen.getByLabelText('Roadmap name'), { target: { value: 'Renamed' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save roadmap' }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  expect(vi.mocked(saveRoadmap).mock.calls[0]?.[2]).toMatchObject({
+    expectedVersion: 4,
+    expectedRevision: 2,
+    name: 'Renamed',
+  });
+  // A new revision does date it.
+  rerender(
+    <Editor
+      current={{ ...running, version: 10, definition: { ...running.definition, revision: 3 } }}
+      initial={draftOf(running)}
+      onSaved={onSaved}
+    />,
+  );
+  expect(screen.getByText(/This roadmap changed while you were editing/)).toBeTruthy();
+});

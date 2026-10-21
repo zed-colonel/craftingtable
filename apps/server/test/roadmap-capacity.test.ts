@@ -162,7 +162,7 @@ it('changes only admission ceilings in a new immutable definition without graph 
   expect((await s.save({ ...s.payload, expectedVersion: 2 })).statusCode).toBe(200);
   expect(s.c.storage.roadmaps.find(saved.workspaceId, saved.id)?.definition.revision).toBe(2);
 });
-it('rejects unauthenticated, CSRF-less, invalid, running, and ended capacity edits', async () => {
+it('rejects unauthenticated, CSRF-less, invalid and ended capacity edits, and takes a running roadmap’s (R-B6)', async () => {
   const s = await fixture();
   const url = `${s.base}/${s.roadmap.id}/capacity`;
   expect((await s.c.app.inject({ method: 'POST', url, payload: s.payload })).statusCode).toBe(401);
@@ -178,11 +178,16 @@ it('rejects unauthenticated, CSRF-less, invalid, running, and ended capacity edi
   ).toBe(403);
   for (const maxInFlight of [0, 17, 1.2])
     expect((await s.save({ ...s.payload, maxInFlight })).statusCode).toBe(400);
-  let version = 1;
-  for (const status of ['running', 'completed', 'stopped'] as const) {
-    s.c.storage.roadmaps.save({ ...s.roadmap, version: version + 1, status }, version);
+  s.c.storage.roadmaps.save({ ...s.roadmap, version: 2, status: 'running' }, 1);
+  expect((await s.save({ ...s.payload, expectedVersion: 2 })).statusCode).toBe(200);
+  let version = s.c.storage.roadmaps.find(s.roadmap.workspaceId, s.roadmap.id)!.version;
+  for (const status of ['completed', 'stopped'] as const) {
+    const current = s.c.storage.roadmaps.find(s.roadmap.workspaceId, s.roadmap.id)!;
+    s.c.storage.roadmaps.save({ ...current, version: version + 1, status }, version);
     version++;
-    expect((await s.save({ ...s.payload, expectedVersion: version })).statusCode).toBe(409);
+    expect(
+      (await s.save({ ...s.payload, maxInFlight: 3, expectedVersion: version })).statusCode,
+    ).toBe(409);
   }
 });
 it('evaluates the whole roadmap list in one read snapshot (PERF-08)', async () => {

@@ -7,7 +7,7 @@ import { configureReverification } from '../../lib/roadmap-api.js';
 /**
  * The standing, revocable grant for the scheduler to re-verify an entry whose evidence went stale
  * (R-C10's follow-up, decision 4), beside independent review recovery's: off until the operator
- * turns it on, and changed only while the roadmap is not running.
+ * turns it on, and changed at any status but ended (R-B6, decision 4).
  */
 export function ReverificationGrantPanel({
   roadmap,
@@ -24,7 +24,7 @@ export function ReverificationGrantPanel({
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const editable = ['draft', 'paused', 'needs-attention'].includes(roadmap.status);
+  const editable = !['stopped', 'completed'].includes(roadmap.status);
   const save = async () => {
     setBusy(true);
     setError(undefined);
@@ -82,9 +82,6 @@ export function ReverificationGrantPanel({
         >
           Configure automatic re-verification
         </button>
-      )}
-      {canMutate && !editable && !['stopped', 'completed'].includes(roadmap.status) && (
-        <p className="muted">Pause roadmap scheduling to change this grant.</p>
       )}
       {editing && (
         <form

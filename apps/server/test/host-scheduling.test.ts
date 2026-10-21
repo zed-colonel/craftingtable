@@ -135,7 +135,7 @@ it('requires authentication, CSRF, valid capacity, and ownership of every active
   );
   expect((await s.save(first.version, 3)).statusCode).toBe(403);
 });
-it('requires paused scheduling without silently resuming or revising a roadmap', async () => {
+it('saves while a roadmap runs, without pausing, resuming or revising it (R-B6, decision 9)', async () => {
   const s = await fixture();
   const first = await s.get();
   const id = asRoadmapId(randomUUID()),
@@ -160,9 +160,14 @@ it('requires paused scheduling without silently resuming or revising a roadmap',
     attempts: [],
   };
   s.c.storage.roadmaps.save(roadmap, 0);
-  expect((await s.save(first.version, 3)).statusCode).toBe(409);
-  s.c.storage.roadmaps.save({ ...roadmap, version: 2, status: 'paused' }, 1);
   expect((await s.save(first.version, 3)).statusCode).toBe(200);
+  expect(s.c.storage.roadmaps.find(s.workspaceId, id)).toMatchObject({
+    status: 'running',
+    version: 1,
+    definition: { revision: 1 },
+  });
+  s.c.storage.roadmaps.save({ ...roadmap, version: 2, status: 'paused' }, 1);
+  expect((await s.save(first.version + 1, 2)).statusCode).toBe(200);
   expect(s.c.storage.roadmaps.find(s.workspaceId, id)).toMatchObject({
     status: 'paused',
     version: 2,

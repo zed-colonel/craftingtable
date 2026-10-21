@@ -30,7 +30,8 @@ export function ScopeRecoveryPanel({
         .filter((id): id is WorkItemId => !!id),
     ),
   ];
-  const editable = ['draft', 'paused', 'needs-attention'].includes(roadmap.status);
+  // Changeable at any status but ended, the roadmap running included (R-B6, decision 4).
+  const editable = !['stopped', 'completed'].includes(roadmap.status);
   const save = async () => {
     setBusy(true);
     setError(undefined);
@@ -132,9 +133,6 @@ export function ScopeRecoveryPanel({
           Configure review recovery
         </button>
       )}
-      {canMutate && !editable && !['stopped', 'completed'].includes(roadmap.status) && (
-        <p className="muted">Pause roadmap scheduling to change this delegation.</p>
-      )}
       {editing && (
         <form
           className="stack-form"
@@ -168,6 +166,12 @@ export function ScopeRecoveryPanel({
             A total ceiling, not extra attempts; prior automatic rounds remain counted. Saving does
             not start runs.
           </p>
+          {!enabled && roadmap.scopeRecovery?.enabled && (
+            <p className="muted">
+              An automatic round already open is no longer carried: its next merge and stop are
+              yours.
+            </p>
+          )}
           <button
             type="submit"
             className="primary-button"

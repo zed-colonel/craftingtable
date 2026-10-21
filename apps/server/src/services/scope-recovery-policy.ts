@@ -215,7 +215,7 @@ export function scopeRecoveryDecision(
   const automatic = automaticRounds(stretch);
   if (automatic >= (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0))
     return escalate(
-      `Automatic recovery allowance exhausted (${automatic} automatic round${automatic === 1 ? '' : 's'} for this parent). Pause the roadmap and raise the total allowance, or continue manually.`,
+      `Automatic recovery allowance exhausted (${automatic} automatic round${automatic === 1 ? '' : 's'} for this parent). Raise the total allowance in the roadmap's review recovery settings, then resume the item, or continue manually.`,
     );
   // A lifetime ceiling, three stretches' worth: a review that keeps passing with a fresh finding
   // would otherwise start rounds without end (LIVE-28 review, operator decision 2026-09-30).
@@ -223,7 +223,7 @@ export function scopeRecoveryDecision(
   const ceiling = 3 * (roadmap.scopeRecovery?.maxRoundsPerParent ?? 0);
   if (lifetime >= ceiling)
     return escalate(
-      `Automatic recovery reached its lifetime ceiling (${lifetime} automatic rounds for this parent, three times the allowance). Pause the roadmap and raise the allowance, or continue manually.`,
+      `Automatic recovery reached its lifetime ceiling (${lifetime} automatic rounds for this parent, three times the allowance). Raise the allowance in the roadmap's review recovery settings, then resume the item, or continue manually.`,
     );
   if (rounds.some((a) => a.recovery!.findingFingerprint === fingerprint))
     return escalate('Independent review repeated the same substantive findings after repair.');

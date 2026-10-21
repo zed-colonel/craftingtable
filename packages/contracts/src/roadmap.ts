@@ -83,9 +83,16 @@ export const roadmapEntryInputSchema = roadmapEntryFieldsSchema
   .extend({ permissions: stepPermissionsSchema });
 /** An entry with its profiles, as the daemon writes it into the definition. */
 export type RoadmapEntryFields = z.infer<typeof roadmapEntryFieldsSchema>;
+/**
+ * The definition revision a form showed (R-B6, decision 10): while the roadmap runs, its own
+ * writes move its version, so a definition write is checked against the revision instead. A form
+ * that sends none is held to `expectedVersion`.
+ */
+const expectedRevisionSchema = z.number().int().positive().optional();
 export const saveRoadmapRequestSchema = z
   .strictObject({
     expectedVersion: z.number().int().nonnegative(),
+    expectedRevision: expectedRevisionSchema,
     name: z.string().trim().min(1).max(120),
     entries: z.array(roadmapEntryInputSchema).min(1).max(100),
     scheduling: roadmapSchedulingSchema.optional(),
@@ -481,6 +488,7 @@ export const roadmapHistoryResponseSchema = z.strictObject({
 
 export const saveRoadmapCapacitySchema = z.strictObject({
   expectedVersion: z.number().int().positive(),
+  expectedRevision: expectedRevisionSchema,
   maxInFlight: roadmapSchedulingSchema.shape.maxInFlight,
   maxPerRepository: roadmapSchedulingSchema.shape.maxPerRepository,
 });

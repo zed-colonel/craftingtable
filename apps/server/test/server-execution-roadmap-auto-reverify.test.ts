@@ -99,11 +99,9 @@ itNeedsCargo(
     };
     const tick = () => state.context.services.roadmapService.tick();
 
-    // The grant is off until the operator turns it on, and changes only while not running.
+    // The grant is off until the operator turns it on (at any status but ended since R-B6,
+    // pause-scope-characterization.test.ts); this roadmap is paused for the steps below.
     expect(storedRoadmap(state).reverificationGrant).toBeUndefined();
-    const running = await grant(true);
-    expect(running.statusCode).toBe(409);
-    expect(running.body).toContain('Pause this cross-project roadmap');
     await roadmapControl(state, 'pause');
 
     // A newer repository policy makes the recorded verifications stale, for that reason alone.
@@ -352,7 +350,9 @@ it('refuses the grant on a roadmap that is not cross-project', async () => {
     payload: { expectedVersion: storedRoadmap(state).version, enabled: true },
   });
   expect(refused.statusCode).toBe(409);
-  expect(refused.body).toContain('Pause this cross-project roadmap');
+  expect(refused.json().error.message).toBe(
+    'Automatic re-verification is set on a cross-project roadmap.',
+  );
   expect(storedRoadmap(state).reverificationGrant).toBeUndefined();
   const extra = await state.context.app.inject({
     method: 'POST',

@@ -4,6 +4,7 @@
 - **Date:** 2026-09-22
 - **Amended:** 2026-09-28 (R-C3b): preparation beside a running roadmap
 - **Amended:** 2026-10-12 (R-I7): a read-only Codex run gets a read-only permission profile with the sandboxed runs' denied reads, not Codex's legacy read-only sandbox
+- **Amended:** 2026-10-20 (R-B6): the standing preparation grant changes while the roadmap runs
 
 Started roadmap attempts retain immutable definitions. An explicit, authenticated grant may
 replace integration automation and reviewer responsibilities for named entries' future actions.
@@ -65,3 +66,12 @@ started cross-project slices stopped at design; WI-ADR-016 alone was asked for i
 - Several saved proposals may be approved together in one pause: the operator marks each as
   reviewed, one rationale is recorded with each, and each is approved through the same command
   and checks as a single approval. Nothing is approved without the operator.
+
+## Amendment 2026-10-20: the standing preparation grant while the roadmap runs (R-B6)
+
+Operator decisions 4 and 10. The standing preparation grant, like recovery delegation (ADR-057)
+and the automatic re-verification grant, changes at any roadmap status but ended, and not while
+the roadmap's wind-down settles: each is read at its next use, a revoked grant still cancels
+nothing started, and an amendment still revokes it. While the roadmap runs a change is taken as
+the operator sent it, last writer winning, each audited; a stopped roadmap's is version-checked
+as before. Delegation grants and approval keep the rules above until scoped.

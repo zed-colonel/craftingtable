@@ -412,7 +412,8 @@ export function RoadmapPage({
           {!crossProject &&
             // The editor lives on the roadmap's own page, not inside an inbox item.
             !embedded &&
-            ['draft', 'paused', 'needs-attention'].includes(roadmap.status) && (
+            // Queued entries change while the roadmap runs too (R-B6, decision 5).
+            !['stopped', 'completed'].includes(roadmap.status) && (
               <button
                 type="button"
                 className="secondary-button"

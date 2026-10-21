@@ -109,7 +109,6 @@ export function HostSchedulingPanel({
     draft &&
     status &&
     (draft.version !== status.version || draft.developmentVersion !== status.developmentVersion);
-  const running = status?.roadmaps.filter((r) => r.status === 'running') ?? [];
   return (
     <Section
       id="execution-capacity"
@@ -283,14 +282,8 @@ export function HostSchedulingPanel({
                   })}
                 </div>
                 <p className="hint">
-                  Pause scheduling in every workspace before saving. Saving does not resume
-                  scheduling.
+                  Running work keeps its slots; the new capacity applies to the next reservation.
                 </p>
-                {running.length > 0 && (
-                  <p className="error-state">
-                    Pause these roadmaps first: {running.map((r) => r.name).join(', ')}.
-                  </p>
-                )}
                 {stale && (
                   <p role="alert">
                     Saved limits changed during this edit. Cancel the edit and reopen it to use the
@@ -304,7 +297,6 @@ export function HostSchedulingPanel({
                     busy ||
                     invalid ||
                     !!stale ||
-                    running.length > 0 ||
                     (Number(draft.development) === status.developmentCapacity &&
                       Number(draft.verification) === status.verificationCapacity)
                   }

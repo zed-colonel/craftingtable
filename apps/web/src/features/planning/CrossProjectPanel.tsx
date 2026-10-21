@@ -215,8 +215,8 @@ export function CrossProjectPanel({
   }, [roadmapId, dirty, staleSettings, onDraftChange]);
   const plan = runtimeView?.planAcceptance?.roadmaps.find((r) => r.roadmapId === roadmap?.id);
   const currentPlan = plan?.definitionRevision === editingRevision ? plan : undefined;
-  const editing =
-    canMutate && (!roadmap || ['draft', 'paused', 'needs-attention'].includes(roadmap.status));
+  // Queued settings change at any status but ended, the roadmap running included (R-B6).
+  const editing = canMutate && (!roadmap || !['stopped', 'completed'].includes(roadmap.status));
   // The map's prerequisites for this target, read again on roadmap, cycle and evidence events
   // and when the environment's setup is saved (R-D4).
   const store = useQueryStore();
@@ -315,6 +315,8 @@ export function CrossProjectPanel({
             {
               roadmapId: saving?.id ?? crypto.randomUUID(),
               expectedVersion: saving?.version ?? 0,
+              // A running roadmap is held to the revision this form showed (R-B6, decision 10).
+              ...(roadmap ? { expectedRevision: roadmap.definition.revision } : {}),
               name,
               configuration: {
                 definitionId,
@@ -827,11 +829,8 @@ export function CrossProjectPanel({
                   ? 'Queued settings and overrides'
                   : 'Roadmap agent and automation settings'}
               </summary>
-              {!editing && (
-                <p>
-                  Pause the roadmap to edit queued settings. Started attempts retain their saved
-                  profiles and policy.
-                </p>
+              {roadmap?.status === 'running' && (
+                <p>Started items keep their saved settings; the change applies to queued items.</p>
               )}
               <About label="About roadmap settings">
                 {roadmap && (

@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-09-18
-- **Amended:** 2026-09-28 (R-C5): convergence and one typed escalation
+- **Amended:** 2026-09-28 (R-C5): convergence and one typed escalation; 2026-10-20 (R-B6): changed while the roadmap runs
 
 Independent verification and parent acceptance intentionally cannot edit source. Their
 findings previously required the operator to repeat the owning-slice repair, integration,
@@ -65,3 +65,11 @@ guidance), which the roadmap carries and which does not use the allowance, or a 
 remaining work into a follow-up slice through a reviewed planning amendment (ADR-049). The split
 is offered, never proposed automatically. Other refusals (questions, ambiguous ownership, an owner
 outside the roadmap) keep their own stops.
+
+## Amendment 2026-10-20: changed while the roadmap runs (R-B6)
+
+Operator decision 4. Recovery delegation changes at any roadmap status but ended, and not while
+the roadmap's wind-down settles. Each round reads it at its next step, and its own check reads
+it again before it acts. Turned off while the roadmap runs, an automatic round already open is no
+longer carried: its next merge and stop are the operator's, as after a pause; its stopped parent
+review stays stopped rather than being resumed by a later Resume.

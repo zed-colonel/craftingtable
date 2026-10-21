@@ -62,7 +62,7 @@ it('revokes a standing grant', async () => {
     enabled: false,
   });
 });
-it('is changed only while the roadmap does not run, and keeps input after an error', async () => {
+it('is changed while the roadmap runs but not once it ended, and keeps input after an error (R-B6)', async () => {
   setup({ ...roadmap, status: 'running' } as Roadmap);
   expect(
     (
@@ -70,8 +70,17 @@ it('is changed only while the roadmap does not run, and keeps input after an err
         name: 'Configure automatic re-verification',
       }) as HTMLButtonElement
     ).disabled,
+  ).toBe(false);
+  expect(screen.queryByText(/Pause roadmap scheduling/)).toBeNull();
+  cleanup();
+  setup({ ...roadmap, status: 'stopped' } as Roadmap);
+  expect(
+    (
+      screen.getByRole('button', {
+        name: 'Configure automatic re-verification',
+      }) as HTMLButtonElement
+    ).disabled,
   ).toBe(true);
-  expect(screen.getByText('Pause roadmap scheduling to change this grant.')).toBeTruthy();
   cleanup();
   vi.mocked(request).mockRejectedValue(new Error('Roadmap changed; refresh before saving.'));
   setup();

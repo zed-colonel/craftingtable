@@ -179,6 +179,47 @@ for (const mode of ['sequential', 'parallel'] as const) {
       await roadmap.getByRole('button', { name: 'Start roadmap', exact: true }).click();
       await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
       expect(git(['rev-parse', 'revision-roadmap'], repository)).toBe(initial);
+      if (mode === 'parallel') {
+        // Limits change while the roadmap runs; nothing is paused (R-B6, decision 3).
+        await roadmap.getByRole('link', { name: 'Manage capacity', exact: true }).click();
+        const capacity = page.getByRole('region', {
+          name: 'Roadmap in-flight limits',
+          exact: true,
+        });
+        await capacity.getByRole('button', { name: 'Change roadmap limits' }).click();
+        await capacity.getByLabel('Maximum in-flight items', { exact: true }).fill('4');
+        await capacity.getByRole('button', { name: 'Save roadmap limits' }).click();
+        await expect(capacity.getByRole('status')).toContainText(
+          'Roadmap limits saved. They apply to the next admission; items in flight keep running.',
+        );
+        await navigate('Roadmaps');
+        await openRoadmap(page, `AQ ${mode}`);
+      } else {
+        // A queued entry's agents change while the roadmap runs (R-B6, decisions 1 and 5).
+        await page.getByRole('button', { name: 'Edit queued entries', exact: true }).click();
+        const running = page.getByRole('region', { name: 'Roadmap editor' });
+        await expect(
+          running.getByText(
+            'Started items keep their saved settings; the change applies to queued items.',
+          ),
+        ).toBeVisible();
+        await running
+          .getByText('Agents, models, and completion policy', { exact: true })
+          .last()
+          .click();
+        const queued = running.getByRole('group', { name: 'Agents', exact: true }).last();
+        await queued.getByRole('button', { name: 'Change agents' }).click();
+        const remediation = queued.getByRole('group', { name: 'Remediation', exact: true });
+        await remediation
+          .getByRole('combobox', { name: 'Agent', exact: true })
+          .selectOption('codex');
+        await remediation
+          .getByRole('combobox', { name: 'Model', exact: true })
+          .selectOption('gpt-6-luna');
+        await running.getByRole('button', { name: 'Save roadmap', exact: true }).click();
+        await expect(running).toHaveCount(0);
+        await expect(roadmap.getByText('Awaiting merge approval', { exact: true })).toBeVisible();
+      }
       for (const sourceId of sourceIds) {
         await roadmap.getByRole('link', { name: new RegExp(`^${sourceId} ·`) }).click();
         await expect(

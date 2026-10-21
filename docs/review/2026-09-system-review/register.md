@@ -6282,10 +6282,18 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Change:**
   1. *One usage record, backend-neutral,* per turn and per run. It holds token counts by class (input, cache read, cache write, output, reasoning output; a class a backend cannot report is absent, not zero) and a cost with its source: `reported` (the backend gave dollars), `estimated` (CraftingTable priced the tokens) or `unknown`. Billing (subscription or API) stays a separate field and only labels the figure: a subscription figure is what the same tokens would cost at API list prices, never a bill.
   2. *Adapters report what they have.* Each maps its backend's usage into the record and gives dollars only when its backend does: Codex already has the tokens; Claude Code also keeps its result line's token usage (`usage`, `modelUsage`; confirm the fields against a live line in the design). A new backend's adapter maps its usage and nothing else changes.
-  3. *A price book* per provider and model: a price per million tokens for each class, with the date it took effect, kept as data rather than in code. A run whose model has no price shows its tokens and "no price for <model>", never $0. Each estimate records the entry it used. A reported figure wins over an estimate.
-  4. *Totals beyond the run:* the work item, the plan's finalization and the roadmap show their runs' total, saying when it includes estimates and how many runs have no cost.
-  5. *The past:* Codex's journaled token counts are priced once the book has their models, so the 689 runs get estimates too.
-- **Decisions for the design pass:** where the price book lives and who updates it (a committed file, the operator's settings, or both); whether estimates are stored at the run's end or derived on read (stored keeps a past figure stable when prices change; derived needs no backfill); and which surfaces show totals.
+  3. *A price book CraftingTable keeps current* (the operator, 2026-10-21: a daily task rather than the operator retrieving prices). For each provider and model it holds a price per million tokens per class, with the date the price took effect, kept as data rather than in code. A reported figure wins over an estimate.
+     - *Seed:* a committed snapshot, so a fresh install or an offline daemon still has prices.
+     - *Daily refresh* from a machine-readable feed, validated against a schema. Recommended primary: LiteLLM's `model_prices_and_context_window.json` (BerriAI/litellm, MIT; per-token prices by class, cache read and write included). Alternatives: models.dev's `api.json` (from OpenCode's makers), or OpenRouter's `/api/v1/models` as a fallback only, since it lists OpenRouter's prices. Provider pricing pages are not scraped. A failed fetch keeps the last book, and costs then say "prices as of <date>".
+     - *History:* a change adds a dated entry and never overwrites one, so a past estimate stays explainable.
+     - *Plausibility:* a price that falls to zero or moves more than about tenfold keeps the previous price and opens a Needs you item. This guards against feed mistakes, not attackers (ADR-075).
+     - *The operator's overrides win:* their own prices, and model aliases mapping a backend's model name to the feed's (Codex's names, such as `gpt-6.1-sol`, may not match). A model with no price and no alias shows its tokens and "no price for <model>", never $0.
+     - *Claude Code* keeps its reported figure; the book prices its tokens only as a cross-check.
+  4. *Each estimate is stored at the run's end* with the book entry it used, so a later price change never alters a past figure.
+  5. *Totals beyond the run:* the work item, the plan's finalization and the roadmap show their runs' total, saying when it includes estimates and how many runs have no cost.
+  6. *The past:* Codex's journaled token counts are priced once the book has their models, at the entry in effect on each run's date where the history has one, so the 689 runs get estimates too.
+- **Decided 2026-10-21 (the operator):** the price book is kept current by CraftingTable as above, and estimates are stored at the run's end.
+- **Left for the design pass:** confirm the chosen feed lists the models in use (above all Codex's subscription model names, which may need aliases from the first day); the refresh's place in the daemon's maintenance; where the overrides live in settings; and which surfaces show totals.
 - **Beside R-G8 (P5):** usage reporting becomes one of the capabilities R-G8 declares. This item does not wait for R-G8 or do its work. Not in scope: budgets, limits, and tracking subscription quota.
 - **Done when:**
   - A finished Codex run shows an estimated cost whenever its model is priced.
@@ -6293,6 +6301,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - An unpriced model shows tokens and no price.
   - The work item, finalization and roadmap show totals marked as including estimates.
   - The past Codex runs are priced.
+  - The book refreshes daily from the feed, keeps its history, holds an implausible change for the operator, and an override or alias wins over the feed; a failed fetch leaves the last book and says its date.
   - Each adapter has a test from a recorded line, and a test backend that reports only tokens is priced with no change outside its adapter.
 - **Priority:** small and independent of the controller work (agents, contracts, storage, web; probably one migration). It can follow R-B7's scheduler half or go beside it in a separate session.
 

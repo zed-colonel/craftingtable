@@ -92,10 +92,8 @@ export function RoadmapDelegation({
       {open && (
         <>
           <p>
-            This replaces the selected entries’ future delegation, including retries; no new
-            plan-acceptance evidence is needed. It is refused while a selected entry’s controller
-            review, integration refresh or conflict resolution is at work; apply it again once that
-            finishes.
+            Replaces the selected entries’ future delegation, including retries. Refused while a
+            selected entry’s review, refresh or conflict resolution is at work.
           </p>
           {['stopped', 'completed'].includes(roadmap.status) && (
             <p className="muted">This roadmap has ended; its delegation no longer changes.</p>
@@ -104,7 +102,8 @@ export function RoadmapDelegation({
             <p>
               This explicit grant replaces integration automation and reviewer responsibilities for
               the selected entries’ future actions, including retries. Existing reports and
-              approvals keep their original authority.
+              approvals keep their original authority. No new plan-acceptance evidence is needed. A
+              refused grant can be applied again once the selected entry’s work finishes.
             </p>
           </About>
           <fieldset disabled={locked}>

@@ -177,8 +177,9 @@ export function RoadmapCapacityPanel({
               active roadmap limit.
             </p>
             <p>
-              Saving changes this roadmap's admission limits and saved revision. Existing work keeps
-              its profiles and recovery budgets.
+              Saving changes this roadmap's admission limits and saved revision, while it runs too.
+              Existing work keeps its profiles and recovery budgets; no new item starts while at
+              least as many are in flight as the new limit.
             </p>
           </About>
           {roadmap.editBlocker && <p>{roadmap.editBlocker}</p>}
@@ -227,8 +228,7 @@ export function RoadmapCapacityPanel({
                 </label>
               ))}
               <p className="hint">
-                Applies to the next admission; items already in flight keep running, and none starts
-                while at least as many are in flight as the new limit. Limits are not part of
+                Applies to the next admission; items in flight keep running. Limits are not part of
                 saved-plan acceptance.
               </p>
               {stale && (

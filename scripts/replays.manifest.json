@@ -156,7 +156,169 @@
         {
           "mode": "scheduler",
           "golden": "scheduler-golden-3c9d430.json",
-          "goldenSha256": "671bebfc7358a30d97e0a569a39383e4f87ac554373fae1262562d2cf35125f2"
+          "goldenSha256": "671bebfc7358a30d97e0a569a39383e4f87ac554373fae1262562d2cf35125f2",
+          "expected": [
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/7af63591-fe15-432d-a120-881d396fa3a5",
+              "nowSha256": "9553bbdae5e5c32ecf4a48fcb05dc8588df754acfcba9beb4b60136f84e3c1b6",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/2177e928-6aed-4b36-94d3-7eda383abffd",
+              "nowSha256": "2bcfbab9292dc5831a80d530ba40ab91f1b354891d1b1cc7329cc54db44aab62",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/1d16eb17-de19-4673-ab99-7d2c5407e37a",
+              "nowSha256": "91c4767e1ccea34daf8a7e3ce9ace20a4e2a834d35875e2921f3bc1913199ae1",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/2774c565-997b-46d1-9b77-351899a8d58b",
+              "nowSha256": "bcb61ff1bc08c0768b4dd4f316d0387e07af324ac5fbd797c0b81a949f47c4d4",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/b4664e30-fba5-4ba1-8fbe-118d6f6080b2",
+              "nowSha256": "c4fb59e17df84602af5d40c7d6063c3b369da102cde0b46446be047cfd4d6313",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/c240b78b-7b7d-4a32-8e07-96f06c5bc489",
+              "nowSha256": "ac2cb0d381f4366e4f20ad556985e20478fdf03aba731a9695a92617956c3a81",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/fe8d2946-b633-4b2c-82d9-58fa55774d3f",
+              "nowSha256": "1a9e276f13261bfd2959fa97fa432c7b49fd7cd509a387e5d2339d23f8bbf54f",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/890bef1a-fca2-4bad-8061-8b6bdd41bf46",
+              "nowSha256": "e5edbc1b73e5071981bba32ac728c2a8075069c078d347518e345a973648c8ab",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/7eeae2f3-4011-46bb-bcc9-5a7bf9029d64",
+              "nowSha256": "780e1f90661b74d4de889d7df10c801cb97a02d0b8a1504eadcfdf08f8658426",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/722eef8b-b967-47f7-ab82-c4250d793703",
+              "nowSha256": "3ec593d64302d27b88557a1d440dcf8e101bc5fb9f9c333500108cecdac445c8",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/0f86b0cd-33a3-480c-b9de-f587a45122c4",
+              "nowSha256": "758d5a57af85e0fec9715c917dc251433cf5e75903eac233325d5d082b4e3f1a",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/6f9f271f-4202-48bd-9803-5bc5c772c71f",
+              "nowSha256": "47452b60b4c30cd4ed490b5ca3352a79b185585eedbb90b46761abeac36462c8",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/3564ab37-9f9e-4fe3-b61c-3616d3b3f8e6",
+              "nowSha256": "d8690fcbf64b4de18024b4e951cf252f689168c1c9c26d224ec67592e7538963",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/dfe4a53c-28c9-4749-87a3-13e3112e3879",
+              "nowSha256": "dcbf3d9c491912a17b145c08b469df6f624bb7b8b9ba4f4fd8b218576d410b09",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/68797795-68a4-4173-a8e1-4b3792515ea9",
+              "nowSha256": "3b4ed4d3de21673eb3fc95db50b19c511ea79017386c8c75e6271dfc6dae4d7d",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/471eca19-cd4d-4b5a-a207-fd864530786e",
+              "nowSha256": "b89f1a5bd59c988701f7be656ae3e44e8247fa1ae8d0abf7dea248f3684b2f7c",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/7941c1cb-9d9b-4f62-b0da-035a53f05ad7",
+              "nowSha256": "387c89eac5c80341242aa58f3f84a0b19523c07da8941a2432cf9d360572e73e",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/6c03e7b5-2a94-4388-9eee-b856ec609a10",
+              "nowSha256": "167a15eda95b1b1bf50802e715bfada8575876590193944da90f1da0a89fb439",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/6272e96a-7b9c-428a-b5e6-481c77e1118f",
+              "nowSha256": "f5ef2bcaa38c7c87234c31e806d8b43533e0d3f60627d1c5aa6aacd404aa6947",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/2745bd19-d9f0-4284-a0bf-92d398602dbc",
+              "nowSha256": "d37564127c0024ae8487800273788628f28958af08b706ec0f8ab058474efcf2",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/e6de5c79-03c2-4d56-8e5a-bf7fed1fee2f",
+              "nowSha256": "a13fe08fdb461bb45f80b15bb6510948f5455018ed313560cd204b0a4251bd25",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/10c08489-c001-4b09-b5c1-572c7463fe73",
+              "nowSha256": "bb8d85cbccd96c0d2afe99e2ae294a7eff233dc4be07b014fb422d3ddd58d0e2",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/e76a47ee-b15d-4db5-bde5-9122e8aeddfa",
+              "nowSha256": "c89f3faeb4eed38bdd633de2e1e300d3b37598d8c903f7238b8d8eaa497e4978",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/86d4f098-b416-4f7c-8a4d-9a4d0e1f52eb",
+              "nowSha256": "42ae2e2f762919e1da7d2546555fc8b6f59e32a37b4b748200e1fd8ee505c09e",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/71e24f77-da87-42bf-b2b6-3664c24b79fe",
+              "nowSha256": "591bd8e8c96d41e3f8bbdcb92e3ff6f87962e5690cba506665d21c79e1fb8570",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/726f3288-0510-48e5-b89d-96b24678f4b8",
+              "nowSha256": "f9cd2409d6b1ca6c3ef4588463275dbd52a690d39e61e68de2f4f8949952142e",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/86e42360-77ba-42d4-b424-e0407e836264",
+              "nowSha256": "155accbf5e79b2c703935b6c47320337c788e96f4890b3d975f0bbbe4150044d",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/171f8311-9f70-4009-a086-8d7d3bc45756",
+              "nowSha256": "a8490d88d8a5631513a54ec161f9906da9f8ebd0ec74668ec8d53dcfda01815a",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/caf78ad1-d821-4f11-9284-854e954a0444",
+              "nowSha256": "168c9ae77ca83288e0150c1fcff481531465ef4ff946ec38ee93b8acf26b7e25",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/2d49efea-0689-4bd5-b451-9468d1362e60",
+              "nowSha256": "6db37e6b9dd23c6ef3d120550a6804662929361abacf8d714db549967ef6a6ea",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/cb52598d-d6e4-4fcd-9e49-fe1718465e45",
+              "nowSha256": "e4220f0c4fc2365fb5ba7cf6e320cc4c0eddd9e8697d1e12d0be72fd536d9625",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            },
+            {
+              "key": "status:b81d5f92-c636-4a16-af1f-bb1388d58d2e/8fb0622b-47bf-4544-9f38-3b865970ac03",
+              "nowSha256": "1a048380ac094a4a89c2a6445ea9de57fdf43d64e63fd484d9e3878d0950bd1b",
+              "reason": "R-B6 increment 3 (decision 6): approving a shared decision no longer needs the roadmap paused, so the decision hold's reason drops \"Pause the roadmap and\" (now \"Approve it in Shared architecture decisions.\"); the entry's state, code and blockers are unchanged."
+            }
+          ]
         },
         {
           "mode": "cycles",
@@ -258,6 +420,11 @@
               "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/capabilities",
               "nowSha256": "52185faa1a21de4660956e745fcbce6d9c7ddca1bdf7939d5be3ed197cae6e18",
               "reason": "R-F2 part 5 (with R-A6's rest): the runtime view gains capabilities, the map's typed capability gaps and each slice's build classification, derived on each read; nothing else in the view changes."
+            },
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/decisionInbox",
+              "nowSha256": "adeee6d7cb604dc89644cda18d3308e23d369735b55582e749e76da7e27cbf0f",
+              "reason": "R-B6 increment 3 (decision 6): the decision inbox's map-wide blockers keep only the binding refresh (the running roadmap's and the map's live runs no longer hold approval), and each undecided proposal carries its waits, empty here (no live work on a tree its decision is an input of); its decisions and records are otherwise unchanged."
             }
           ]
         }
@@ -302,6 +469,11 @@
               "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/capabilities",
               "nowSha256": "52185faa1a21de4660956e745fcbce6d9c7ddca1bdf7939d5be3ed197cae6e18",
               "reason": "R-F2 part 5 (with R-A6's rest): the runtime view gains capabilities, the map's typed capability gaps and each slice's build classification, derived on each read; nothing else in the view changes."
+            },
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/decisionInbox",
+              "nowSha256": "adeee6d7cb604dc89644cda18d3308e23d369735b55582e749e76da7e27cbf0f",
+              "reason": "R-B6 increment 3 (decision 6): the decision inbox's map-wide blockers keep only the binding refresh (the running roadmap's and the map's live runs no longer hold approval), and each undecided proposal carries its waits, empty here (no live work on a tree its decision is an input of); its decisions and records are otherwise unchanged."
             }
           ]
         }
@@ -353,6 +525,11 @@
               "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/capabilities",
               "nowSha256": "52185faa1a21de4660956e745fcbce6d9c7ddca1bdf7939d5be3ed197cae6e18",
               "reason": "R-F2 part 5 (with R-A6's rest): the runtime view gains capabilities, the map's typed capability gaps and each slice's build classification, derived on each read; nothing else in the view changes."
+            },
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/decisionInbox",
+              "nowSha256": "ad9a186ea3ce5ebe7381cf7d9306b6c0604111289e4528e7451aa6cf4e5261fc",
+              "reason": "R-B6 increment 3 (decision 6): the decision inbox's map-wide blockers keep only the binding refresh (the running roadmap's and the map's live runs no longer hold approval), and each undecided proposal carries its waits, empty here (no live work on a tree its decision is an input of); its decisions and records are otherwise unchanged."
             }
           ]
         }
@@ -553,6 +730,11 @@
               "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/capabilities",
               "nowSha256": "52185faa1a21de4660956e745fcbce6d9c7ddca1bdf7939d5be3ed197cae6e18",
               "reason": "R-F2 part 5 (with R-A6's rest): the runtime view gains capabilities, the map's typed capability gaps and each slice's build classification, derived on each read; nothing else in the view changes."
+            },
+            {
+              "key": "0ebcb7cf-9686-4bc1-9b9d-bb85a1d0b4c9/decisionInbox",
+              "nowSha256": "3ee2fe027f6db4e42c94466ecc88736a731b30a121852694c45c9e2c21f0aa3a",
+              "reason": "R-B6 increment 3 (decision 6): the decision inbox's map-wide blockers keep only the binding refresh (the running roadmap's and the map's live runs no longer hold approval), and each undecided proposal carries its waits, empty here (no live work on a tree its decision is an input of); its decisions and records are otherwise unchanged."
             }
           ]
         },

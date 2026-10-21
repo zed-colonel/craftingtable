@@ -3,6 +3,7 @@
  * resolution's steps and command, each under its guard.
  */
 
+import type { RoadmapActor } from '../../roadmap-actor.js';
 import { activeEditor } from '../../authority-policy.js';
 import { operatorResolutionProfile } from '../../agent-profile-policy.js';
 import type { WorkCycleId } from '@craftingtable/domain';
@@ -231,7 +232,7 @@ export class CycleIntegration {
     workspaceId: WorkspaceId,
     id: WorkCycleId,
     input: IntegrationResolutionRequest,
-    delegatedCheck?: () => void,
+    actor?: RoadmapActor,
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
@@ -261,7 +262,7 @@ export class CycleIntegration {
     return mutation(async (checkOwned) => {
       const check = () => {
         checkOwned();
-        delegatedCheck?.();
+        actor?.check();
       };
       check();
       let resolution = cycle.integrationResolution;

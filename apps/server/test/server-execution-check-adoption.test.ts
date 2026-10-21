@@ -414,7 +414,7 @@ itNeedsCargo(
         {
           roadmapId: asRoadmapId('00000000-0000-4000-8000-000000000001'),
           definitionRevision: 1,
-          check: () => {},
+          actor: { check: () => {} },
         },
       ),
     ).rejects.toBeInstanceOf(CheckAdoptionRequiredError);

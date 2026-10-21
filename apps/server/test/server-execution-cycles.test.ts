@@ -516,7 +516,9 @@ it('restores the merge gate when a review asked again for adopted checks is refu
     .spyOn(state.context.storage.execution.runs, 'liveForWorktree')
     .mockReturnValue([{ id: 'run-live' } as never]);
   expect(
-    await state.context.services.workCycleService.reviewForDeclaredChecks(approved, () => {}),
+    await state.context.services.workCycleService.reviewForDeclaredChecks(approved, {
+      check: () => {},
+    }),
   ).toBe(false);
   expect(currentCycle(state, cycle)).toEqual(approved);
   live.mockRestore();
@@ -526,8 +528,10 @@ it('restores the merge gate when a review asked again for adopted checks is refu
     'Delegation changed during the reservation.',
   );
   await expect(
-    state.context.services.workCycleService.reviewForDeclaredChecks(approved, () => {
-      if (++checks === 2) throw refusal;
+    state.context.services.workCycleService.reviewForDeclaredChecks(approved, {
+      check: () => {
+        if (++checks === 2) throw refusal;
+      },
     }),
   ).rejects.toBe(refusal);
   expect(currentCycle(state, cycle)).toMatchObject({

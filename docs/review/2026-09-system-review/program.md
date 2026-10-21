@@ -1269,6 +1269,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **Increments 4 to 7 (2026-10-21).** `RoadmapService` (5,565 lines) is a 455-line facade over `services/roadmap/`: its state and write path, selection and holds, views and attention, preparations and recovery rounds, admission with its delegated integration, the commands, and the drain, each under 1,000 lines, moved by script and checked against the original text, with a module-wiring test.
 
+**Increments 8 and 9 (2026-10-21).** The cycle side reads its owning roadmap only through the scheduler's `OwnerPolicy` (check:scope rule 14 holds it), and the scheduler acts on cycles, merges, worktrees and launches through one `RoadmapActor` in place of its loose closures; both change no answer (increment 1's owner rows and closure counts unchanged).
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

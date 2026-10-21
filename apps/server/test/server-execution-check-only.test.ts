@@ -319,7 +319,7 @@ it('refuses a delegated merge of a check-only review without a daemon receipt of
       {
         roadmapId: asRoadmapId('00000000-0000-4000-8000-000000000001'),
         definitionRevision: 1,
-        check: () => {},
+        actor: { check: () => {} },
       },
     ),
   ).rejects.toBeInstanceOf(DeclaredChecksMissingError);
@@ -341,7 +341,7 @@ async function expectBothMergesRefused(state: State, worktreeId: WorktreeId) {
       {
         roadmapId: asRoadmapId('00000000-0000-4000-8000-000000000001'),
         definitionRevision: 1,
-        check: () => {},
+        actor: { check: () => {} },
       },
     ),
   ).rejects.toBeInstanceOf(DeclaredChecksMissingError);

@@ -1,4 +1,5 @@
 import { cycleAgents } from './agent-profile-policy.js';
+import type { RoadmapActor } from './roadmap-actor.js';
 import { selectionSet } from './agent-resolution.js';
 import {
   InvariantError,
@@ -331,9 +332,9 @@ export class WorkCycleService {
     workspaceId: WorkspaceId,
     id: WorkCycleId,
     input: IntegrationResolutionRequest,
-    delegatedCheck?: () => void,
+    actor?: RoadmapActor,
   ): Promise<WorkCycle> {
-    return this.integration.resolveIntegration(context, workspaceId, id, input, delegatedCheck);
+    return this.integration.resolveIntegration(context, workspaceId, id, input, actor);
   }
   startRequested(
     context: CommandContext,
@@ -369,8 +370,7 @@ export class WorkCycleService {
     action: 'pause' | 'resume' | 'stop' | 'retry-provider',
     expectedVersion: number,
     reviewGuidance?: string,
-    delegationCheck?: () => void,
-    onReviewReserved?: () => void,
+    actor?: RoadmapActor,
   ): Promise<WorkCycle> {
     return this.controls.control(
       context,
@@ -379,8 +379,7 @@ export class WorkCycleService {
       action,
       expectedVersion,
       reviewGuidance,
-      delegationCheck,
-      onReviewReserved,
+      actor,
     );
   }
   /**
@@ -405,8 +404,7 @@ export class WorkCycleService {
     id: WorkCycleId,
     expectedVersion: number,
     guidance: string,
-    delegationCheck?: () => void,
-    onReviewReserved?: () => void,
+    actor?: RoadmapActor,
   ): Promise<WorkCycle> {
     return this.controls.repeatScopeReview(
       context,
@@ -414,8 +412,7 @@ export class WorkCycleService {
       id,
       expectedVersion,
       guidance,
-      delegationCheck,
-      onReviewReserved,
+      actor,
     );
   }
   windDownStop(context: CommandContext | undefined, cycle: WorkCycle): WorkCycle {
@@ -424,8 +421,8 @@ export class WorkCycleService {
   retireForAmendment(context: CommandContext, cycle: WorkCycle, amendmentId: MapAmendmentId): void {
     this.controls.retireForAmendment(context, cycle, amendmentId);
   }
-  reviewForDeclaredChecks(cycle: WorkCycle, check: () => void): Promise<boolean> {
-    return this.controls.reviewForDeclaredChecks(cycle, check);
+  reviewForDeclaredChecks(cycle: WorkCycle, actor: RoadmapActor): Promise<boolean> {
+    return this.controls.reviewForDeclaredChecks(cycle, actor);
   }
   leaveMergeToOperator(cycle: WorkCycle, repositoryId: SourceRepositoryId): void {
     this.controls.leaveMergeToOperator(cycle, repositoryId);
@@ -562,8 +559,7 @@ export class WorkCycleService {
       owner: CycleOwner;
       profiles: WorkCycle['profiles'];
       policy: WorkCycle['policy'];
-      check: () => void;
-      attach: () => void;
+      actor: RoadmapActor;
     },
   ) {
     return this.recovery.delegateScopeRepair(context, workspaceId, id, input, delegation);

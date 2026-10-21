@@ -17,6 +17,7 @@ interface CheckAdoptionAtMerge {
   readonly declarationId: string;
 }
 
+import type { RoadmapActor } from './roadmap-actor.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
@@ -793,13 +794,14 @@ export class ExecutionService {
     workspaceId: WorkspaceId,
     worktreeId: WorktreeId,
     expectedWorktreeVersion: number,
-    delegation?: { check: () => void },
+    /** The roadmap's actor, when its scheduler records the receipt (R-B7). */
+    delegation?: { readonly actor: RoadmapActor },
   ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     return this.mutations.during(worktreeId, 'scope-receipt', async () => {
       const tree = this.storage.execution.worktrees.find(workspaceId, worktreeId);
       if (!tree?.workItemId || !tree.executionScope) throw new NotFoundError();
-      delegation?.check();
+      delegation?.actor.check();
       if (this.storage.amendments.retired(workspaceId, worktreeId))
         throw new ExecutionRequestError(
           'conflict',
@@ -972,7 +974,7 @@ export class ExecutionService {
           // An approval that landed across the Git inspection changed the review's packet: it
           // is refused here, not recorded stale (R-B6 increment 3 review L-1).
           this.runtimeEvidence.assertRun(tree, run.id);
-          delegation?.check();
+          delegation?.actor.check();
           const at = this.now().toISOString();
           const result = this.storage.transaction((tx) => {
             tx.scopeReceipts.add({
@@ -1045,7 +1047,7 @@ export class ExecutionService {
       readonly executionScope?: import('@craftingtable/domain').ExecutionScope;
     },
     requestId?: string,
-    reservation?: { readonly id: WorktreeId; readonly check: () => void },
+    reservation?: { readonly id: WorktreeId; readonly actor: RoadmapActor },
   ): Promise<Worktree> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
@@ -1094,7 +1096,7 @@ export class ExecutionService {
       if (repository.status !== 'active') {
         throw new ExecutionRequestError('conflict', 'Repository is retired');
       }
-      reservation?.check();
+      reservation?.actor.check();
       const shortId = (reservation?.id ?? randomUUID()).slice(0, 8);
       const branchName =
         input.branchName ??
@@ -1115,7 +1117,7 @@ export class ExecutionService {
           repository.id,
           input.executionScope,
         );
-        reservation?.check();
+        reservation?.actor.check();
         if (input.executionScope)
           requireScope(
             this.storage,
@@ -1217,12 +1219,12 @@ export class ExecutionService {
   async createDecisionWorktree(
     context: CommandContext,
     value: import('@craftingtable/domain').DecisionPreparation,
-    check: () => void,
+    actor: RoadmapActor,
   ): Promise<Worktree> {
     return (await this.createPlanWorktree(
       context,
       { ...value, targetBranch: value.integrationBranch },
-      check,
+      actor.check,
       'decision',
     ))!;
   }
@@ -1540,7 +1542,7 @@ export class ExecutionService {
       };
     } = {},
     requestId?: string,
-    delegation?: { roadmapId: RoadmapId; definitionRevision: number; check: () => void },
+    delegation?: { roadmapId: RoadmapId; definitionRevision: number; actor: RoadmapActor },
     finalApproval?: {
       finalizationId: FinalizationId;
       expectedHeadSha: string;
@@ -1589,7 +1591,7 @@ export class ExecutionService {
           let adoption: CheckAdoptionAtMerge | undefined;
           const check = () => {
             this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
-            delegation?.check();
+            delegation?.actor.check();
             const review = this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0];
             if (review)
               this.runtimeEvidence.assertMergeRun(

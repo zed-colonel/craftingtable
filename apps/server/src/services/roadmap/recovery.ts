@@ -151,24 +151,26 @@ export class RoadmapRecoveryRounds {
           owner: ownerOf(roadmap, round),
           profiles: frozen.profiles,
           policy: { ...frozen.policy, maxRemediationRounds: input.maxRemediationRounds },
-          check: () => {
-            const current = this.writer.find(ws, id);
-            if (
-              ended(current) ||
-              !current.attempts.some((a) => a.id === round.id && a.status === 'preparing')
-            )
-              conflict('The roadmap changed while this repair was being prepared. Refresh.');
-          },
-          // The stop is answered once the repair exists, in the transaction that creates it;
-          // a refused request leaves it as it was.
-          attach: () => {
-            const current = this.writer.find(ws, id);
-            this.writer.change(current, {
-              attempts: current.attempts.map((a) =>
-                a.id === round.id ? { ...a, status: 'active' } : a,
-              ),
-              entryHolds: answeredHolds(current, sourceEntry.id),
-            });
+          actor: {
+            check: () => {
+              const current = this.writer.find(ws, id);
+              if (
+                ended(current) ||
+                !current.attempts.some((a) => a.id === round.id && a.status === 'preparing')
+              )
+                conflict('The roadmap changed while this repair was being prepared. Refresh.');
+            },
+            // The stop is answered once the repair exists, in the transaction that creates it;
+            // a refused request leaves it as it was.
+            attach: () => {
+              const current = this.writer.find(ws, id);
+              this.writer.change(current, {
+                attempts: current.attempts.map((a) =>
+                  a.id === round.id ? { ...a, status: 'active' } : a,
+                ),
+                entryHolds: answeredHolds(current, sourceEntry.id),
+              });
+            },
           },
         },
       );

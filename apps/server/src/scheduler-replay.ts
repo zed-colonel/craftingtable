@@ -327,8 +327,7 @@ const INTERCEPTED = {
           owner: 'recorded',
           profiles: 'recorded',
           policy: 'recorded',
-          check: 'dropped',
-          attach: 'dropped',
+          actor: 'dropped',
         },
       ],
       args: ([, , cycleId, input, delegation], id) =>
@@ -348,22 +347,13 @@ const INTERCEPTED = {
     },
     repeatScopeReview: {
       decision: 'advance',
-      covers: ['dropped', 'dropped', 'recorded', 'recorded', 'digest', 'dropped', 'dropped'],
+      covers: ['dropped', 'dropped', 'recorded', 'recorded', 'digest', 'dropped'],
       args: ([, , cycleId, expectedVersion, guidance]) =>
         given({ cycleId, expectedVersion, guidance: digest(guidance) }),
     },
     control: {
       decision: 'advance',
-      covers: [
-        'dropped',
-        'dropped',
-        'recorded',
-        'recorded',
-        'recorded',
-        'digest',
-        'dropped',
-        'dropped',
-      ],
+      covers: ['dropped', 'dropped', 'recorded', 'recorded', 'recorded', 'digest', 'dropped'],
       args: ([, , cycleId, action, expectedVersion, guidance]) =>
         given({ cycleId, action, expectedVersion, guidance: digest(guidance) }),
     },
@@ -406,7 +396,7 @@ const INTERCEPTED = {
         'recorded',
         { repositoryId: 'recorded', branchName: 'recorded', executionScope: 'recorded' },
         'dropped',
-        { id: 'id-or-minted', check: 'dropped' },
+        { id: 'id-or-minted', actor: 'dropped' },
       ],
       args: ([, , workItemId, input, , reservation], id) =>
         given({
@@ -425,7 +415,7 @@ const INTERCEPTED = {
         'recorded',
         { targetBranch: 'recorded', adoptChecks: 'recorded' },
         'dropped',
-        { roadmapId: 'recorded', definitionRevision: 'recorded', check: 'dropped' },
+        { roadmapId: 'recorded', definitionRevision: 'recorded', actor: 'dropped' },
         'recorded',
       ],
       args: ([, , worktreeId, input, , delegation, finalApproval]) =>
@@ -444,7 +434,7 @@ const INTERCEPTED = {
     },
     recordScopeReceipt: {
       decision: 'advance',
-      covers: ['dropped', 'dropped', 'recorded', 'recorded', { check: 'dropped' }],
+      covers: ['dropped', 'dropped', 'recorded', 'recorded', { actor: 'dropped' }],
       args: ([, , worktreeId, expectedWorktreeVersion]) =>
         given({ worktreeId, expectedWorktreeVersion }),
     },

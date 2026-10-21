@@ -3,6 +3,7 @@
  * repair and its roadmap rounds.
  */
 
+import type { RoadmapActor } from '../../roadmap-actor.js';
 import type { WorkCycleId } from '@craftingtable/domain';
 import { required } from '@craftingtable/domain';
 import { randomUUID } from 'node:crypto';
@@ -262,8 +263,8 @@ export class CycleRecovery {
       owner: CycleOwner;
       profiles: WorkCycle['profiles'];
       policy: WorkCycle['policy'];
-      check: () => void;
-      attach: () => void;
+      /** The roadmap's actor for the round (R-B7). */
+      actor: RoadmapActor;
     },
   ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
@@ -275,7 +276,7 @@ export class CycleRecovery {
       );
     this.gates.requireNoInvestigation(source);
     const check = () => {
-      delegation?.check();
+      delegation?.actor.check();
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
       const current = this.storage.execution.cycles.find(workspaceId, id);
       if (
@@ -353,7 +354,7 @@ export class CycleRecovery {
               executionScope: selected.scope,
             },
             undefined,
-            delegation ? { id: delegation.worktreeId, check } : undefined,
+            delegation ? { id: delegation.worktreeId, actor: { check } } : undefined,
           );
         check();
         // Recheck source journals after Git, but allow the newly prepared (empty) worktree.
@@ -405,7 +406,7 @@ export class CycleRecovery {
             'delegate-scope-repair',
             context,
           );
-          delegation?.attach();
+          delegation?.actor.attach?.();
           return repaired;
         });
       } finally {

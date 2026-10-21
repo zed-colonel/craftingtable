@@ -5,6 +5,7 @@
  * command's preconditions are R-B4's `decideCommand`.
  */
 
+import type { RoadmapActor } from '../../roadmap-actor.js';
 import { validExtraRounds } from '../../command-bounds.js';
 import type { SourceRepositoryId, WorkCycleId, MapAmendmentId } from '@craftingtable/domain';
 import { required, heldStop } from '@craftingtable/domain';
@@ -100,11 +101,10 @@ export class CycleControl {
     action: 'pause' | 'resume' | 'stop' | 'retry-provider',
     expectedVersion: number,
     reviewGuidance?: string,
-    delegationCheck?: () => void,
-    onReviewReserved?: () => void,
+    actor?: RoadmapActor,
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
-    delegationCheck?.();
+    actor?.check();
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
     this.gates.requireNoInvestigation(cycle, action === 'stop');
@@ -156,10 +156,7 @@ export class CycleControl {
           step.grant,
         );
       case 'review-scope':
-        return this.reviewScopeAgain(context, cycle, run, step, expectedVersion, {
-          ...(delegationCheck ? { check: delegationCheck } : {}),
-          ...(onReviewReserved ? { attach: onReviewReserved } : {}),
-        });
+        return this.reviewScopeAgain(context, cycle, run, step, expectedVersion, actor);
     }
   }
 
@@ -298,7 +295,7 @@ export class CycleControl {
     run: AgentRun | undefined,
     step: Extract<ResumeStep, { kind: 'review-scope' }>,
     expectedVersion: number,
-    reservation: { check?: () => void; attach?: () => void },
+    actor: RoadmapActor | undefined,
   ): Promise<WorkCycle> {
     const { workspaceId, id } = cycle;
     const tree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
@@ -315,7 +312,7 @@ export class CycleControl {
         );
     }
     const check = () => {
-      reservation.check?.();
+      actor?.check();
       if (this.storage.execution.cycles.find(workspaceId, id)?.version !== expectedVersion)
         throw new ExecutionRequestError('conflict', 'Cycle changed; refresh before resuming.');
       this.gates.requireReady(workspaceId, cycle.workItemId, cycle.executionScope);
@@ -338,7 +335,7 @@ export class CycleControl {
           context,
           { attempt: { stepGuidance: step.guidance } },
           'resume',
-          reservation,
+          actor,
         );
       });
     });
@@ -351,8 +348,7 @@ export class CycleControl {
     id: WorkCycleId,
     expectedVersion: number,
     guidance: string,
-    delegationCheck?: () => void,
-    onReviewReserved?: () => void,
+    actor?: RoadmapActor,
   ): Promise<WorkCycle> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
@@ -372,7 +368,7 @@ export class CycleControl {
     // Without a tree `treeMatches` refused above.
     if (!tree) throw new NotFoundError();
     const check = () => {
-      delegationCheck?.();
+      actor?.check();
       this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
       const current = this.storage.execution.cycles.find(workspaceId, id);
       if (current?.version !== expectedVersion || current.status !== cycle.status)
@@ -425,7 +421,7 @@ export class CycleControl {
             reason: 'Starting a fresh independent review with the existing reviewer assignment.',
           },
           'review-again',
-          { check: delegationCheck, attach: onReviewReserved },
+          actor,
         );
       });
     });
@@ -489,7 +485,7 @@ export class CycleControl {
    * stays with the operator. `check` is the roadmap's own authority check, repeated before the
    * review is reserved and again before it launches. Returns whether a review was started.
    */
-  async reviewForDeclaredChecks(cycle: WorkCycle, check: () => void): Promise<boolean> {
+  async reviewForDeclaredChecks(cycle: WorkCycle, actor: RoadmapActor): Promise<boolean> {
     const ws = cycle.workspaceId;
     const review = this.storage.execution.runs.find(ws, cycle.currentRunId);
     const head = review?.reviewBranchContext?.headSha;
@@ -501,13 +497,15 @@ export class CycleControl {
       live: this.storage.execution.runs.liveForWorktree(ws, cycle.worktreeId).length > 0,
     });
     if (decided.kind === 'none' || !review) return false;
-    check();
+    actor.check();
     const current = this.storage.execution.cycles.find(ws, cycle.id);
     if (current?.version !== cycle.version) return false;
     this.locks.declaredReviews.add(key);
     const reserved = this.writer.change(cycle, decided.changes);
     try {
-      await this.writer.next(reserved, 'review', review, undefined, {}, 'advance', { check });
+      await this.writer.next(reserved, 'review', review, undefined, {}, 'advance', {
+        check: actor.check,
+      });
     } catch (error) {
       const latest = this.storage.execution.cycles.find(ws, cycle.id);
       if (latest?.version === reserved.version && latest.status === 'running')

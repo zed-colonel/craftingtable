@@ -391,22 +391,24 @@ export class RoadmapAdmission {
               cycle.id,
               cycle.version,
               '',
-              check,
-              () => {
-                const current = this.writer.find(roadmap.workspaceId, roadmap.id);
-                this.writer.change(current, {
-                  attempts: current.attempts.map((a) =>
-                    a.id === attempt!.id
-                      ? {
-                          ...a,
-                          status: 'active',
-                          completedAt: undefined,
-                          dependencyRefresh: undefined,
-                          reverification: undefined,
-                        }
-                      : a,
-                  ),
-                });
+              {
+                check,
+                attach: () => {
+                  const current = this.writer.find(roadmap.workspaceId, roadmap.id);
+                  this.writer.change(current, {
+                    attempts: current.attempts.map((a) =>
+                      a.id === attempt!.id
+                        ? {
+                            ...a,
+                            status: 'active',
+                            completedAt: undefined,
+                            dependencyRefresh: undefined,
+                            reverification: undefined,
+                          }
+                        : a,
+                    ),
+                  });
+                },
               },
             );
             return MOVED;
@@ -447,7 +449,7 @@ export class RoadmapAdmission {
                 roadmap.workspaceId,
                 worktree.id,
                 worktree.version,
-                { check },
+                { actor: { check } },
               );
               return MOVED;
             }
@@ -573,7 +575,7 @@ export class RoadmapAdmission {
           ...(entry.executionScope ? { executionScope: entry.executionScope } : {}),
         },
         undefined,
-        { id: reserved.worktreeId, check },
+        { id: reserved.worktreeId, actor: { check } },
       );
     check();
     if (worktree.status !== 'active')
@@ -817,21 +819,23 @@ export class RoadmapAdmission {
               owner: ownerOf(roadmap, reserved),
               profiles: frozen.profiles,
               policy: frozen.policy,
-              check: () => {
-                check();
-                const blocker = this.selection.blocker(
-                  this.writer.find(ws, roadmap.id),
-                  owner,
-                  reserved,
-                  this.storage,
-                  true,
-                );
-                if (blocker) refuseBlocked(blocker, owner.id);
+              actor: {
+                check: () => {
+                  check();
+                  const blocker = this.selection.blocker(
+                    this.writer.find(ws, roadmap.id),
+                    owner,
+                    reserved,
+                    this.storage,
+                    true,
+                  );
+                  if (blocker) refuseBlocked(blocker, owner.id);
+                },
+                attach: () =>
+                  this.writer.updateRecovery(this.writer.find(ws, roadmap.id), reserved, {
+                    status: 'active',
+                  }),
               },
-              attach: () =>
-                this.writer.updateRecovery(this.writer.find(ws, roadmap.id), reserved, {
-                  status: 'active',
-                }),
             },
           )
           .catch((error: unknown) => {
@@ -936,17 +940,11 @@ export class RoadmapAdmission {
       };
       // The target review's own gates refuse its restart: they are the target's (review M-1).
       await (cycle.status === 'completed'
-        ? this.cycles.repeatScopeReview(context, ws, cycle.id, cycle.version, '', check, attach)
-        : this.cycles.control(
-            context,
-            ws,
-            cycle.id,
-            'resume',
-            cycle.version,
-            undefined,
+        ? this.cycles.repeatScopeReview(context, ws, cycle.id, cycle.version, '', { check, attach })
+        : this.cycles.control(context, ws, cycle.id, 'resume', cycle.version, undefined, {
             check,
             attach,
-          )
+          })
       ).catch((error: unknown) => {
         throw gated(error, target.id);
       });

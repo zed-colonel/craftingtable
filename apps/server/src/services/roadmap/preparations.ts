@@ -243,9 +243,9 @@ export class RoadmapPreparations {
           conflict('Decision preparation authority or binding changed. Start a fresh preparation.');
       };
       check();
-      await this.execution.createDecisionWorktree(context, p, check);
+      await this.execution.createDecisionWorktree(context, p, { check });
       check();
-      await this.agents.startDecisionPreparation(context, p, check);
+      await this.agents.startDecisionPreparation(context, p, { check });
     } catch (e) {
       if (reserved) {
         const current = this.writer.find(ws, roadmap.id);

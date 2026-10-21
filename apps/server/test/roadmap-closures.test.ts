@@ -118,12 +118,18 @@ function watch(
 }
 
 type Closure = (() => void) | undefined;
-/** The execution service's sites: the closure inside the call's last object argument. */
+/** The scheduler's `RoadmapActor` (R-B7), its `check` and `attach` wrapped. */
+type Actor = { check: Closure; attach?: Closure };
+const wrapActor = (actor: Actor, wrap: Wrap): Actor => ({
+  check: wrap.check(actor.check),
+  ...(actor.attach ? { attach: wrap.attach(actor.attach) } : {}),
+});
+/** The execution service's sites: the actor inside the call's last object argument. */
 const inOptions = (index: number) => (args: unknown[], wrap: Wrap) => {
-  const options = args[index] as { check?: Closure } | undefined;
-  if (!options?.check) return undefined;
+  const options = args[index] as { actor?: Actor } | undefined;
+  if (!options?.actor) return undefined;
   const next = [...args];
-  next[index] = { ...options, check: wrap.check(options.check) };
+  next[index] = { ...options, actor: wrapActor(options.actor, wrap) };
   return next;
 };
 
@@ -205,7 +211,7 @@ it('starts a delegated conflict resolution with its check, and merges every entr
     (args, wrap) => {
       if (!args[4]) return undefined;
       const next = [...args];
-      next[4] = wrap.check(args[4] as Closure);
+      next[4] = wrapActor(args[4] as Actor, wrap);
       return next;
     },
   );
@@ -239,11 +245,11 @@ it('starts a delegated conflict resolution with its check, and merges every entr
   ).toEqual(['system', 'system', 'system']);
 });
 
-/** The cycle service's sites: the closure at `index` among the call's arguments. */
+/** The cycle and run services' sites: the actor at `index` among the call's arguments. */
 const atArgument = (index: number) => (args: unknown[], wrap: Wrap) => {
   if (!args[index]) return undefined;
   const next = [...args];
-  next[index] = wrap.check(args[index] as Closure);
+  next[index] = wrapActor(args[index] as Actor, wrap);
   return next;
 };
 
@@ -405,14 +411,8 @@ it('prepares an operator’s decision with its check at the worktree and at the 
   });
 });
 
-/** `repeatScopeReview` and `control`'s closures: `check` at `index`, `attach` after it. */
-const checkThenAttach = (index: number) => (args: unknown[], wrap: Wrap) => {
-  if (!args[index] && !args[index + 1]) return undefined;
-  const next = [...args];
-  next[index] = wrap.check(args[index] as Closure);
-  next[index + 1] = wrap.attach(args[index + 1] as Closure);
-  return next;
-};
+/** `repeatScopeReview` and `control`'s actor, with its `check` and `attach`, at `index`. */
+const checkThenAttach = atArgument;
 
 itNeedsCargo(
   'records each verification’s receipt with its check, as the system, and the operator’s parent receipt as the user',
@@ -655,14 +655,10 @@ itNeedsCargo(
       services.workCycleService,
       'delegateScopeRepair',
       (args, wrap) => {
-        const delegation = args[4] as { check?: Closure; attach?: Closure } | undefined;
+        const delegation = args[4] as { actor: Actor } | undefined;
         if (!delegation) return undefined;
         const next = [...args];
-        next[4] = {
-          ...delegation,
-          check: wrap.check(delegation.check),
-          attach: wrap.attach(delegation.attach),
-        };
+        next[4] = { ...delegation, actor: wrapActor(delegation.actor, wrap) };
         return next;
       },
     );

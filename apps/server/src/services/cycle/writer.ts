@@ -4,6 +4,7 @@
  * checked against the state machine (`checkTransition`, R-B4).
  */
 
+import type { RoadmapActor } from '../roadmap-actor.js';
 import { finalizationAgent } from '../agent-profile-policy.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
@@ -473,7 +474,8 @@ export class CycleWriter {
     context?: CommandContext,
     changes: CycleFieldChanges = {},
     action = context === undefined ? 'advance' : 'resume',
-    reservation?: { check?: () => void; attach?: () => void },
+    /** The roadmap's actor, when the scheduler reserves this step (R-B7). */
+    actor?: RoadmapActor,
   ): Promise<WorkCycle> {
     const ended =
       parent &&
@@ -575,7 +577,7 @@ export class CycleWriter {
         (changes.attempt?.providerRecovery?.attempts ?? 0) > 0 ||
         (changes.attempt?.resultContinuations ?? 0) > 0 ||
         !!changes.attempt?.outputRepair);
-    reservation?.check?.();
+    actor?.check();
     return this.storage.transaction(() => {
       const result = this.change(
         cycle,
@@ -614,7 +616,7 @@ export class CycleWriter {
         action,
         context,
       );
-      reservation?.attach?.();
+      actor?.attach?.();
       return result;
     });
   }

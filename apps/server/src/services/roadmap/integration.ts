@@ -120,7 +120,7 @@ export class RoadmapIntegration {
             ...(automation.resolutionProfile ? { profile: automation.resolutionProfile } : {}),
           }),
         },
-        check,
+        { check },
       );
       return MOVED;
     }
@@ -193,7 +193,11 @@ export class RoadmapIntegration {
           attempt.worktreeId,
           {},
           undefined,
-          { roadmapId: roadmap.id, definitionRevision: attempt.definitionRevision, check },
+          {
+            roadmapId: roadmap.id,
+            definitionRevision: attempt.definitionRevision,
+            actor: { check },
+          },
         );
         this.state.targetMovedRefusals.delete(attempt.worktreeId);
         this.state.targetMovedNotBefore.delete(attempt.worktreeId);
@@ -216,7 +220,7 @@ export class RoadmapIntegration {
         if (
           error instanceof DeclaredChecksMissingError &&
           pending?.status !== 'reserved' &&
-          (await this.cycles.reviewForDeclaredChecks(cycle, check))
+          (await this.cycles.reviewForDeclaredChecks(cycle, { check }))
         )
           return MOVED;
         // The merge adopts changed check definitions: a person approves it (R-G13).

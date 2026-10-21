@@ -48,6 +48,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C16](#r-c16) | P2 | M | open (design approved 2026-10-01) | Investigate: dispatch a read-only investigation from any question stop (added 2026-10-01) |
 | [R-C17](#r-c17) | P4 | M (four S parts) | built and deployed on `remediation/p4` (parts 1 to 3 2026-10-17 at 62bf204, their follow-ups 2026-10-18 at 5f42f45, part 4 2026-10-19 at 26de44b; not merged; see entry) | Step time limits: hung checks, cut-off handoffs and the operator's controls |
 | [R-C18](#r-c18) | P4 | S-M (two parts) | open (found live 2026-10-17; placement for the operator) | A second project's roadmap in the same workspace: the stop it forces and the item it strands |
+| [R-C19](#r-c19) | P4 | S | open (found live 2026-10-21; placement for the operator) | A plan ready to finalize says so in Needs you (added 2026-10-21) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -3657,6 +3658,19 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   2. *More than one delegated roadmap per workspace,* when they share no repository. Roadmaps sharing a checkout are already held to the tightest per-repository limit among them. This relaxes the unique index and ADR-048's boundary, so it belongs with R-B5's per-aggregate mutex. The alternative keeps the rule: a stop stays the price, and part 1 makes it cheap.
 - **Done when:** after a roadmap is stopped with an item in flight, a new roadmap continues that item on its worktree with no manual step. If part 2 is chosen, a second project's roadmap starts without stopping the first.
 - **Priority.** Part 1 is S and removes the dead end. Part 2 is M and goes with R-B5. Neither blocks today: WorldInterface's next roadmap waits for ActionQueue 0.3.0, and WIP-07 can be finished by hand on its worktree.
+
+### R-C19
+
+**A plan ready to finalize says so in Needs you** · Phase P4 · Effort S · Status: open (found live 2026-10-21; recorded at the operator's request; placement for the operator)
+
+- **Found 2026-10-21.** ActionQueue's AQ-PERF-1 roadmap (25d2abb1) completed at 01:45:34 ("All roadmap entries are completed."), with all five items of plan version 4f6ef8f1 complete and their merge commits in `aq-perf-1`. The next step is that plan's finalization ([ADR-042](../../decisions/ADR-042-staged-plan-finalization.md)), which starts only from the plan version page's **Finalize integration** section (`FinalizationPanel`, under `PlanVersionRoute`; "Not started."). Nothing pointed there: Needs you lists stops, a completed roadmap is not one, and the roadmap's board and a plain roadmap's History do not mention finalization (only a map roadmap's History shows each project's readiness, `docs/roadmaps.md`, Finalization). The operator looked for it and did not find it.
+- **Change:** a Needs you item, one per plan version, when the plan is ready to finalize: every item completed (the completions, as `FinalizationService.start` reads them) with integration evidence recorded (the item's merge, or the branch settings' evidence), and no finalization of that version preparing, active or completed. It names the plan and links to the plan version page's Finalize integration section, and it is the operator's (`owner: 'operator'`), so configured notifications send it. It resolves when a finalization starts, the plan version is retired, or the operator dismisses it (for a plan finalized outside CraftingTable). The finished roadmap's board says the same in its status. The attention projector already keys items by subject family and marks them on record changes (`attention-projector.ts`; `finalization:<id>` today): the item's subject is the plan version, marked when a completion, a finalization or a retirement is recorded for it.
+- **Design notes, for the build:**
+  - `FinalizationService.start` also checks, in Git, that each item's evidence is an ancestor of the integration branch and that both branches exist. The projector reads storage only, so the item says "ready to finalize" from the records, and the start command's refusals stay as they are (an item whose evidence is not in the branch still refuses with its own text).
+  - Whether a dismissal lasts until the plan changes again (a new completion) or for good is a decision for the operator.
+  - A map roadmap's projects each get the item when their plan is ready, beside the History's readiness.
+- **Done when:** when the last item of a plan version completes, Needs you shows one item for it that opens the plan's Finalize integration section; it is gone once a finalization starts, and it never appears for a plan with an incomplete item or a finalization under way or done; a test per case and an e2e of the link.
+- **Priority:** small and not blocking: the finalization works once found. Take it beside R-C18 or the next work in the attention projector.
 
 ### R-D1
 

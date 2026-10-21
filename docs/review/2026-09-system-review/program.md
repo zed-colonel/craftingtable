@@ -1265,6 +1265,8 @@ question then open, whether Re-verify should take the in-place route at the reco
 
 **R-B7 scheduler half, increment 1 (2026-10-21).** The characterization is in (106 tests in six files, passing on the code before): the editable precondition's eight sites and two views, both Resumes on each condition (five rows marked to flip under decision 1 A), the slice requirement's two copies on one table (its unbound row marked for decision 3 A), every owner reader over 33 owner states, the scheduler's closures at their callees, and the merge's refusals ahead of its own checks. Odd behaviours found are recorded in R-B7's entry and kept.
 
+**Increments 2 and 3 (2026-10-21).** Increment 2 moved `crossProjectState` and the map's other pure functions into `map-state.ts` and the merge gate into `merge/gate.ts`, so the server has no import cycle (check:scope rule 10 lists none), and made the always-supplied dependencies of `RoadmapService` and `ExecutionService` required; the gate at a48ea92 is green and the replays unchanged. Increment 3 made one rule of each scheduler-side validator: the authority copies ask `authority-policy.ts`, the editable precondition is one rule in two steps with every site's refusal and every view's text kept, Resume is one rule (an item's Resume now leaves queued reviews, merged worktrees and reserved merges to the scheduler, decision 1 A), and the slice requirement is `sliceRequirementMet` (decision 3 A).
+
 Exit criteria:
 - `reconcile` is a thin shell.
 - Idle CPU is near zero.

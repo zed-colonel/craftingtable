@@ -32,7 +32,7 @@ import {
  * two copies of the resume rule read (CTRL-12). Each row pins which cycles the command asks to
  * resume (`WorkCycleService.control` with `resume`), the entry's hold after it, and the
  * command's answer. Rows whose answer changes under R-B7 decision 1 A (one resume rule for both)
- * say "flips under R-B7 decision 1 A" in their name, so the build flips exactly those.
+ * say "flipped by R-B7 decision 1 A" in their name, and say what they answered before.
  *
  * The rows write their condition into storage by hand on a real parallel roadmap: its first
  * entry's cycle reaches its merge, is paused, and then carries the condition. A review scope's
@@ -65,7 +65,6 @@ const NOT_CONVERGING =
   'Automatic recovery is not converging. Delegate source fixes with guidance to run a round yourself.';
 const ENDED =
   'This cycle has ended. For imported maps, use Planning amendments and reconciliation to review a replacement attempt.';
-const MERGE_RESERVED = 'Recover the pending merge before resuming or stopping this cycle.';
 
 type Fixture = Awaited<ReturnType<typeof pausedEntry>>;
 
@@ -448,23 +447,25 @@ describe("an item's Resume (controlEntry)", () => {
     });
   });
 
-  it('resumes an attempt carrying a queued dependency-refresh review (flips under R-B7 decision 1 A)', async () => {
+  it('leaves an attempt carrying a queued dependency-refresh review to the scheduler (flipped by R-B7 decision 1 A)', async () => {
     const f = await pausedEntry();
-    // Flips under R-B7 decision 1 A: the item's Resume leaves a queued review to the scheduler.
+    // R-B7 decision 1 A: the item's Resume leaves a queued review to the scheduler, as the
+    // roadmap's Resume does; before, it resumed the paused cycle.
     const outcome = await itemResume(f, () =>
       writeAttempt(f.state, f.attempt.id, dependencyRefresh(f)),
     );
     expect(outcome).toEqual({
       status: 200,
       message: undefined,
-      resumed: [f.cycle.id],
+      resumed: [],
       hold: undefined,
     });
   });
 
-  it('resumes an attempt carrying a queued re-verification (flips under R-B7 decision 1 A)', async () => {
+  it('leaves an attempt carrying a queued re-verification to the scheduler (flipped by R-B7 decision 1 A)', async () => {
     const f = await pausedEntry();
-    // Flips under R-B7 decision 1 A: the item's Resume leaves a queued review to the scheduler.
+    // R-B7 decision 1 A: the item's Resume leaves a queued review to the scheduler; before, it
+    // resumed the paused cycle.
     const outcome = await itemResume(f, () =>
       writeAttempt(f.state, f.attempt.id, {
         reverification: {
@@ -477,7 +478,7 @@ describe("an item's Resume (controlEntry)", () => {
     expect(outcome).toEqual({
       status: 200,
       message: undefined,
-      resumed: [f.cycle.id],
+      resumed: [],
       hold: undefined,
     });
   });
@@ -580,11 +581,11 @@ describe("an item's Resume (controlEntry)", () => {
     expect(outcome).toEqual({ status: 200, message: undefined, resumed: [], hold: undefined });
   });
 
-  it('answers 409 on a merged worktree, whose cycle refuses to resume, and keeps the hold (flips under R-B7 decision 1 A)', async () => {
+  it("releases the hold and leaves a merged worktree's cycle to the pass (flipped by R-B7 decision 1 A)", async () => {
     const f = await pausedEntry();
-    // Flips under R-B7 decision 1 A: the item's Resume releases the hold and leaves a merged
-    // worktree's cycle to the scheduler, which completes it (the pass completes such a cycle
-    // before an operator could resume it, so nothing changes in practice).
+    // R-B7 decision 1 A: the item's Resume releases the hold and leaves a merged worktree's
+    // cycle to the pass, which completes it; before, it asked the cycle to resume, which refused
+    // (409 "The active worktree or Git is unavailable"), and the hold stayed.
     const outcome = await itemResume(f, () =>
       f.state.context.storage.execution.worktrees.markMerged({
         workspaceId: f.state.workspaceId,
@@ -593,23 +594,20 @@ describe("an item's Resume (controlEntry)", () => {
         mergeSha: 'c'.repeat(40),
       }),
     );
-    expect(outcome).toEqual({
-      status: 409,
-      message: 'The active worktree or Git is unavailable',
-      resumed: [f.cycle.id],
-      hold: 'paused',
-    });
+    expect(outcome).toEqual({ status: 200, message: undefined, resumed: [], hold: undefined });
   });
 
-  it('answers 409 on a reserved merge and keeps the hold (flips under R-B7 decision 1 A)', async () => {
+  it('releases the hold and leaves a reserved merge to the scheduler (flipped by R-B7 decision 1 A)', async () => {
     const f = await pausedEntry();
-    // Flips under R-B7 decision 1 A: the item's Resume releases the hold and leaves the cycle and
-    // its reserved merge to the scheduler, as a roadmap's Resume does.
+    // R-B7 decision 1 A: the item's Resume releases the hold and leaves the cycle and its reserved
+    // merge to the scheduler, as a roadmap's Resume does; before, the cycle's resume refused
+    // (409 "Recover the pending merge before resuming or stopping this cycle.") and the hold
+    // stayed.
     expect(await itemResume(f, () => reserveMerge(f))).toEqual({
-      status: 409,
-      message: MERGE_RESERVED,
-      resumed: [f.cycle.id],
-      hold: 'paused',
+      status: 200,
+      message: undefined,
+      resumed: [],
+      hold: undefined,
     });
     expect(cycleOf(f.state, f.cycle.id).status).toBe('paused');
   });
@@ -624,7 +622,7 @@ describe("an item's Resume (controlEntry)", () => {
     expect(hold(f)?.status).toBe('paused');
   });
 
-  it('resumes the stale cycle of a paused item whose first review a dependency refresh queued (flips under R-B7 decision 1 A)', async () => {
+  it('leaves the queued review of a paused item a dependency refresh queued to the scheduler (flipped by R-B7 decision 1 A)', async () => {
     const f = await pausedEntry();
     expect((await itemControl(f, 'pause')).status).toBe(200);
     // What a reviewed dependency refresh writes (`queueRuntimeReviews`): the attempt carries the
@@ -643,11 +641,11 @@ describe("an item's Resume (controlEntry)", () => {
     expect(roadmapResumes()).toEqual([]);
     expect(hold(f)?.status).toBe('paused');
     vi.restoreAllMocks();
-    // Flips under R-B7 decision 1 A: the item's Resume leaves the queued review to the
-    // scheduler's `repeatScopeReview`, as the roadmap's Resume does.
+    // R-B7 decision 1 A: the item's Resume leaves the queued review to the scheduler's
+    // `repeatScopeReview`, as the roadmap's Resume does; before, it resumed the stale cycle.
     const resumed = watchResumes(f);
     expect(await itemControl(f, 'resume')).toEqual({ status: 200, message: undefined });
-    expect(resumed()).toEqual([f.cycle.id]);
+    expect(resumed()).toEqual([]);
     expect(hold(f)).toBeUndefined();
   });
 });

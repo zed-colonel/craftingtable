@@ -58,23 +58,44 @@ export function milestoneMet(
 ): boolean {
   if (r.kind === 'checkpoint')
     return !!acceptedEvidence(tx, ws, d.id, revision, { kind: 'checkpoint', sourceId: r.id });
-  const b = tx.imports.bindings(ws, d.id).find((b) => b.revision === revision);
-  const parent =
-    r.kind === 'work_item' ? r.id : d.source.slices.find((s) => s.id === r.id)?.work_item;
-  const id = b?.bindings.flatMap((b) => b.workItems).find((w) => w.sourceId === parent)?.workItemId;
+  if (r.kind === 'work_item')
+    return (
+      !!boundWorkItem(tx, ws, d, revision, r.id) && parentAccepted(tx, ws, d.id, revision, r.id)
+    );
+  return sliceRequirementMet(tx, ws, d, revision, r.id, r.state);
+}
+/**
+ * Whether a slice is started, merged or verified (R-B7, CTRL-14): the one rule the milestone and
+ * the scope's phase gate ask. A slice whose work item the binding does not bind is never met
+ * (operator decision 3 A; such a binding cannot reach a roadmap or a scope).
+ */
+export function sliceRequirementMet(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  d: ConcurrencyDefinition,
+  revision: number,
+  sliceId: string,
+  state: ConcurrencyRequirement['state'],
+): boolean {
+  const id = boundWorkItem(
+    tx,
+    ws,
+    d,
+    revision,
+    d.source.slices.find((s) => s.id === sliceId)?.work_item,
+  );
   if (!id) return false;
-  if (r.kind === 'work_item') return parentAccepted(tx, ws, d.id, revision, r.id);
   const scope = {
     kind: 'slice' as const,
     definitionId: d.id,
     bindingRevision: revision,
-    sourceId: r.id,
+    sourceId: sliceId,
   };
   const trees = tx.execution.worktrees
     .listForWorkItem(ws, id)
     .filter((t) => sameExecutionScope(t.executionScope, scope));
   const integrated = integratedSlice(tx, ws, id, scope);
-  if (r.state === 'started')
+  if (state === 'started')
     return (
       !!integrated ||
       tx.execution.runs.startedIn(
@@ -82,9 +103,9 @@ export function milestoneMet(
         trees.map((t) => t.id),
       )
     );
-  if (r.state === 'merged') return !!integrated?.mergeSha;
+  if (state === 'merged') return !!integrated?.mergeSha;
   return (
-    !!acceptedEvidence(tx, ws, d.id, revision, { kind: 'slice', sourceId: r.id }) ||
+    !!acceptedEvidence(tx, ws, d.id, revision, { kind: 'slice', sourceId: sliceId }) ||
     tx.scopeReceipts
       .list(ws, id)
       .some(
@@ -94,4 +115,15 @@ export function milestoneMet(
           integrated?.mergeSha === p.integrationSha,
       )
   );
+}
+/** The work item the binding's revision binds to a map work item, if any. */
+function boundWorkItem(
+  tx: StorageRepositories,
+  ws: WorkspaceId,
+  d: ConcurrencyDefinition,
+  revision: number,
+  sourceId: string | undefined,
+) {
+  const b = tx.imports.bindings(ws, d.id).find((b) => b.revision === revision);
+  return b?.bindings.flatMap((b) => b.workItems).find((w) => w.sourceId === sourceId)?.workItemId;
 }

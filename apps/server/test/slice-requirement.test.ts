@@ -22,7 +22,7 @@ import { cleanupExecutionFixtures, present, slicedFixture } from './execution-te
  * and agree on every row of a normal binding. The parent's required-slices check (a third copy
  * of `verified`, `required-slice-unmerged` and `-unverified`) is pinned on the same rows. The one
  * row where the copies differ, a binding revision that does not bind the slice's work item
- * (which the API cannot write), flips under R-B7 decision 3 A for the phase gate.
+ * (which the API cannot write), was flipped by R-B7 decision 3 A for the phase gate.
  *
  * The map is the local scope map with a second work item, `local/AQ-02`, whose slice
  * `local/AQ-02/a` must not start before `local/AQ-01/a` is started, merged and verified. Slice
@@ -416,16 +416,16 @@ describe('the slice requirement on a binding that does not bind the slice’s wo
     });
   });
 
-  it('counts accepted slice evidence as verified at the phase gate, not as the milestone (flips under R-B7 decision 3 A)', async () => {
+  it('answers not met in both copies with accepted slice evidence too (flipped by R-B7 decision 3 A)', async () => {
     const f = await fixture();
     const revision = unbound(f);
     evidence.accepted = true;
-    // Flips under R-B7 decision 3 A: one slice-requirement rule with the milestone's answer for
-    // a slice whose work item is not in the binding, so the phase gate's `verified` becomes
-    // false (a `slice-requirement` blocker), as `milestoneMet` already answers.
+    // R-B7 decision 3 A: one slice-requirement rule with the milestone's answer for a slice whose
+    // work item is not in the binding; before, the phase gate counted accepted slice evidence as
+    // verified there.
     expect(answers(f, revision)).toEqual({
       milestoneMet: met(false, false, false),
-      scopePhaseBlockers: met(false, false, true),
+      scopePhaseBlockers: met(false, false, false),
     });
   });
 });

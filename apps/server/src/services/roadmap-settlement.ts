@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { activeEditor } from './authority-policy.js';
 import {
   type AgentRunId,
   asAuditEventId,
@@ -437,13 +438,8 @@ export class RoadmapSettlement {
 
   /** Whoever asked for the wind-down, while they may still act on the roadmap. */
   private requester(record: RoadmapWindDown): CommandContext {
-    const user = this.storage.users.findById(record.requestedByUserId);
-    const access = user && this.storage.workspaces.findAuthorized(user.id, record.workspaceId);
-    if (
-      user?.status !== 'active' ||
-      !access ||
-      !['owner', 'editor'].includes(access.membership.role)
-    )
+    const user = activeEditor(this.storage, record.requestedByUserId, record.workspaceId);
+    if (!user)
       throw new ExecutionRequestError(
         'conflict',
         'The user who asked for this wind-down can no longer act on the roadmap. Ask again as an editor.',

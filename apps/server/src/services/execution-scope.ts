@@ -6,6 +6,7 @@ import {
 } from './architecture-decision-policy.js';
 import { operatorDecisions } from './operator-decisions.js';
 import { integratedSlice, amendmentHoldingScope } from './scope-lineage.js';
+import { sliceRequirementMet } from './milestone-policy.js';
 import { adoptedDecisions, mapAdopted, scopeReviewerRoles } from './map-adoption-policy.js';
 import {
   type AcceptanceCaseId,
@@ -203,7 +204,7 @@ function ownerFreePhaseBlockers(
     )
   )
     add('slice-not-started', 'dependency', 'Start this slice before merging it.');
-  if (phase === 'verify' && !latestSliceMerge(tx, workspaceId, workItemId, scope))
+  if (phase === 'verify' && !integratedSlice(tx, workspaceId, workItemId, scope))
     add('slice-not-merged', 'dependency', 'Merge this slice before starting fresh verification.');
   if (
     phase === 'verify' &&
@@ -302,41 +303,15 @@ function ownerFreePhaseBlockers(
       )
         add('parent-not-accepted', 'dependency', `Parent ${requirement.id} must be accepted.`);
     } else {
-      const sourceSlice = r.definition.source.slices.find((s) => s.id === requirement.id);
-      const bound = tx.imports
-        .bindings(workspaceId, scope.definitionId)
-        .find((b) => b.revision === scope.bindingRevision)
-        ?.bindings.flatMap((b) => b.workItems)
-        .find((w) => w.sourceId === sourceSlice?.work_item);
-      const target: ExecutionScope = { ...scope, kind: 'slice', sourceId: requirement.id };
-      const trees = bound
-        ? tx.execution.worktrees
-            .listForWorkItem(workspaceId, bound.workItemId)
-            .filter((t) => sameExecutionScope(t.executionScope, target))
-        : [];
-      const receipts = bound ? tx.scopeReceipts.list(workspaceId, bound.workItemId) : [];
-      const integrated = bound && integratedSlice(tx, workspaceId, bound.workItemId, target);
-      const satisfied =
-        requirement.state === 'started'
-          ? !!integrated ||
-            tx.execution.runs.startedIn(
-              workspaceId,
-              trees.map((t) => t.id),
-            )
-          : requirement.state === 'merged'
-            ? !!integrated?.mergeSha
-            : !!acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
-                kind: 'slice',
-                sourceId: requirement.id,
-              }) ||
-              receipts.some(
-                (p) =>
-                  currentScopeReceipt(tx, workspaceId, p) &&
-                  sameExecutionScope(p.scope, target) &&
-                  bound &&
-                  latestSliceMerge(tx, workspaceId, bound.workItemId, target)?.mergeSha ===
-                    p.integrationSha,
-              );
+      // The milestone's one rule (R-B7, CTRL-14; decision 3 A).
+      const satisfied = sliceRequirementMet(
+        tx,
+        workspaceId,
+        r.definition,
+        scope.bindingRevision,
+        requirement.id,
+        requirement.state,
+      );
       if (!satisfied)
         add(
           'slice-requirement',
@@ -367,24 +342,22 @@ function ownerFreePhaseBlockers(
   const resourcesAt = issues.length;
   if (!r.slice) {
     const trees = tx.execution.worktrees.listForWorkItem(workspaceId, workItemId);
-    const receipts = tx.scopeReceipts.list(workspaceId, workItemId);
     for (const sliceId of r.parent.required_slices) {
       const target = { ...scope, kind: 'slice' as const, sourceId: sliceId };
-      const merged = latestSliceMerge(tx, workspaceId, workItemId, target);
+      const merged = integratedSlice(tx, workspaceId, workItemId, target);
       if (!merged)
         add('required-slice-unmerged', 'evidence', `Required slice ${sliceId} has not merged.`, {
           sliceId: asSliceId(sliceId),
         });
+      // Merged here, so the rule's `verified` asks for evidence or a receipt at this merge.
       else if (
-        !acceptedEvidence(tx, workspaceId, scope.definitionId, scope.bindingRevision, {
-          kind: 'slice',
-          sourceId: sliceId,
-        }) &&
-        !receipts.some(
-          (p) =>
-            currentScopeReceipt(tx, workspaceId, p) &&
-            sameExecutionScope(p.scope, target) &&
-            p.integrationSha === merged.mergeSha,
+        !sliceRequirementMet(
+          tx,
+          workspaceId,
+          r.definition,
+          scope.bindingRevision,
+          sliceId,
+          'verified',
         )
       )
         add(
@@ -585,7 +558,7 @@ export function scopeChoices(
         sourceId: node.id,
       };
       const owned = trees.filter((t) => sameExecutionScope(t.executionScope, scope));
-      const merged = latestSliceMerge(tx, workspaceId, workItemId, scope);
+      const merged = integratedSlice(tx, workspaceId, workItemId, scope);
       // The slice's current verification receipt, and the follow-ups it kept (R-C7 D7).
       const verification =
         scope.kind === 'slice'
@@ -748,14 +721,6 @@ function rBindingRepository(
   return bindings.find((b) => b.workItems.some((w) => w.workItemId === itemId))?.repositoryId;
 }
 
-export function latestSliceMerge(
-  tx: StorageRepositories,
-  workspaceId: WorkspaceId,
-  workItemId: WorkItemId,
-  scope: ExecutionScope,
-) {
-  return integratedSlice(tx, workspaceId, workItemId, scope);
-}
 /** Capabilities required anywhere in this scope's lifecycle, independently of dynamic gates. */
 export function unsupportedScopeCapabilities(r: ResolvedScope, tx?: StorageRepositories): string[] {
   const issues: string[] = [];

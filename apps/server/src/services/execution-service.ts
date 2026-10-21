@@ -60,7 +60,6 @@ import {
   NotFoundError,
 } from './errors.js';
 import {
-  latestSliceMerge,
   requireScope,
   requireScopeOwnership,
   requireTreeScope,
@@ -76,6 +75,7 @@ import { MERGE_GATE_MESSAGES, type MergeGate, mergeGateFor } from './merge/gate.
 import { needsNativeVerification } from './native-verification-policy.js';
 import { PhaseGateError, resourceBlockers, withPhaseReservation } from './phase-resources.js';
 import { latestReviewReport } from './run-lineage.js';
+import { integratedSlice } from './scope-lineage.js';
 import { acceptedEvidence } from './runtime-evidence-policy.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import type { WorkItemService } from './work-item-service.js';
@@ -928,7 +928,7 @@ export class ExecutionService {
                 'Acceptance and verification reviews must inspect the unchanged current integration snapshot.',
               );
             if (!parent) {
-              const merged = latestSliceMerge(this.storage, workspaceId, workItemId, scope);
+              const merged = integratedSlice(this.storage, workspaceId, workItemId, scope);
               if (!merged?.mergeSha)
                 throw new ExecutionRequestError('conflict', 'The slice has not merged.');
               const ancestor = await git.isAncestor(repo.rootPath, merged.mergeSha, head.value);
@@ -942,7 +942,7 @@ export class ExecutionService {
           }
           if (parent) {
             for (const sourceId of resolved.parent.required_slices) {
-              const merged = latestSliceMerge(this.storage, workspaceId, workItemId, {
+              const merged = integratedSlice(this.storage, workspaceId, workItemId, {
                 ...scope,
                 kind: 'slice',
                 sourceId,

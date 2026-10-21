@@ -33,6 +33,7 @@ import {
   effectiveDelegation,
 } from './roadmap-delegation-policy.js';
 import { randomUUID } from 'node:crypto';
+import { activeEditor, activeUser } from './authority-policy.js';
 import type {
   PrepareRoadmapDecision,
   ApplyRoadmapAgents,
@@ -83,7 +84,6 @@ import {
   operatorOwnsAll,
   resumeRedirect,
   sameExecutionScope,
-  type UserId,
   type WorkCycle,
   type WorkspaceId,
   type Worktree,
@@ -664,6 +664,7 @@ export class RoadmapService {
   ): RoadmapAgentSettings {
     this.workspaces.requireAuthorized(context, workspaceId);
     const r = this.find(workspaceId, id);
+    const held = this.settingsHeld(workspaceId, r);
     const cp = r.definition.crossProject;
     const binding =
       cp &&
@@ -675,13 +676,13 @@ export class RoadmapService {
       name: r.definition.name,
       version: r.version,
       status: r.status,
-      editBlocker: this.controlling.has(r.id)
+      editBlocker: held.running
         ? 'A roadmap command is in progress.'
-        : ended(r)
+        : held.ended
           ? 'This roadmap has ended. Its agents can no longer change.'
-          : this.storage.windDowns.find(workspaceId, r.id)?.status === 'settling'
+          : held.settling
             ? 'This roadmap is being stopped.'
-            : this.storage.amendments.pending(workspaceId, r.id)
+            : held.amendment
               ? 'Decide the pending planning amendment first.'
               : null,
       entries: r.definition.entries.map((e) => {
@@ -720,13 +721,18 @@ export class RoadmapService {
   ): RoadmapAgentSettings {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const old = this.find(workspaceId, id);
-    this.assertSettingsOpen(workspaceId, old);
-    if (this.settingsStale(old, input, 'grant') || this.controlling.has(id))
-      conflict(
-        'Roadmap changed. Refresh agent settings and review the current selection before applying.',
-      );
-    if (this.storage.amendments.pending(workspaceId, id))
-      conflict('Decide the pending planning amendment first.');
+    this.requireSettingsOpen(
+      workspaceId,
+      old,
+      input,
+      'grant',
+      'Roadmap changed. Refresh agent settings and review the current selection before applying.',
+    );
+    this.requireNoPendingAmendment(
+      workspaceId,
+      old,
+      'Decide the pending planning amendment first.',
+    );
     if (
       new Set(input.entryIds).size !== input.entryIds.length ||
       input.entryIds.some((id) => !old.definition.entries.some((e) => e.id === id))
@@ -772,8 +778,11 @@ export class RoadmapService {
     const old = this.find(workspaceId, id);
     if (this.controlling.has(id))
       conflict('A roadmap command is running. Change this cycle’s agents once it ends.');
-    if (this.storage.amendments.pending(workspaceId, id))
-      conflict('Decide the pending planning amendment first.');
+    this.requireNoPendingAmendment(
+      workspaceId,
+      old,
+      'Decide the pending planning amendment first.',
+    );
     if (!old.definition.entries.some((entry) => entry.id === entryId))
       conflict('This cycle’s roadmap entry is no longer in its roadmap.');
     const assignment = {
@@ -1164,14 +1173,24 @@ export class RoadmapService {
   private readonly targetMovedNotBefore = new Map<string, number>();
   /** Whoever granted standing preparation, while they may still prepare decisions. */
   private grantor(roadmap: Roadmap) {
-    return this.activeEditor(roadmap, roadmap.decisionPreparationGrant?.grantedByUserId);
+    return activeEditor(
+      this.storage,
+      roadmap.decisionPreparationGrant?.grantedByUserId,
+      roadmap.workspaceId,
+    );
   }
-  /** A user who is active and still an owner or editor of the roadmap's workspace. */
-  private activeEditor(roadmap: Roadmap, id: UserId | undefined) {
-    const user = id && this.storage.users.findById(id);
-    if (user?.status !== 'active') return undefined;
-    const access = this.storage.workspaces.findAuthorized(user.id, roadmap.workspaceId);
-    return access && ['owner', 'editor'].includes(access.membership.role) ? user : undefined;
+  /**
+   * What holds a roadmap's settings (R-B7, CTRL-14; decision 2 A): it ended, its wind-down
+   * settles, a roadmap command holds it, or a planning amendment is pending. The commands refuse
+   * on these and the views explain them, each site in its own order and words.
+   */
+  private settingsHeld(workspaceId: WorkspaceId, roadmap: Roadmap) {
+    return {
+      ended: ended(roadmap),
+      settling: this.storage.windDowns.find(workspaceId, roadmap.id)?.status === 'settling',
+      running: this.controlling.has(roadmap.id),
+      amendment: !!this.storage.amendments.pending(workspaceId, roadmap.id),
+    };
   }
   /**
    * A settings command writes at any status but ended, and not while the roadmap's wind-down
@@ -1179,9 +1198,31 @@ export class RoadmapService {
    * or use, and nothing launched is reconfigured.
    */
   private assertSettingsOpen(workspaceId: WorkspaceId, roadmap: Roadmap): void {
-    if (ended(roadmap)) conflict('This roadmap has ended. Ended roadmaps retain their history.');
-    if (this.storage.windDowns.find(workspaceId, roadmap.id)?.status === 'settling')
-      windDownRefused('wind-down-in-progress', 'This roadmap is being stopped.');
+    const held = this.settingsHeld(workspaceId, roadmap);
+    if (held.ended) conflict('This roadmap has ended. Ended roadmaps retain their history.');
+    if (held.settling) windDownRefused('wind-down-in-progress', 'This roadmap is being stopped.');
+  }
+  /**
+   * The editable precondition's first step (R-B7, CTRL-14): open (`assertSettingsOpen`), then
+   * neither a stale form nor a roadmap command holding it, refused with the site's own text.
+   */
+  private requireSettingsOpen(
+    workspaceId: WorkspaceId,
+    roadmap: Roadmap,
+    form: { readonly expectedVersion: number; readonly expectedRevision?: number | undefined },
+    writes: 'grant' | 'definition',
+    changed: string,
+  ): void {
+    this.assertSettingsOpen(workspaceId, roadmap);
+    if (
+      this.settingsStale(roadmap, form, writes) ||
+      this.settingsHeld(workspaceId, roadmap).running
+    )
+      conflict(changed);
+  }
+  /** Its second step: no pending planning amendment, refused with the site's own text. */
+  private requireNoPendingAmendment(workspaceId: WorkspaceId, roadmap: Roadmap, message: string) {
+    if (this.settingsHeld(workspaceId, roadmap).amendment) conflict(message);
   }
   /**
    * Whether the operator's form is out of date (R-B6, decision 10). A stopped roadmap is held to
@@ -1209,11 +1250,18 @@ export class RoadmapService {
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const old = this.find(workspaceId, id);
-    this.assertSettingsOpen(workspaceId, old);
-    if (this.settingsStale(old, input, 'grant') || this.controlling.has(id))
-      conflict('Roadmap changed. Refresh before applying delegation.');
-    if (this.storage.amendments.pending(workspaceId, id))
-      conflict('Decide the pending planning amendment first.');
+    this.requireSettingsOpen(
+      workspaceId,
+      old,
+      input,
+      'grant',
+      'Roadmap changed. Refresh before applying delegation.',
+    );
+    this.requireNoPendingAmendment(
+      workspaceId,
+      old,
+      'Decide the pending planning amendment first.',
+    );
     if (
       new Set(input.entryIds).size !== input.entryIds.length ||
       input.entryIds.some((id) => !old.definition.entries.some((e) => e.id === id))
@@ -1290,7 +1338,8 @@ export class RoadmapService {
       roadmaps: this.storage.roadmaps
         .list(workspaceId)
         .filter((r) => !ended(r))
-        .map((r) => ({
+        .map((r) => [r, this.settingsHeld(workspaceId, r)] as const)
+        .map(([r, held]) => ({
           id: r.id,
           version: r.version,
           name: r.definition.name,
@@ -1298,11 +1347,11 @@ export class RoadmapService {
           crossProject: !!r.definition.crossProject,
           revision: r.definition.revision,
           scheduling: r.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING,
-          editBlocker: this.controlling.has(r.id)
+          editBlocker: held.running
             ? 'A roadmap command is in progress.'
-            : this.storage.windDowns.find(workspaceId, r.id)?.status === 'settling'
+            : held.settling
               ? 'This roadmap is being stopped.'
-              : this.storage.amendments.pending(workspaceId, r.id)
+              : held.amendment
                 ? 'Decide the pending planning amendment first.'
                 : (r.definition.scheduling?.mode ?? 'sequential') !== 'parallel'
                   ? 'This roadmap is sequential: one item at a time. Change scheduling mode on the roadmap before configuring parallel limits.'
@@ -1326,11 +1375,18 @@ export class RoadmapService {
   ): RoadmapCapacities {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const old = this.find(workspaceId, id);
-    this.assertSettingsOpen(workspaceId, old);
-    if (this.controlling.has(id) || this.settingsStale(old, input, 'definition'))
-      conflict('Roadmap changed; refresh before saving capacity.');
-    if (this.storage.amendments.pending(workspaceId, id))
-      conflict('Decide the pending planning amendment first.');
+    this.requireSettingsOpen(
+      workspaceId,
+      old,
+      input,
+      'definition',
+      'Roadmap changed; refresh before saving capacity.',
+    );
+    this.requireNoPendingAmendment(
+      workspaceId,
+      old,
+      'Decide the pending planning amendment first.',
+    );
     const scheduling = old.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
     if (scheduling.mode !== 'parallel')
       conflict(
@@ -1810,13 +1866,16 @@ export class RoadmapService {
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const roadmap = this.find(workspaceId, id);
-    this.assertSettingsOpen(workspaceId, roadmap);
-    if (this.controlling.has(id) || this.settingsStale(roadmap, input, 'grant'))
-      conflict('Roadmap changed; refresh before changing recovery delegation.');
+    this.requireSettingsOpen(
+      workspaceId,
+      roadmap,
+      input,
+      'grant',
+      'Roadmap changed; refresh before changing recovery delegation.',
+    );
     if (!roadmap.definition.crossProject)
       conflict('Recovery delegation is set on a cross-project roadmap.');
-    if (this.storage.amendments.pending(workspaceId, id))
-      conflict('Decide the pending amendment first.');
+    this.requireNoPendingAmendment(workspaceId, roadmap, 'Decide the pending amendment first.');
     return this.view(
       this.change(
         roadmap,
@@ -1846,13 +1905,16 @@ export class RoadmapService {
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const roadmap = this.find(workspaceId, id);
-    this.assertSettingsOpen(workspaceId, roadmap);
-    if (this.controlling.has(id) || this.settingsStale(roadmap, input, 'grant'))
-      conflict('Roadmap changed; refresh before changing automatic re-verification.');
+    this.requireSettingsOpen(
+      workspaceId,
+      roadmap,
+      input,
+      'grant',
+      'Roadmap changed; refresh before changing automatic re-verification.',
+    );
     if (!roadmap.definition.crossProject)
       conflict('Automatic re-verification is set on a cross-project roadmap.');
-    if (this.storage.amendments.pending(workspaceId, id))
-      conflict('Decide the pending amendment first.');
+    this.requireNoPendingAmendment(workspaceId, roadmap, 'Decide the pending amendment first.');
     return this.view(
       this.change(
         roadmap,
@@ -1877,13 +1939,16 @@ export class RoadmapService {
   ): RoadmapView {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     const roadmap = this.find(workspaceId, id);
-    this.assertSettingsOpen(workspaceId, roadmap);
-    if (this.controlling.has(id) || this.settingsStale(roadmap, input, 'grant'))
-      conflict('Roadmap changed; refresh before changing decision preparation.');
+    this.requireSettingsOpen(
+      workspaceId,
+      roadmap,
+      input,
+      'grant',
+      'Roadmap changed; refresh before changing decision preparation.',
+    );
     if (!roadmap.definition.crossProject)
       conflict('Decision preparation is set on a cross-project roadmap.');
-    if (this.storage.amendments.pending(workspaceId, id))
-      conflict('Decide the pending amendment first.');
+    this.requireNoPendingAmendment(workspaceId, roadmap, 'Decide the pending amendment first.');
     return this.view(
       this.change(
         roadmap,
@@ -1948,8 +2013,12 @@ export class RoadmapService {
     this.workspaces.requireRole(context, workspaceId, ['owner', 'editor']);
     if (this.controlling.has(id)) conflict('A roadmap command is in progress.');
     const old = this.storage.roadmaps.find(workspaceId, id);
-    if (old && this.storage.amendments.pending(workspaceId, id) && !amendment)
-      conflict('Decide the pending planning amendment before editing settings.');
+    if (old && !amendment)
+      this.requireNoPendingAmendment(
+        workspaceId,
+        old,
+        'Decide the pending planning amendment before editing settings.',
+      );
     // A display name is refused when it is entered; one this roadmap already saved is not (R-G15).
     const slots = (
       entries: readonly { id: string; profiles: Readonly<Record<string, AgentSelection>> }[],
@@ -1962,9 +2031,16 @@ export class RoadmapService {
     this.cycles.requireModelIds(slots(input.entries), slots(old?.definition.entries ?? []));
     if (old?.definition.crossProject && !crossProject)
       conflict('Use the imported map supervisor to edit this roadmap.');
-    if (old) this.assertSettingsOpen(workspaceId, old);
-    if (old ? this.settingsStale(old, input, 'definition') : input.expectedVersion !== 0)
-      conflict('Roadmap changed; refresh before saving.');
+    // Its command-running check came first, and nothing between awaits, so it holds here too.
+    if (old)
+      this.requireSettingsOpen(
+        workspaceId,
+        old,
+        input,
+        'definition',
+        'Roadmap changed; refresh before saving.',
+      );
+    else if (input.expectedVersion !== 0) conflict('Roadmap changed; refresh before saving.');
     const lastStarted =
       old?.definition.entries.findLastIndex((e) =>
         startedAttempts(old).some(
@@ -2199,38 +2275,16 @@ export class RoadmapService {
         );
       }
       for (const attempt of resumeAttempts) {
-        if (attempt.dependencyRefresh || attempt.reverification) continue;
+        // An item the operator paused stays paused until its own Resume.
         if (roadmap.entryHolds?.[attempt.entryId]?.status === 'paused') continue;
         const cycle = this.storage.execution.cycles.find(workspaceId, attempt.cycleId);
-        // Recovery, not another review of unchanged source, owns these stopped checkpoints.
-        if (
-          cycle?.executionScope &&
-          cycle.executionScope.kind !== 'slice' &&
-          ((roadmap.scopeRecovery?.enabled && cycle.status === 'needs-attention') ||
-            !!this.roundFor(
-              roadmap,
-              roadmap.definition.entries.find((e) => e.id === attempt.entryId)!,
-            ))
-        )
-          continue;
-        if (
-          cycle &&
-          ['paused', 'needs-attention'].includes(cycle.status) &&
-          this.resumable(cycle)
-        ) {
-          const worktree = this.storage.execution.worktrees.find(workspaceId, cycle.worktreeId);
-          if (
-            !worktree?.mergedAt &&
-            this.storage.execution.merges.latest(workspaceId, cycle.worktreeId)?.status !==
-              'reserved'
-          ) {
-            try {
-              await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
-            } catch (error) {
-              if (roadmap.definition.scheduling?.mode !== 'parallel') throw error;
-              // The item keeps its attention state; independent siblings may resume.
-            }
-          }
+        const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId)!;
+        if (!this.resumesCycle(roadmap, entry, attempt, cycle)) continue;
+        try {
+          await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
+        } catch (error) {
+          if (roadmap.definition.scheduling?.mode !== 'parallel') throw error;
+          // The item keeps its attention state; independent siblings may resume.
         }
       }
       roadmap = this.change(
@@ -2338,6 +2392,36 @@ export class RoadmapService {
   }
 
   /**
+   * Whether a Resume resumes this attempt's stopped cycle: one rule for the roadmap's Resume and
+   * an item's (R-B7, CTRL-12; decision 1 A). Not a queued review (the scheduler runs it), not a
+   * stop recovery owns (a repair round, not another review of unchanged source, answers it), not
+   * a stop `resumable` keeps, and not a cycle whose worktree merged or whose merge is reserved
+   * (the scheduler, or the operator's merge recovery, finishes those).
+   */
+  private resumesCycle(
+    roadmap: Roadmap,
+    entry: RoadmapEntry,
+    attempt: RoadmapAttempt,
+    cycle: WorkCycle | undefined,
+  ): cycle is WorkCycle {
+    if (attempt.dependencyRefresh || attempt.reverification || !cycle) return false;
+    if (
+      cycle.executionScope &&
+      cycle.executionScope.kind !== 'slice' &&
+      ((roadmap.scopeRecovery?.enabled && cycle.status === 'needs-attention') ||
+        !!this.roundFor(roadmap, entry))
+    )
+      return false;
+    if (!['paused', 'needs-attention'].includes(cycle.status) || !this.resumable(cycle))
+      return false;
+    const worktree = this.storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
+    return (
+      !worktree?.mergedAt &&
+      this.storage.execution.merges.latest(cycle.workspaceId, cycle.worktreeId)?.status !==
+        'reserved'
+    );
+  }
+  /**
    * A stop that a plain resume would only reproduce keeps its attention when the roadmap
    * or its item resumes; the operator resolves it with the control it names (R-A7).
    */
@@ -2437,17 +2521,7 @@ export class RoadmapService {
           conflict(
             'This cycle has ended. For imported maps, use Planning amendments and reconciliation to review a replacement attempt.',
           );
-        if (
-          cycle &&
-          ['paused', 'needs-attention'].includes(cycle.status) &&
-          this.resumable(cycle) &&
-          !(
-            cycle.executionScope &&
-            cycle.executionScope.kind !== 'slice' &&
-            ((roadmap.scopeRecovery?.enabled && cycle.status === 'needs-attention') ||
-              !!this.roundFor(roadmap, entry))
-          )
-        )
+        if (attempt && this.resumesCycle(roadmap, entry, attempt, cycle))
           await this.cycles.control(context, workspaceId, cycle.id, 'resume', cycle.version);
         if (repairCycle?.status === 'paused' && !investigationHolds(repairCycle))
           await this.cycles.control(
@@ -2935,12 +3009,11 @@ export class RoadmapService {
     this.controlling.delete(id);
     this.kernel.mark('release', [id]);
   }
+  /** The delegating user, while active and an owner or editor (R-B7: the one authority rule). */
   private authority(roadmap: Roadmap): CommandContext {
-    const user =
-      roadmap.delegatedByUserId && this.storage.users.findById(roadmap.delegatedByUserId);
-    if (user?.status !== 'active') conflict('The initiating user is no longer active.');
-    const access = this.storage.workspaces.findAuthorized(user.id, roadmap.workspaceId);
-    if (!access || !['owner', 'editor'].includes(access.membership.role))
+    const user = activeUser(this.storage, roadmap.delegatedByUserId);
+    if (!user) conflict('The initiating user is no longer active.');
+    if (!activeEditor(this.storage, user.id, roadmap.workspaceId))
       conflict('The initiating user no longer has permission to run this roadmap.');
     return { user };
   }
@@ -3714,7 +3787,8 @@ export class RoadmapService {
     const verdict = selfReverification({
       // The review names its grantor as requester, so they must still be able to request it,
       // as a standing preparation's grantor must (R-C3b).
-      granted: grant.enabled && !!this.activeEditor(roadmap, grant.grantedByUserId),
+      granted:
+        grant.enabled && !!activeEditor(this.storage, grant.grantedByUserId, roadmap.workspaceId),
       inPlace: !!inPlace,
       // The roadmap verifies the entry itself: a slice verification, or a parent acceptance
       // under automatic acceptance.

@@ -319,6 +319,14 @@ describe('the slice requirement, both copies', () => {
       parent: ['required-slice-unverified'],
     },
     {
+      // A merge counts as started without a started run (an operator merged the tree by hand):
+      // the R-B7 scheduler half's mutation round found no row that held it.
+      name: 'an integrated merge with no started run',
+      facts: (f) => integrate(f, sliceTree(f)),
+      expected: met(true, true, false),
+      parent: ['required-slice-unverified'],
+    },
+    {
       name: 'accepted slice evidence, and nothing else',
       facts: () => {
         evidence.accepted = true;

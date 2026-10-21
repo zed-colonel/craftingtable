@@ -26,7 +26,7 @@ import {
 import { RepositoryMutationBusyError } from '../src/services/branch-service.js';
 import { ConcurrentModificationError } from '../src/services/errors.js';
 import { WorktreeMutationBusyError } from '../src/services/worktree-mutation-guard.js';
-import { milestoneSatisfied } from '../src/services/cross-project-service.js';
+import { milestoneSatisfied } from '../src/services/milestone-policy.js';
 
 /**
  * R-C3b: shared architecture decisions are prepared ahead of the slices that need them, while

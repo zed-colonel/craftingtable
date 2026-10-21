@@ -22,9 +22,8 @@ import {
  */
 
 const mapEvaluations = vi.hoisted(() => ({ count: 0 }));
-vi.mock('../src/services/cross-project-service.js', async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import('../src/services/cross-project-service.js')>();
+vi.mock('../src/services/map-state.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/services/map-state.js')>();
   return {
     ...original,
     crossProjectState: (...args: Parameters<typeof original.crossProjectState>) => {

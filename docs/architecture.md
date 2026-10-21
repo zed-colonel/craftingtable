@@ -30,8 +30,7 @@ to in one table (`V03_VOCABULARY`, `packages/domain/src/map-capabilities.ts`), a
 `contracts` and `storage` export only what another module imports, resolved through the compiler
 to the declaration (a short map names the types declaration emit needs). It also holds that
 the daemon's modules import one another without cycles, type-only imports included: what two
-services share goes into a module neither imports back (R-B7; `KNOWN_IMPORT_CYCLES` lists the one
-pair its scheduler half removes). And it holds that the cycle's decision core
+services share goes into a module neither imports back (R-B7). And it holds that the cycle's decision core
 (`apps/server/src/services/cycle/core/`) reaches, by value imports, no service and no file or
 process access: the core decides and the services act (R-B7). Only the replay tool and the
 workstation module import the replays' host pin (`apps/server/src/services/replay-host.ts`), so

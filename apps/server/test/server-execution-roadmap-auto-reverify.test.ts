@@ -6,7 +6,7 @@ import {
   type UserId,
 } from '@craftingtable/domain';
 import { afterEach, expect, it, vi } from 'vitest';
-import { evidenceChangedAt, evidenceStaleness } from '../src/services/cross-project-service.js';
+import { evidenceChangedAt, evidenceStaleness } from '../src/services/map-state.js';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,

@@ -1,7 +1,7 @@
 import {
   type CheckDeclarationProposal,
-  type MergeAdoption,
   definitionChangeReason,
+  type MergeAdoption,
   proposalDigest,
   type RepositoryChecksService,
 } from './repository-checks-service.js';
@@ -22,7 +22,6 @@ import { existsSync, realpathSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import {
   type AgentRun,
-  type AgentRunId,
   asAgentRunId,
   asAuditEventId,
   asEventId,
@@ -35,8 +34,6 @@ import {
   executionScopeKey,
   type FinalizationId,
   heldStop,
-  isInvestigationRun,
-  isTerminalAgentRunStatus,
   type MergeOperation,
   mergeAdoptsChecks,
   type RepositoryCheckDeclaration,
@@ -75,6 +72,7 @@ import {
 import { stagedPromotionIssue } from './finalization-stage-policy.js';
 import { scopeReviewerRoles } from './map-adoption-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
+import { MERGE_GATE_MESSAGES, type MergeGate, mergeGateFor } from './merge/gate.js';
 import { needsNativeVerification } from './native-verification-policy.js';
 import { PhaseGateError, resourceBlockers, withPhaseReservation } from './phase-resources.js';
 import { latestReviewReport } from './run-lineage.js';
@@ -84,79 +82,7 @@ import type { WorkItemService } from './work-item-service.js';
 import { securityReviewCurrent } from './workflow-policy.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkspaceService } from './workspace-service.js';
-import { WorktreeMutationGuard } from './worktree-mutation-guard.js';
-
-export type MergeGateReason =
-  | 'ready'
-  | 'no-review'
-  | 'changes-requested'
-  | 'automation-active'
-  | 'review-pending'
-  | 'superseded-by-later-run'
-  | 'run-live'
-  | 'worktree-removed'
-  | 'branch-review-required'
-  | 'merge-recovery-required'
-  | 'scope-blocked'
-  | 'scope-review-only'
-  /** Mergeable by a person who approves the check definitions it adopts (R-G13). */
-  | 'check-adoption';
-
-export interface MergeGate {
-  readonly mergeable: boolean;
-  readonly reason: MergeGateReason;
-  readonly reviewRunId?: AgentRunId;
-  /** On an open gate: the primary checkout's branch (R-G10 D3); from Git, never stored. */
-  readonly checkedOutBranch?: string;
-}
-
-/**
- * The pull-request rule: a worktree may be merged when its most recent run is
- * a review that returned `mergeable` and nothing is live in it. Any later run
- * of any role supersedes the review, because it may have changed the branch.
- */
-export function mergeGateFor(worktree: Worktree, runs: readonly AgentRun[]): MergeGate {
-  if (worktree.status !== 'active') {
-    return { mergeable: false, reason: 'worktree-removed' };
-  }
-  const all = runs
-    .filter((run) => run.worktreeId === worktree.id)
-    .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt));
-  // A live investigation holds the worktree; a finished one changed nothing (R-C16).
-  if (all.some((run) => !isTerminalAgentRunStatus(run.status))) {
-    const live = all.find((run) => !isTerminalAgentRunStatus(run.status));
-    return live?.role === 'review' && live.verdict === undefined
-      ? { mergeable: false, reason: 'review-pending', reviewRunId: live.id }
-      : { mergeable: false, reason: 'run-live' };
-  }
-  const forWorktree = all.filter((run) => !isInvestigationRun(run));
-  const latest = forWorktree[0];
-  const latestReview = forWorktree.find((run) => run.role === 'review');
-  if (latestReview === undefined) {
-    return { mergeable: false, reason: 'no-review' };
-  }
-  if (latest !== undefined && latest.id !== latestReview.id) {
-    return { mergeable: false, reason: 'superseded-by-later-run', reviewRunId: latestReview.id };
-  }
-  if (latestReview.status !== 'finished') {
-    return { mergeable: false, reason: 'review-pending', reviewRunId: latestReview.id };
-  }
-  if (
-    worktree.integrationBranch === undefined ||
-    latestReview.reviewBranchContext?.worktreeVersion !== worktree.version ||
-    latestReview.reviewBranchContext.targetBranch !== worktree.integrationBranch
-  ) {
-    return { mergeable: false, reason: 'branch-review-required', reviewRunId: latestReview.id };
-  }
-  if (latestReview.verdict === 'mergeable') {
-    return { mergeable: true, reason: 'ready', reviewRunId: latestReview.id };
-  }
-  return {
-    mergeable: false,
-    reason: latestReview.verdict === 'changes-requested' ? 'changes-requested' : 'review-pending',
-    reviewRunId: latestReview.id,
-  };
-}
+import type { WorktreeMutationGuard } from './worktree-mutation-guard.js';
 
 const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
 
@@ -180,23 +106,6 @@ function slug(value: string, maximum = 40): string {
     .toLowerCase();
   return (cleaned.length === 0 ? 'item' : cleaned).slice(0, maximum).replace(/-+$/g, '');
 }
-
-const MERGE_GATE_MESSAGES: Readonly<Record<MergeGateReason, string>> = {
-  'merge-recovery-required': 'Recover the reserved integration merge before continuing',
-  'scope-blocked': 'Execution scope requirements or scoped review evidence are unresolved',
-  'scope-review-only': 'This worktree records verification or parent acceptance; it does not merge',
-  'check-adoption': 'Approve the check definitions this merge adopts, with the merge',
-  'branch-review-required': 'Adopt an integration branch if needed and run a fresh review',
-  ready: 'Ready to merge',
-  'no-review': 'Merging requires a review run with a mergeable verdict; launch a review first',
-  'changes-requested': 'The latest review requested changes; address them and review again',
-  'automation-active':
-    'The automated cycle has not reached merge approval; stop it to use the manual merge flow',
-  'review-pending': 'The latest review has not returned a verdict yet',
-  'superseded-by-later-run': 'A run started after the last review; review the branch again',
-  'run-live': 'A run is still live in this worktree',
-  'worktree-removed': 'The worktree has been removed',
-};
 
 export interface ExecutionStatus {
   readonly git: { readonly available: boolean; readonly executable?: string };
@@ -238,11 +147,11 @@ export class ExecutionService {
     private readonly git: GitOperations | undefined,
     private readonly config: ExecutionConfig,
     private readonly workItemService: WorkItemService,
-    private readonly now: () => Date = () => new Date(),
-    private readonly mutations: WorktreeMutationGuard = new WorktreeMutationGuard(),
-    private readonly runtimeEvidence?: RuntimeEvidenceService,
+    private readonly now: () => Date,
+    private readonly mutations: WorktreeMutationGuard,
+    private readonly runtimeEvidence: RuntimeEvidenceService,
     /** Declared checks (R-G13): what a merge adopts, and why a review's definitions stop it. */
-    readonly repositoryChecks?: RepositoryChecksService,
+    readonly repositoryChecks: RepositoryChecksService,
   ) {
     this.branches = new BranchService(storage, workspaceService, notifier, git, mutations, now);
   }
@@ -291,7 +200,6 @@ export class ExecutionService {
     if (
       worktree.executionScope?.kind !== 'slice' ||
       !review.reviewBranchContext ||
-      !this.repositoryChecks ||
       !environment?.checkDeclarationId ||
       // A check-only run's merge adopts nothing, as its approval offers nothing (R-G13
       // increment 4): its changed definitions are adopted on the Repositories page.
@@ -309,7 +217,7 @@ export class ExecutionService {
       );
     // The gate first, with the definitions the merge would adopt: an unmet gate is reported as
     // itself, not as an adoption to approve (verification of the review fixes).
-    this.runtimeEvidence?.assertRun(
+    this.runtimeEvidence.assertRun(
       worktree,
       review.id,
       this.storage,
@@ -351,8 +259,6 @@ export class ExecutionService {
     mergeSha: string,
     approved: string,
   ): Promise<{ proposal?: CheckDeclarationProposal; refused?: string }> {
-    if (!this.repositoryChecks)
-      return { refused: 'Declared checks are unavailable in this daemon.' };
     try {
       const proposal = await this.repositoryChecks.proposalAt(
         repository,
@@ -722,7 +628,7 @@ export class ExecutionService {
           requireTreeScope(tx, worktree, 'merge');
           const run = runs.find((r) => r.id === gate.reviewRunId);
           try {
-            if (run) this.runtimeEvidence?.assertMergeRun(worktree, run.id, tx);
+            if (run) this.runtimeEvidence.assertMergeRun(worktree, run.id, tx);
           } catch (error) {
             if (!adopts || !(error instanceof CheckDefinitionChangedError)) throw error;
           }
@@ -740,7 +646,7 @@ export class ExecutionService {
         const env = tx.runtimeEvidence.run(workspaceId, gate.reviewRunId);
         if (!env || env.runtimeId === undefined)
           try {
-            this.runtimeEvidence?.assertMergeRun(worktree, gate.reviewRunId, tx);
+            this.runtimeEvidence.assertMergeRun(worktree, gate.reviewRunId, tx);
           } catch {
             mergeGates[worktree.id] = { mergeable: false, reason: 'scope-blocked' };
           }
@@ -938,8 +844,8 @@ export class ExecutionService {
               'conflict',
               'The worktree differs from its frozen scope binding.',
             );
-          await this.runtimeEvidence?.assertFreshTree(tree, phase);
-          if (run) this.runtimeEvidence?.assertRun(tree, run.id);
+          await this.runtimeEvidence.assertFreshTree(tree, phase);
+          if (run) this.runtimeEvidence.assertRun(tree, run.id);
           const report = run && latestReviewReport(this.storage.execution, run);
           const turn =
             run &&
@@ -1065,7 +971,7 @@ export class ExecutionService {
             );
           // An approval that landed across the Git inspection changed the review's packet: it
           // is refused here, not recorded stale (R-B6 increment 3 review L-1).
-          this.runtimeEvidence?.assertRun(tree, run.id);
+          this.runtimeEvidence.assertRun(tree, run.id);
           delegation?.check();
           const at = this.now().toISOString();
           const result = this.storage.transaction((tx) => {
@@ -1686,7 +1592,7 @@ export class ExecutionService {
             delegation?.check();
             const review = this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0];
             if (review)
-              this.runtimeEvidence?.assertMergeRun(
+              this.runtimeEvidence.assertMergeRun(
                 worktree,
                 review.id,
                 this.storage,
@@ -1711,13 +1617,13 @@ export class ExecutionService {
               );
           };
           if (!recovering) {
-            await this.runtimeEvidence?.assertFreshTree(worktree, 'merge');
+            await this.runtimeEvidence.assertFreshTree(worktree, 'merge');
             const review = this.storage.execution.runs.listForWorktree(workspaceId, worktreeId)[0];
             adoption = review
               ? await this.checkAdoption(worktree, review, input.adoptChecks, !!delegation)
               : undefined;
             if (review)
-              this.runtimeEvidence?.assertMergeRun(
+              this.runtimeEvidence.assertMergeRun(
                 worktree,
                 review.id,
                 this.storage,

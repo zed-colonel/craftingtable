@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   EMITTED_EXPORTS,
   inspectWorkspace,
-  KNOWN_IMPORT_CYCLES,
   LEGACY_DECODER_USERS,
   PROCESS_AUTHORITY,
   PROSE_LEGACY_MAPPING_PATH,
@@ -1113,7 +1112,7 @@ describe('domain, contracts and storage export only what another module takes (r
 describe("the daemon's modules import one another without cycles (rule 10, R-B7)", () => {
   const cycle = (members, round) =>
     `${members[0]}: import cycle among ${members.length} module${members.length === 1 ? '' : 's'} (${members.join(', ')}), one path round it ${round.join(' → ')}; move what they share into a module none of them imports back (R-B7)`;
-  const inspect = (files, known = []) => inspectWorkspace(workspace(files), EMITTED_EXPORTS, known);
+  const inspect = (files) => inspectWorkspace(workspace(files), EMITTED_EXPORTS);
 
   it('finds a cycle through value imports, type-only imports and import() types, with a path round it', () => {
     const typed = inspect({
@@ -1160,41 +1159,20 @@ describe("the daemon's modules import one another without cycles (rule 10, R-B7)
     ]);
   });
 
-  it('allows a listed cycle, and finds a listed cycle that no longer exists or has grown', () => {
+  it('finds a cycle that only a type-only import closes', () => {
+    // `roadmap-service` and `cross-project-service` were such a pair until R-B7's scheduler half.
     const files = {
-      'apps/server/src/index.ts':
-        "import { a } from './a.js';\nimport { d } from './d.js';\nexport const main = a + d;\n",
+      'apps/server/src/index.ts': "import { a } from './a.js';\nexport const main = a;\n",
       'apps/server/src/a.ts':
         "import type { B } from './b.js';\nexport const a = 1;\nexport type A = B;\n",
       'apps/server/src/b.ts': "import { a } from './a.js';\nexport type B = typeof a;\n",
-      'apps/server/src/d.ts': 'export const d = 1;\n',
     };
-    const pair = ['apps/server/src/b.ts', 'apps/server/src/a.ts'];
-    expect(exceptRule8(inspect(files, [pair]).findings)).toEqual([]);
-    const gone = ['apps/server/src/a.ts', 'apps/server/src/d.ts'];
-    expect(exceptRule8(inspect(files, [pair, gone]).findings)).toEqual([
-      'apps/server/src/a.ts: KNOWN_IMPORT_CYCLES lists apps/server/src/a.ts, apps/server/src/d.ts, which no longer form exactly one import cycle; update the list (R-B7)',
+    expect(exceptRule8(inspect(files).findings)).toEqual([
+      cycle(
+        ['apps/server/src/a.ts', 'apps/server/src/b.ts'],
+        ['apps/server/src/a.ts', 'apps/server/src/b.ts', 'apps/server/src/a.ts'],
+      ),
     ]);
-    // A third module joins the listed pair's cycle: the set is no longer the one listed.
-    const grown = inspect(
-      {
-        ...files,
-        'apps/server/src/b.ts':
-          "import { a } from './a.js';\nimport { d } from './d.js';\nexport type B = typeof a;\nexport const e = d;\n",
-        'apps/server/src/d.ts':
-          "import type { B } from './b.js';\nexport const d = 1;\nexport type D = B;\n",
-      },
-      [pair],
-    );
-    expect(exceptRule8(grown.findings).sort()).toEqual(
-      [
-        cycle(
-          ['apps/server/src/a.ts', 'apps/server/src/b.ts', 'apps/server/src/d.ts'],
-          ['apps/server/src/a.ts', 'apps/server/src/b.ts', 'apps/server/src/a.ts'],
-        ),
-        'apps/server/src/a.ts: KNOWN_IMPORT_CYCLES lists apps/server/src/a.ts, apps/server/src/b.ts, which no longer form exactly one import cycle; update the list (R-B7)',
-      ].sort(),
-    );
   });
 
   it("leaves the packages', the browser's and the tests' cycles alone", () => {
@@ -1510,8 +1488,6 @@ it('passes on the real repository, having read and classified its modules', () =
     expect(classes.get(path)).toBe('production');
   // Rule 11 starts from the cycle core's modules: a moved core would pass vacuously.
   expect(classes.get('apps/server/src/services/cycle/core/machine.ts')).toBe('production');
-  // Rule 10's listed cycles name the daemon's production modules: a moved one would pass vacuously.
-  for (const path of KNOWN_IMPORT_CYCLES.flat()) expect(classes.get(path)).toBe('production');
   // Run by a package script, and imported by its own test.
   expect(classes.get('apps/server/src/db-verify.ts')).toBe('production');
   expect(classes.get('apps/web/src/test-setup.ts')).toBe('test');

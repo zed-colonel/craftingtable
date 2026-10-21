@@ -1,6 +1,6 @@
 import { ROADMAP_ATTENTION_CODES, roadmapAttention } from '@craftingtable/domain';
 import { describe, expect, it } from 'vitest';
-import { lastChange } from '../../src/services/cross-project-service.js';
+import { lastChange } from '../../src/services/map-state.js';
 import { REFUSAL_STOPS } from '../../src/services/errors.js';
 import {
   cycleCarriesOn,

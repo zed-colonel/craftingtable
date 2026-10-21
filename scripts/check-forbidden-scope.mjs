@@ -79,11 +79,8 @@
  *    module of `apps/server/src` reaches itself through what it imports, a type-only import
  *    (`import type`, an `import('…')` type) included, since a type cycle still ties the modules
  *    together. A finding names every module of the cycle and the shortest path round it from
- *    the first. The cycles still
- *    allowed are listed by their modules (`KNOWN_IMPORT_CYCLES`): R-B7's scheduler half removes
- *    the last, `roadmap-service` and `cross-project-service`. A listed cycle whose modules no
- *    longer form exactly one cycle is a finding too, so the list only shrinks (the self-test
- *    holds that every listed module exists). The packages' own cycles are outside it.
+ *    the first. None is allowed: R-B7's scheduler half removed the last
+ *    (`roadmap-service` and `cross-project-service`). The packages' own cycles are outside it.
  * 11. The cycle's decision core stays a core (R-B7): no module of `apps/server/src` that a module
  *    of `apps/server/src/services/cycle/core/` reaches by value imports (a type-only import, an
  *    `import('…')` type or named bindings all `type`, does not count) imports the file system or
@@ -244,17 +241,6 @@ const CORE_FORBIDDEN = /^(?:node:)?(?:fs|fs\/promises|child_process)$/;
 
 /** Where rule 10 applies: the daemon's modules (R-B7). */
 const CYCLE_FREE_SOURCES = 'apps/server/src/';
-/**
- * The import cycles rule 10 still allows, each by its modules (R-B7): the scheduler half moves
- * what `roadmap-service` and `cross-project-service` share into policy modules, and removes this.
- */
-export const KNOWN_IMPORT_CYCLES = [
-  [
-    'apps/server/src/services/cross-project-service.ts',
-    'apps/server/src/services/roadmap-service.ts',
-  ],
-];
-
 /** The packages whose modules planning may import (ADR-012). */
 const PLANNING_MAY_IMPORT = new Set(['packages/planning', 'packages/domain', 'packages/contracts']);
 
@@ -1733,9 +1719,9 @@ function buildFindings(root, modules, classified, built) {
 
 /**
  * Rule 10: the strongly connected sets of the daemon's import graph (Tarjan's algorithm, without
- * recursion), each a finding with one path round it, unless `known` lists exactly its modules.
+ * recursion), each a finding with one path round it.
  */
-function cycleFindings(root, modules, production, known) {
+function cycleFindings(root, modules, production) {
   const name = (file) => posix(relative(root, file));
   const nodes = [...production]
     .filter((file) => modules.has(file) && name(file).startsWith(CYCLE_FREE_SOURCES))
@@ -1814,27 +1800,11 @@ function cycleFindings(root, modules, production, known) {
     }
     return set.map(name);
   };
-  const listed = new Set(known.map((modules) => [...modules].sort().join('\n')));
-  const found = new Set();
   const findings = [];
-  for (const set of sets) {
-    const key = set.map(name).join('\n');
-    found.add(key);
-    if (listed.has(key)) continue;
+  for (const set of sets)
     findings.push(
       `${name(set[0])}: import cycle among ${set.length} module${set.length === 1 ? '' : 's'} (${set.map(name).join(', ')}), one path round it ${round(set).join(' → ')}; move what they share into a module none of them imports back (R-B7)`,
     );
-  }
-  // A listing whose modules this workspace does not have is another workspace's (the self-test's
-  // throwaway ones); the real repository's test holds that every listed module exists.
-  const present = new Set(nodes.map(name));
-  for (const modules of known) {
-    const key = [...modules].sort().join('\n');
-    if (!found.has(key) && modules.every((module) => present.has(module)))
-      findings.push(
-        `${[...modules].sort()[0]}: KNOWN_IMPORT_CYCLES lists ${[...modules].sort().join(', ')}, which no longer form exactly one import cycle; update the list (R-B7)`,
-      );
-  }
   return findings;
 }
 
@@ -2170,11 +2140,7 @@ function exportFindings(root, exported, consumed, reexported, production, except
  * read, so tests can see what was read. Rule 8 keeps the `exceptions` given (by default,
  * `EMITTED_EXPORTS`).
  */
-export function inspectWorkspace(
-  root,
-  exceptions = EMITTED_EXPORTS,
-  knownCycles = KNOWN_IMPORT_CYCLES,
-) {
+export function inspectWorkspace(root, exceptions = EMITTED_EXPORTS) {
   const absoluteRoot = realpathSync(resolve(root));
   const findings = manifestFindings(absoluteRoot);
   const { projects, modules, tests, exported, consumed, reexported } = readWorkspace(absoluteRoot);
@@ -2191,7 +2157,7 @@ export function inspectWorkspace(
       exceptions,
     ),
   );
-  findings.push(...cycleFindings(absoluteRoot, modules, classified.production, knownCycles));
+  findings.push(...cycleFindings(absoluteRoot, modules, classified.production));
   findings.push(...coreFindings(absoluteRoot, modules, classified.production));
   // Rule 7 reads the vocabulary where it is declared; a workspace without the module has none.
   const vocabularyModule = [...modules.values()].find(
@@ -2243,6 +2209,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules but the ${KNOWN_IMPORT_CYCLES.length} listed, the cycle core free of services and of file and process access, the replays' host pin imported only by the replay tool and the workstation, the decoders of text before codes imported only by the operator-wait measure, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules, the cycle core free of services and of file and process access, the replays' host pin imported only by the replay tool and the workstation, the decoders of text before codes imported only by the operator-wait measure, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
   );
 }

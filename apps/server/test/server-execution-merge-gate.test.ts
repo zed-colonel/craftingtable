@@ -24,7 +24,7 @@ import {
 } from '@craftingtable/domain';
 import { createGitOperations, type GitOperations } from '@craftingtable/git';
 import { afterEach, describe, expect, it } from 'vitest';
-import { mergeGateFor } from '../src/services/execution-service.js';
+import { mergeGateFor } from '../src/services/merge/gate.js';
 
 /* -------------------------------------------------------------------------- */
 /* Fixtures                                                                    */

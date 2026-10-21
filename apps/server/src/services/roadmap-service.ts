@@ -119,15 +119,15 @@ import type { AttentionProjector, ProjectedItem } from './attention-projector.js
 import type { AuthContext, CommandContext } from './auth-service.js';
 import { IntegrationHeldError, RepositoryMutationBusyError } from './branch-service.js';
 import { checkpointSubjectKey } from './checkpoint-subject.js';
+import { bindingIssues } from './map-binding-policy.js';
 import {
-  bindingIssues,
   crossProjectState,
   effectiveMapLevel,
   evidenceChangedAt,
   evidenceStaleness,
   mapActivity,
-  milestoneSatisfied,
-} from './cross-project-service.js';
+} from './map-state.js';
+import { milestoneSatisfied } from './milestone-policy.js';
 import { neededDecisions, slicesHeldBy, slicesWaitingOn } from './decision-demand.js';
 import { decisionSettlement, settlementLines } from './decision-settlement.js';
 import {
@@ -572,10 +572,10 @@ export class RoadmapService {
     private readonly execution: ExecutionService,
     private readonly cycles: WorkCycleService,
     private readonly notifier: WorkspaceEventNotifier,
-    private readonly now: () => Date = () => new Date(),
-    private readonly runtimeEvidence?: import('./runtime-evidence-service.js').RuntimeEvidenceService,
-    private readonly agents?: import('./agent-run-service.js').AgentRunService,
-    private readonly git?: import('@craftingtable/git').GitOperations,
+    private readonly now: () => Date,
+    private readonly runtimeEvidence: import('./runtime-evidence-service.js').RuntimeEvidenceService,
+    private readonly agents: import('./agent-run-service.js').AgentRunService,
+    private readonly git: import('@craftingtable/git').GitOperations | undefined,
     clock: KernelClock = systemClock(now),
   ) {
     // The roadmap drain (R-B5 part 2): marked by every workflow notification and waking write
@@ -841,8 +841,7 @@ export class RoadmapService {
     this.workspaces.requireRole(context, ws, ['owner', 'editor']);
     const old = this.find(ws, id),
       cp = old.definition.crossProject;
-    if (!this.agents || !this.git)
-      conflict('Decision preparation is unavailable on this controller.');
+    if (!this.git) conflict('Decision preparation is unavailable on this controller.');
     // A running roadmap writes itself on every pass, so only a stopped form is stale there; the
     // preparation itself binds to the exact map binding (R-C3b, ADR-065).
     if (
@@ -1015,7 +1014,7 @@ export class RoadmapService {
       check();
       await this.execution.createDecisionWorktree(context, p, check);
       check();
-      await this.agents!.startDecisionPreparation(context, p, check);
+      await this.agents.startDecisionPreparation(context, p, check);
     } catch (e) {
       if (reserved) {
         const current = this.find(ws, roadmap.id);
@@ -1053,7 +1052,7 @@ export class RoadmapService {
     const grant = roadmap.decisionPreparationGrant,
       cp = roadmap.definition.crossProject,
       ws = roadmap.workspaceId;
-    if (!grant?.enabled || !cp || !this.agents || !this.git) return;
+    if (!grant?.enabled || !cp || !this.git) return;
     // Held back by a busy lock until its release (or a sweep's length at most, should the release
     // be missed: increment 10 review LOW-1), or by a transient refusal for a second.
     const held = this.preparationsHeld.get(roadmap.id);
@@ -3091,7 +3090,7 @@ export class RoadmapService {
         if (current.definition.crossProject) {
           const c = current.definition.crossProject,
             view = crossProjectState(this.storage, current.workspaceId, c);
-          await this.runtimeEvidence?.assertSubjectsCurrent(
+          await this.runtimeEvidence.assertSubjectsCurrent(
             current.workspaceId,
             c.definitionId,
             c.bindingRevision,

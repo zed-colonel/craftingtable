@@ -263,7 +263,7 @@ itNeedsCargo(
     expect(architectureDecisionDigest(tx, ws, f.scopes[0]!)).not.toBe(before);
     const afterApproval = mapReadSnapshot(tx);
     expect(architectureDecisionDigest(afterApproval, ws, f.scopes[0]!)).not.toBe(before);
-    const { crossProjectState } = await import('../src/services/cross-project-service.js');
+    const { crossProjectState } = await import('../src/services/map-state.js');
     const projected = crossProjectState(tx, ws, {
       definitionId: id,
       bindingRevision: 1,

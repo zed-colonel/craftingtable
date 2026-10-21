@@ -130,7 +130,6 @@ export class CycleWorkflow {
     const checks = this.execution.repositoryChecks;
     const environment = this.storage.runtimeEvidence.run(tree.workspaceId, run.id);
     if (
-      !checks ||
       !run.reviewBranchContext ||
       !environment?.checkDeclarationId ||
       // Adoption at merge is a scoped slice's (increment 5): a check-only run (increment 4)

@@ -33,11 +33,9 @@ import type { AuthContext } from './auth-service.js';
 import type { WorkspaceService } from './workspace-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
 import type { WorkCycleService } from './work-cycle-service.js';
-import {
-  type CrossProjectService,
-  bindingIssues,
-  milestoneSatisfied,
-} from './cross-project-service.js';
+import type { CrossProjectService } from './cross-project-service.js';
+import { bindingIssues } from './map-binding-policy.js';
+import { milestoneSatisfied } from './milestone-policy.js';
 import { integratedSlice, amendmentHoldingScope } from './scope-lineage.js';
 import { activeRuntime, currentScopeReceipt, acceptedEvidence } from './runtime-evidence-policy.js';
 import { ExecutionRequestError, NotFoundError, windDownRefused } from './errors.js';

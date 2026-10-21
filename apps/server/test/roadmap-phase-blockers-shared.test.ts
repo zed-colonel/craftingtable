@@ -10,7 +10,7 @@ import {
 import type { StorageRepositories } from '@craftingtable/storage';
 import { afterEach, expect, it, vi } from 'vitest';
 import { scopeDecisionsKey } from '../src/services/architecture-decision-policy.js';
-import { milestoneMemoKey } from '../src/services/cross-project-service.js';
+import { milestoneMemoKey } from '../src/services/milestone-policy.js';
 import { scopePhaseBlockers } from '../src/services/execution-scope.js';
 import { mapReadSnapshot } from '../src/services/map-read-snapshot.js';
 import { openRecoveries } from '../src/services/roadmap-service.js';

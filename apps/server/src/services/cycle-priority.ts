@@ -1,24 +1,17 @@
 import type { WorkCycle } from '@craftingtable/domain';
-import type { CycleOwnership } from './cycle-ownership.js';
+import type { OwnerPolicy } from './roadmap/owner-policy.js';
 
 /** Reorder only a running roadmap's own cycles; unrelated/manual work keeps its place. */
 export function prioritizeRoadmapCycles(
   cycles: readonly WorkCycle[],
-  ownership: (cycle: WorkCycle) => CycleOwnership | undefined,
+  ownership: (cycle: WorkCycle) => OwnerPolicy | undefined,
 ): readonly WorkCycle[] {
   const owners = new Map<string, { roadmapId: string; priority: number }>();
   for (const cycle of cycles) {
     const owner = ownership(cycle);
-    const roadmap = owner?.roadmap;
-    if (
-      !owner ||
-      roadmap?.status !== 'running' ||
-      roadmap.definition.scheduling?.mode !== 'parallel' ||
-      owner.attempt.status === 'completed'
-    )
-      continue;
-    const priority = roadmap.definition.entries.findIndex((e) => e.id === owner.attempt.entryId);
-    if (priority >= 0) owners.set(cycle.id, { roadmapId: roadmap.id, priority });
+    if (!owner?.running || !owner.parallel || owner.attemptStatus === 'completed') continue;
+    const priority = owner.entryIndex;
+    if (priority >= 0) owners.set(cycle.id, { roadmapId: owner.roadmapId, priority });
   }
   const queues = new Map<string, WorkCycle[]>();
   for (const cycle of cycles) {

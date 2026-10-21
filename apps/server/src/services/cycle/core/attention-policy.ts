@@ -9,10 +9,9 @@ import {
 } from '@craftingtable/domain';
 import type { StorageRepositories } from '@craftingtable/storage';
 import { mapReadSnapshot } from '../../map-read-snapshot.js';
-import { attemptDelegation } from '../../roadmap-delegation-policy.js';
 import { scopeMergeWait, scopeReviewWait } from '../../scope-repair.js';
-import { automatedScopeRecoveryWait, roadmapCarriesRound } from '../../scope-recovery-policy.js';
-import { cycleOwnership } from '../../cycle-ownership.js';
+import { automatedScopeRecoveryWait } from '../../scope-recovery-policy.js';
+import { ownerPolicy } from '../../roadmap/owner-policy.js';
 
 /**
  * The attention a stopped cycle declares right now (R-A3, NOTIF-02).
@@ -58,16 +57,12 @@ export function currentCycleAttention(
 
 /** A running roadmap whose policy completes this stop itself, exactly as it schedules it. */
 function roadmapClaim(tx: StorageRepositories, cycle: WorkCycle): AttentionClaim | undefined {
-  const owner = cycleOwnership(tx, cycle);
-  if (owner?.roadmap.status !== 'running') return undefined;
-  const { roadmap, attempt } = owner;
-  if (roadmap.entryHolds?.[attempt.entryId]) return undefined;
-  if (
-    attempt.recovery &&
-    (!roadmapCarriesRound(roadmap, attempt) || roadmap.entryHolds?.[attempt.recovery.sourceEntryId])
-  )
-    return undefined;
-  const delegation = attemptDelegation(tx, roadmap, attempt);
+  // The owning roadmap's answer (R-B7: `OwnerPolicy`), asked in the order this rule asks it.
+  const owner = ownerPolicy(tx, cycle);
+  if (!owner?.running) return undefined;
+  if (owner.entryHold) return undefined;
+  if (owner.isRound && (!owner.roundCarried || owner.roundSourceHold)) return undefined;
+  const delegation = owner.delegation();
   const tree = tx.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
   if (cycle.status === 'awaiting-merge') {
     if (tree?.executionScope?.kind === 'slice-verification') return 'roadmap-verification';

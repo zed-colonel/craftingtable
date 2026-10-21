@@ -8,6 +8,7 @@ import {
   EMITTED_EXPORTS,
   inspectWorkspace,
   LEGACY_DECODER_USERS,
+  OWNER_POLICY_SOURCES,
   PROCESS_AUTHORITY,
   PROSE_LEGACY_MAPPING_PATH,
   REPLAY_HOST_PIN,
@@ -1363,6 +1364,52 @@ describe('only the operator-wait measure decodes text written before codes (rule
   });
 });
 
+describe('the cycle side reads roadmap policy only through OwnerPolicy (rule 14, R-B7)', () => {
+  const reads = (file, target) =>
+    `${file}: imports the owning roadmap's policy from ${target}; the cycle side asks the scheduler's answer, \`ownerPolicy\` (apps/server/src/services/roadmap/owner-policy.ts) (R-B7)`;
+  const ownership = 'apps/server/src/services/cycle-ownership.ts';
+  const delegation = 'apps/server/src/services/roadmap-delegation-policy.ts';
+  const recovery = 'apps/server/src/services/scope-recovery-policy.ts';
+
+  it('finds a cycle, run, facade or workflow module importing the owning roadmap by value', () => {
+    const { findings } = inspectWorkspace(
+      workspace({
+        [ownership]:
+          'export const cycleOwnership = () => undefined;\nexport type Owner = { id: string };\n',
+        [delegation]: 'export const attemptDelegation = () => undefined;\n',
+        [recovery]:
+          'export const roadmapCarriesRound = () => true;\nexport const automatedScopeRecoveryWait = () => undefined;\n',
+        'apps/server/src/services/cycle/core/facts.ts':
+          "import { cycleOwnership } from '../../cycle-ownership.js';\nexport const facts = cycleOwnership;\n",
+        'apps/server/src/services/run/launch.ts':
+          "import * as policy from '../roadmap-delegation-policy.js';\nexport const launch = policy;\n",
+        'apps/server/src/services/work-cycle-service.ts':
+          "import { roadmapCarriesRound } from './scope-recovery-policy.js';\nexport const pass = roadmapCarriesRound;\n",
+        'apps/server/src/services/workflow-policy.ts':
+          "import * as recovery from './scope-recovery-policy.js';\nexport const workflow = recovery;\n",
+        // A type, another export of the recovery policy, and a module outside the cycle side pass.
+        'apps/server/src/services/cycle/commands/control.ts':
+          "import type { Owner } from '../../cycle-ownership.js';\nimport { automatedScopeRecoveryWait } from '../../scope-recovery-policy.js';\nexport type Control = Owner;\nexport const wait = automatedScopeRecoveryWait;\n",
+        'apps/server/src/services/agent-profile-policy.ts':
+          "import { cycleOwnership } from './cycle-ownership.js';\nexport const layers = cycleOwnership;\n",
+        'apps/server/src/index.ts':
+          "import { facts } from './services/cycle/core/facts.js';\nimport { launch } from './services/run/launch.js';\nimport { pass } from './services/work-cycle-service.js';\nimport { workflow } from './services/workflow-policy.js';\nimport { wait } from './services/cycle/commands/control.js';\nimport { layers } from './services/agent-profile-policy.js';\nexport const main = [facts, launch, pass, workflow, wait, layers];\n",
+      }),
+      EMITTED_EXPORTS,
+    );
+    expect(
+      findings.filter((finding) => finding.includes("owning roadmap's policy")).sort(),
+    ).toEqual(
+      [
+        reads('apps/server/src/services/cycle/core/facts.ts', ownership),
+        reads('apps/server/src/services/run/launch.ts', delegation),
+        reads('apps/server/src/services/work-cycle-service.ts', recovery),
+        reads('apps/server/src/services/workflow-policy.ts', recovery),
+      ].sort(),
+    );
+  });
+});
+
 describe('only the replay tool pins the host a replay runs as (rule 12, R-B4b)', () => {
   const pinned = (file) =>
     `${file}: imports the replay host pin (${REPLAY_HOST_PIN}); only the replay tool sets it and only the workstation reads it, so the daemon compares native approvals with the live host digest (R-B4b)`;
@@ -1485,6 +1532,9 @@ it('passes on the real repository, having read and classified its modules', () =
     expect(classes.get(path)).toBe('production');
   // Rule 13 names the decoders and their one user: a moved module would pass vacuously.
   for (const path of [PROSE_LEGACY_MAPPING_PATH, ...LEGACY_DECODER_USERS])
+    expect(classes.get(path)).toBe('production');
+  // Rule 14 names the roadmap policy the cycle side may not import, and the module it asks.
+  for (const path of [...OWNER_POLICY_SOURCES, 'apps/server/src/services/roadmap/owner-policy.ts'])
     expect(classes.get(path)).toBe('production');
   // Rule 11 starts from the cycle core's modules: a moved core would pass vacuously.
   expect(classes.get('apps/server/src/services/cycle/core/machine.ts')).toBe('production');

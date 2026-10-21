@@ -1587,8 +1587,8 @@ export class RuntimeEvidenceService {
         ...packet.candidateCheckpoint!,
         delegatedReview: {
           cycleId: cycle.id,
-          roadmapId: delegation.roadmap.id,
-          definitionRevision: delegation.attempt.definitionRevision,
+          roadmapId: delegation.roadmapId,
+          definitionRevision: delegation.definitionRevision,
           roles: checkpoint.roles,
         },
       },

@@ -27,7 +27,7 @@ import type { BranchService } from '../../branch-service.js';
 import { ExecutionRequestError, NotFoundError } from '../../errors.js';
 import { requireTreeScope } from '../../execution-scope.js';
 import { finalizationForCycle } from '../../finalization-policy.js';
-import { type CycleOwnership, cycleOwnership } from '../../cycle-ownership.js';
+import { type OwnerPolicy, ownerPolicy } from '../../roadmap/owner-policy.js';
 import {
   type CommandFacts,
   type CommandRefusal,
@@ -66,7 +66,7 @@ import { reviewFacts } from '../shared.js';
  */
 export type EntryAgents = (
   context: AuthContext,
-  owner: CycleOwnership,
+  owner: Pick<OwnerPolicy, 'roadmapId' | 'workspaceId' | 'entryId'>,
   selections: AgentSelections,
 ) => void;
 
@@ -181,7 +181,7 @@ export class CycleControl {
     const cycle = this.storage.execution.cycles.find(workspaceId, id);
     if (!cycle) throw new NotFoundError();
     this.gates.requireNoInvestigation(cycle, false);
-    const owner = cycleOwnership(this.storage, cycle);
+    const owner = ownerPolicy(this.storage, cycle);
     const before = selectionSet(cycleAgents(this.storage, cycle));
     const decided = decideSettingsChange(
       cycle,
@@ -287,8 +287,8 @@ export class CycleControl {
   }
 
   providerRoadmapPaused(cycle: WorkCycle): boolean {
-    const owner = cycleOwnership(this.storage, cycle);
-    return !!owner && owner.roadmap.status !== 'running';
+    const owner = ownerPolicy(this.storage, cycle);
+    return !!owner && !owner.running;
   }
 
   /** Resumes an independent review: the same integration snapshot is not reviewed again. */

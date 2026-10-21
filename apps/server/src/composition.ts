@@ -459,9 +459,9 @@ export async function createServices(
   workCycleService.attachEntryAgents((context, owner, selections) =>
     roadmapService.assignCycleEntryAgents(
       context,
-      owner.roadmap.workspaceId,
-      owner.roadmap.id,
-      owner.attempt.entryId,
+      owner.workspaceId,
+      owner.roadmapId,
+      owner.entryId,
       selections,
     ),
   );

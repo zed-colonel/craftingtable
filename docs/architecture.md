@@ -32,7 +32,10 @@ to the declaration (a short map names the types declaration emit needs). It also
 the daemon's modules import one another without cycles, type-only imports included: what two
 services share goes into a module neither imports back (R-B7). And it holds that the cycle's decision core
 (`apps/server/src/services/cycle/core/`) reaches, by value imports, no service and no file or
-process access: the core decides and the services act (R-B7). Only the replay tool and the
+process access: the core decides and the services act (R-B7). The cycle side (`services/cycle/`,
+`services/run/`, the two facades and `workflow-policy.ts`) reads a cycle's owning roadmap only
+through the scheduler's answer, `OwnerPolicy` (`services/roadmap/owner-policy.ts`), never the
+roadmap's record or delegation policy itself (R-B7). Only the replay tool and the
 workstation module import the replays' host pin (`apps/server/src/services/replay-host.ts`), so
 the daemon compares a native approval with the live host digest, while a replay runs as the host
 its goldens were recorded on (R-B4b). No package depends on ActionQueue, WorldInterface,

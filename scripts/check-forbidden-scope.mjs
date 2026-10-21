@@ -99,6 +99,14 @@
  *    production module but `LEGACY_DECODER_USERS` imports `packages/domain/src/attention-legacy.ts`
  *    (the domain's `attention-legacy` entry, which its index does not re-export). The audit
  *    trail is never rewritten; R-C1's measure decodes its rows there. Tests may import it.
+ * 14. The cycle side reads roadmap policy through the scheduler's answer (R-B7, CTRL-13): no
+ *    production module of `apps/server/src/services/cycle/` or `apps/server/src/services/run/`,
+ *    nor `work-cycle-service.ts`, `agent-run-service.ts` or `workflow-policy.ts`, imports by value
+ *    `cycle-ownership.ts` or `roadmap-delegation-policy.ts`, or `roadmapCarriesRound` from
+ *    `scope-recovery-policy.ts`: each asks `OwnerPolicy` (`roadmap/owner-policy.ts`). Outside it
+ *    by design: `agent-profile-policy.ts` (ADR-064's layering of a cycle's agents), the scope
+ *    recovery wait and the launch's scan of decision preparations (they read every roadmap of the
+ *    workspace, not an owner) and `runtime-evidence-service.ts` (R-B7's third part).
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -241,6 +249,28 @@ const CORE_FORBIDDEN = /^(?:node:)?(?:fs|fs\/promises|child_process)$/;
 
 /** Where rule 10 applies: the daemon's modules (R-B7). */
 const CYCLE_FREE_SOURCES = 'apps/server/src/';
+/** Rule 14: the modules that read a cycle's owning roadmap only through `OwnerPolicy` (R-B7). */
+const OWNER_POLICY_READERS = {
+  roots: ['apps/server/src/services/cycle/', 'apps/server/src/services/run/'],
+  files: new Set([
+    'apps/server/src/services/work-cycle-service.ts',
+    'apps/server/src/services/agent-run-service.ts',
+    'apps/server/src/services/workflow-policy.ts',
+  ]),
+};
+/** What those modules may not import by value: the owning roadmap's record and policy. */
+export const OWNER_POLICY_SOURCES = new Set([
+  'apps/server/src/services/cycle-ownership.ts',
+  'apps/server/src/services/roadmap-delegation-policy.ts',
+]);
+const ROUND_CARRY = {
+  module: 'apps/server/src/services/scope-recovery-policy.ts',
+  name: 'roadmapCarriesRound',
+};
+const readsOwnerPolicyOnly = (path) =>
+  OWNER_POLICY_READERS.files.has(path) ||
+  OWNER_POLICY_READERS.roots.some((root) => path.startsWith(root));
+
 /** The packages whose modules planning may import (ADR-012). */
 const PLANNING_MAY_IMPORT = new Set(['packages/planning', 'packages/domain', 'packages/contracts']);
 
@@ -2013,7 +2043,7 @@ function replayHostReexports(path, module, root) {
   return findings;
 }
 
-/** One module's findings under rules 1-5, 7, 9, 12 and 13. */
+/** One module's findings under rules 1-5, 7, 9, 12, 13 and 14. */
 function moduleFindings(root, module, production, vocabulary) {
   const findings = [];
   const path = posix(relative(root, module.file));
@@ -2036,6 +2066,18 @@ function moduleFindings(root, module, production, vocabulary) {
     const targetPackage = resolved === undefined ? undefined : placeOf(root, resolved);
     const targetPath = resolved === undefined ? undefined : posix(relative(root, resolved));
     if (targetPath === REPLAY_HOST_PIN) findings.push(...replayHostFindings(path, reference));
+    if (
+      !reference.typeOnly &&
+      targetPath !== undefined &&
+      readsOwnerPolicyOnly(path) &&
+      (OWNER_POLICY_SOURCES.has(targetPath) ||
+        (targetPath === ROUND_CARRY.module &&
+          (reference.namespace !== undefined ||
+            (reference.names ?? []).some(({ name }) => name === ROUND_CARRY.name))))
+    )
+      findings.push(
+        `${path}: imports the owning roadmap's policy from ${targetPath}; the cycle side asks the scheduler's answer, \`ownerPolicy\` (apps/server/src/services/roadmap/owner-policy.ts) (R-B7)`,
+      );
     if (
       (specifier === LEGACY_DECODER_ENTRY ||
         (targetPath !== undefined && LEGACY_DECODER_FILES.has(targetPath))) &&
@@ -2209,6 +2251,6 @@ if (isMain) {
   }
   console.log(
     'Forbidden-scope check passed: no Exo Stack dependency, capability imports and computed module loads confined to',
-    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules, the cycle core free of services and of file and process access, the replays' host pin imported only by the replay tool and the workstation, the decoders of text before codes imported only by the operator-wait measure, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
+    `${PROCESS_AUTHORITY.size} listed modules, planning and domain packages pure, no branching on reason or message text, map vocabulary only in ${MAP_VOCABULARY_MODULE}, request path parameters read only in ${PARAMETER_PARSER}, every export of domain, contracts and storage imported elsewhere or listed (${[...EMITTED_EXPORTS.values()].reduce((n, names) => n + names.size, 0)} kept for declaration emit), no import cycle among the daemon's modules, the cycle core free of services and of file and process access, the replays' host pin imported only by the replay tool and the workstation, the decoders of text before codes imported only by the operator-wait measure, the cycle side reading roadmap policy only through OwnerPolicy, and dist holds no test or test-runner import and only modules a manifest or page entry reaches.`,
   );
 }

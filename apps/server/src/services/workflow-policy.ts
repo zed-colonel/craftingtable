@@ -1,5 +1,4 @@
 import { supportsTechnicalCheckpoint } from './technical-checkpoint-policy.js';
-import { attemptDefinition, effectiveDelegation } from './roadmap-delegation-policy.js';
 import { stagedDecision, supportsArchitectureDecision } from './architecture-decision-policy.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import type { WorkflowOutput } from './brief-output.js';
@@ -23,22 +22,17 @@ import {
   prerequisiteInputKey,
   subjectRequirements,
 } from './runtime-evidence-policy.js';
-import { cycleOwnership } from './cycle-ownership.js';
+import { ownerPolicy } from './roadmap/owner-policy.js';
 
+/**
+ * A cross-project roadmap's reviewer delegation for the cycle's attempt (ADR-063), as the owning
+ * roadmap answers it (R-B7: `OwnerPolicy`): its saved entry, roles, and whether they may run now.
+ */
 export function workflowDelegation(tx: StorageRepositories, cycle: WorkCycle) {
-  const owner = cycleOwnership(tx, cycle);
-  if (!owner?.roadmap.definition.crossProject) return undefined;
-  const { roadmap, attempt } = owner;
-  const saved = attemptDefinition(tx, roadmap, attempt);
-  const entry = saved?.entries.find((e) => e.id === attempt.entryId);
-  return entry
-    ? {
-        roadmap,
-        attempt,
-        entry,
-        roles: effectiveDelegation(roadmap, entry, saved!).reviewerRoles,
-        runnable: roadmap.status === 'running' && !roadmap.entryHolds?.[entry.id],
-      }
+  const owner = ownerPolicy(tx, cycle);
+  const reviewers = owner?.reviewers();
+  return owner && reviewers
+    ? { roadmapId: owner.roadmapId, definitionRevision: owner.definitionRevision, ...reviewers }
     : undefined;
 }
 /**
@@ -51,7 +45,7 @@ export function workflowDelegation(tx: StorageRepositories, cycle: WorkCycle) {
 export function controllerReviewRunnable(tx: StorageRepositories, cycle: WorkCycle): boolean {
   const delegation = workflowDelegation(tx, cycle);
   if (delegation) return delegation.runnable;
-  return !cycleOwnership(tx, cycle);
+  return !ownerPolicy(tx, cycle);
 }
 /**
  * Why nobody may authorize this owned cycle's controller reviews: its roadmap delegates no
@@ -62,9 +56,9 @@ export function reviewAuthorityMissing(
   tx: StorageRepositories,
   cycle: WorkCycle,
 ): 'no-delegation' | 'delegation-unreadable' | undefined {
-  const owner = cycleOwnership(tx, cycle);
+  const owner = ownerPolicy(tx, cycle);
   if (!owner || workflowDelegation(tx, cycle)) return undefined;
-  return owner.roadmap.definition.crossProject ? 'delegation-unreadable' : 'no-delegation';
+  return owner.crossProject ? 'delegation-unreadable' : 'no-delegation';
 }
 export function workflowContext(tx: StorageRepositories, cycle: WorkCycle) {
   tx = mapReadSnapshot(tx);

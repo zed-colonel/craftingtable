@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ownerPolicy } from '../src/services/roadmap/owner-policy.js';
 import { readFileSync } from 'node:fs';
 import {
   asConcurrencyDefinitionId,
@@ -316,7 +317,7 @@ function answers({ cycle, sibling }: { cycle: WorkCycle; sibling: WorkCycle }) {
   const facts = cycleFacts(storage, cycle, {
     now: new Date(),
     settling: new Set([owner?.roadmap.id ?? 'no-roadmap']),
-    owner: () => cycleOwnership(storage, cycle),
+    owner: () => ownerPolicy(storage, cycle),
   });
   const delegation = workflowDelegation(storage, cycle);
   // The roadmap claim, with the cycle at a merge approval and at a detected conflict.
@@ -375,7 +376,7 @@ function answers({ cycle, sibling }: { cycle: WorkCycle; sibling: WorkCycle }) {
     serviceRetry = (error as Error).message;
   }
   const order = (cycles: WorkCycle[]) =>
-    prioritizeRoadmapCycles(cycles, (c) => cycleOwnership(storage, c)).map((c) =>
+    prioritizeRoadmapCycles(cycles, (c) => ownerPolicy(storage, c)).map((c) =>
       c.id === cycle.id ? 'subject' : 'sibling',
     );
   const forward = order([cycle, sibling]);

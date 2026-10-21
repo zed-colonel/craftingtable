@@ -12,7 +12,7 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { activeEditor } from '../authority-policy.js';
-import { cycleOwnership } from '../cycle-ownership.js';
+import { ownerPolicy } from '../roadmap/owner-policy.js';
 import { ExecutionRequestError } from '../errors.js';
 import { requireTreeScope } from '../execution-scope.js';
 import { controllerReviewRunnable } from '../workflow-policy.js';
@@ -47,7 +47,7 @@ export class RunPreconditions {
       );
     if (
       cycle.attempt?.providerRecovery &&
-      (cycleOwnership(this.storage, cycle)?.roadmap.status ?? 'running') !== 'running'
+      (ownerPolicy(this.storage, cycle)?.status ?? 'running') !== 'running'
     )
       throw new ExecutionRequestError(
         'conflict',

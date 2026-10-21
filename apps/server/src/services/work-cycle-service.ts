@@ -41,7 +41,7 @@ import { investigationLive, stopQuestions, worktreeChangeOpen } from './investig
 import { NotFoundError } from './errors.js';
 import type { ExecutionService } from './execution-service.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
-import { cycleOwnership } from './cycle-ownership.js';
+import { ownerPolicy } from './roadmap/owner-policy.js';
 import { cycleFacts, type KernelFacts } from './cycle/core/facts.js';
 import { nextLook } from './cycle/core/next-look.js';
 import { decisionLane } from './cycle/core/lanes.js';
@@ -948,11 +948,11 @@ export class WorkCycleService {
           return !this.locks.heldByCommand(cycle.id);
         },
       ),
-      (cycle) => cycleOwnership(snapshot, cycle),
+      (cycle) => ownerPolicy(snapshot, cycle),
     )) {
       if (this.locks.stopping()) break;
       try {
-        await this.passCycle(cycle, () => cycleOwnership(snapshot, cycle), settling, lane);
+        await this.passCycle(cycle, () => ownerPolicy(snapshot, cycle), settling, lane);
       } finally {
         this.observer?.cycle(cycle);
       }
@@ -967,7 +967,7 @@ export class WorkCycleService {
 
   private async passCycle(
     cycle: WorkCycle,
-    owner: () => ReturnType<typeof cycleOwnership>,
+    owner: () => ReturnType<typeof ownerPolicy>,
     settling: ReadonlySet<string>,
     lane?: { dispatched?: Promise<void> },
   ): Promise<void> {
@@ -1042,7 +1042,7 @@ export class WorkCycleService {
    */
   private async reconcile(
     cycle: WorkCycle,
-    owner: () => ReturnType<typeof cycleOwnership>,
+    owner: () => ReturnType<typeof ownerPolicy>,
     settling: ReadonlySet<string>,
     met: { guard?: CycleGuard; decision?: CycleDecision } = {},
     lane?: { dispatched?: Promise<void> },

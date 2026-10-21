@@ -6,7 +6,6 @@ import {
   DEFAULT_ROADMAP_SCHEDULING,
   type ExecutionScope,
   type PhaseBlocker,
-  type RoadmapEntryId,
   type WorkCycle,
   type WorkItemId,
   type WorkspaceId,
@@ -15,15 +14,13 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage, StorageRepositories } from '@craftingtable/storage';
 import type { CommandContext } from '../../auth-service.js';
-import { type CycleOwnership, cycleOwnership } from '../../cycle-ownership.js';
 import { designDependencyState } from '../../design-dependency-policy.js';
 import { type Readiness, readinessOf } from './effect-decisions.js';
 import { TypedRefusalError } from '../../errors.js';
 import { requireScope, scopePhaseBlockers } from '../../execution-scope.js';
 import { finalizationForCycle } from '../../finalization-policy.js';
 import { mapReadSnapshot } from '../../map-read-snapshot.js';
-import { attemptDelegation } from '../../roadmap-delegation-policy.js';
-import { roadmapCarriesRound } from '../../scope-recovery-policy.js';
+import { type OwnerPolicy, ownerPolicy } from '../../roadmap/owner-policy.js';
 import { type StepOutcomeFacts, stepOutcomeFacts } from './step-outcome.js';
 import { type ItemRefusal, itemGate, predecessorGate } from '../../transition-gate.js';
 import {
@@ -122,7 +119,7 @@ export function cycleFacts(
      * it: a settling roadmap's id does not change while the pass runs (R-B11).
      */
     readonly settling: ReadonlySet<string>;
-    readonly owner: () => CycleOwnership | undefined;
+    readonly owner: () => OwnerPolicy | undefined;
   },
 ): CycleFacts {
   const tx = mapReadSnapshot(storage);
@@ -130,7 +127,7 @@ export function cycleFacts(
   const delegation = once(() => workflowDelegation(tx, cycle));
   return {
     settling: once(
-      () => options.settling.size > 0 && options.settling.has(options.owner()?.roadmap.id ?? ''),
+      () => options.settling.size > 0 && options.settling.has(options.owner()?.roadmapId ?? ''),
     ),
     worktree: once(() => tx.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId)),
     scopeEvidenceRecorded: once(
@@ -213,8 +210,8 @@ export function cycleFacts(
     // Read in this cycle's own snapshot, never the pass's: the roadmap may have been paused
     // while an earlier cycle of the pass awaited Git.
     roadmapPaused: once(() => {
-      const owner = cycleOwnership(tx, cycle);
-      return !!owner && owner.roadmap.status !== 'running';
+      const owner = ownerPolicy(tx, cycle);
+      return !!owner && !owner.running;
     }),
     stepOutcome: (run) => stepOutcomeFacts(storage, cycle, run, options.now),
   };
@@ -298,28 +295,26 @@ export function refreshOwner(
       context: { user },
     };
   }
-  const owner = cycleOwnership(storage, cycle);
-  if (owner?.attempt.status !== 'active') return;
-  const { roadmap, attempt } = owner;
-  const held = (entryId: RoadmapEntryId | undefined) => {
-    const hold = entryId === undefined ? undefined : roadmap.entryHolds?.[entryId];
-    return !!hold && (!launching || hold.status !== 'paused');
-  };
+  // The owning roadmap's answer (R-B7: `OwnerPolicy`), asked in the order this rule asks it.
+  const owner = ownerPolicy(storage, cycle);
+  if (owner?.attemptStatus !== 'active') return;
+  const held = (hold: OwnerPolicy['entryHold']) =>
+    !!hold && (!launching || hold.status !== 'paused');
   const scheduled =
     (launching
       ? cycle.status === 'running' &&
-        ['running', 'paused', 'needs-attention'].includes(roadmap.status)
-      : roadmap.status === 'running') &&
-    !held(attempt.entryId) &&
-    !held(attempt.recovery?.sourceEntryId);
+        ['running', 'paused', 'needs-attention'].includes(owner.status)
+      : owner.running) &&
+    !held(owner.entryHold) &&
+    !held(owner.roundSourceHold);
   if (!scheduled) return;
-  if (attempt.recovery && !roadmapCarriesRound(roadmap, attempt)) return;
-  const entry = roadmap.definition.entries.find((e) => e.id === attempt.entryId);
+  if (owner.isRound && !owner.roundCarried) return;
+  const binding = owner.binding;
   const tree = storage.execution.worktrees.find(cycle.workspaceId, cycle.worktreeId);
   if (
-    !entry ||
-    tree?.integrationBranch !== entry.integrationBranch ||
-    tree.repositoryId !== entry.repositoryId
+    !binding ||
+    tree?.integrationBranch !== binding.integrationBranch ||
+    tree.repositoryId !== binding.repositoryId
   )
     throw new TypedRefusalError(
       'roadmap-binding-changed',
@@ -327,7 +322,7 @@ export function refreshOwner(
     );
   // Same resolution as the scheduler, including ADR-065 grants: a grant that makes an
   // entry's merge automatic must also refresh it, or the delegated merge meets a stale review.
-  const delegation = attemptDelegation(storage, roadmap, attempt);
+  const delegation = owner.delegation();
   const settings = delegation?.definition.scheduling ?? DEFAULT_ROADMAP_SCHEDULING;
   const automation = delegation?.automation ?? DEFAULT_ROADMAP_AUTOMATION;
   if (
@@ -336,7 +331,7 @@ export function refreshOwner(
     automation.integrationConflicts !== 'automatic'
   )
     return;
-  const user = activeEditor(storage, roadmap.delegatedByUserId, cycle.workspaceId);
+  const user = owner.delegator();
   if (!user)
     throw new TypedRefusalError(
       'delegation-authority-lost',

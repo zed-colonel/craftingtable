@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { agentSelections, roadmapAttention } from '@craftingtable/domain';
 import {
   awaitRoadmapMerge,
@@ -187,4 +187,74 @@ it('a capacity cut while the roadmap runs stops nothing and admits nothing new (
   });
   expect(raised.statusCode, raised.body).toBe(200);
   await waitFor(started, 'the successor starts once the limit allows');
+});
+
+it('a save while the roadmap runs supersedes an admission in flight, which the next pass takes up on its pinned revision (R-B6, review M-2)', async () => {
+  // The default fixture: only the first item is eligible at first; the others follow it.
+  const fx = await parallelFixture();
+  fx.backend.replyForRequest = () => ({ resultText: 'Working.\n\n## Open questions\nnone' });
+  expect((await saveRoadmapRequest(fx.state, fx.input)).statusCode).toBe(200);
+  const execution = fx.state.context.services.executionService;
+  const create = execution.createWorktree.bind(execution);
+  let saved: { statusCode: number; body: string } | undefined;
+  vi.spyOn(execution, 'createWorktree').mockImplementation(async (...args) => {
+    // The admission awaits here, between its `preparing` write and its cycle: the operator
+    // removes a queued entry and renames the roadmap.
+    if (!saved) {
+      const roadmap = storedRoadmap(fx.state);
+      saved = await saveRoadmapRequest(fx.state, {
+        ...fx.input,
+        name: 'Renamed while admitting',
+        entries: fx.input.entries.slice(0, 2),
+        expectedVersion: roadmap.version,
+        expectedRevision: roadmap.definition.revision,
+      });
+    }
+    return create(...args);
+  });
+  await roadmapControl(fx.state, 'start');
+  const tx = fx.state.context.storage,
+    ws = fx.state.workspaceId;
+  await waitFor(() => !!saved, 'the save lands during the admission');
+  expect(saved!.statusCode, saved!.body).toBe(200);
+  // The admission stood down: no cycle; its attempt waits, `preparing`, on the revision it was
+  // reserved under, and its entry is frozen in the saved one.
+  let roadmap = storedRoadmap(fx.state);
+  expect(roadmap.definition).toMatchObject({ revision: 2, name: 'Renamed while admitting' });
+  expect(roadmap.definition.entries).toHaveLength(2);
+  expect(roadmap.attempts).toMatchObject([{ status: 'preparing', definitionRevision: 1 }]);
+  expect(tx.execution.cycles.find(ws, roadmap.attempts[0]!.cycleId)).toBeUndefined();
+  // The next pass admits it, as reserved.
+  await waitFor(
+    () => !!tx.execution.cycles.find(ws, storedRoadmap(fx.state).attempts[0]!.cycleId),
+    'the next pass admits it',
+  );
+  roadmap = storedRoadmap(fx.state);
+  expect(roadmap.attempts).toMatchObject([{ status: 'active', definitionRevision: 1 }]);
+  expect(roadmap.status).toBe('running');
+});
+
+it('a save while the roadmap runs is held to the revision it was made from, and names a started entry it would change (R-B6, review L-6)', async () => {
+  const fx = await fixture();
+  const roadmap = storedRoadmap(fx.state);
+  const started = fx.input.entries[0]!;
+  const save = (changes: Record<string, unknown>) =>
+    saveRoadmapRequest(fx.state, { ...fx.input, expectedVersion: roadmap.version, ...changes });
+  // Another revision than the current one is refused, whatever the version.
+  const outdated = await save({ expectedRevision: roadmap.definition.revision + 1 });
+  expect(outdated.statusCode, outdated.body).toBe(409);
+  expect(outdated.json().error.message).toBe('Roadmap changed; refresh before saving.');
+  // A started entry keeps its settings, and the refusal names it.
+  const frozen = await save({
+    expectedRevision: roadmap.definition.revision,
+    entries: fx.input.entries.map((e) =>
+      e.id === started.id ? { ...e, instructions: 'Changed after it started.' } : e,
+    ),
+  });
+  expect(frozen.statusCode, frozen.body).toBe(409);
+  expect(frozen.json().error.message).toBe(
+    'AQ-01 has started, so it keeps its original work item and settings. Refresh to see the current roadmap.',
+  );
+  expect(storedRoadmap(fx.state).definition.revision).toBe(roadmap.definition.revision);
+  fx.release();
 });

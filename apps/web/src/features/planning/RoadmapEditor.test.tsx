@@ -465,7 +465,7 @@ it('edits a running roadmap’s queued entries, held to the revision it showed r
   );
   expect(
     screen.getByText(
-      'Started items keep their saved settings; the change applies to queued items.',
+      'Started items keep their saved settings except their agents, which apply from each entry’s next step; steps running now keep theirs.',
     ),
   ).toBeTruthy();
   // The running roadmap writes itself as its items move: a newer version alone dates nothing.

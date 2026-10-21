@@ -71,5 +71,6 @@ outside the roadmap) keep their own stops.
 Operator decision 4. Recovery delegation changes at any roadmap status but ended, and not while
 the roadmap's wind-down settles. Each round reads it at its next step, and its own check reads
 it again before it acts. Turned off while the roadmap runs, an automatic round already open is no
-longer carried: its next merge and stop are the operator's, as after a pause; its stopped parent
-review stays stopped rather than being resumed by a later Resume.
+longer carried: its next merge and stop are the operator's, as when it is turned off while
+paused. (Turned off while paused, the Resume that follows resumes the round's stopped parent
+review; turned off while running, that review stays stopped until the operator acts.)

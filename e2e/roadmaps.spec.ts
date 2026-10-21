@@ -200,7 +200,7 @@ for (const mode of ['sequential', 'parallel'] as const) {
         const running = page.getByRole('region', { name: 'Roadmap editor' });
         await expect(
           running.getByText(
-            'Started items keep their saved settings; the change applies to queued items.',
+            'Started items keep their saved settings except their agents, which apply from each entry’s next step; steps running now keep theirs.',
           ),
         ).toBeVisible();
         await running

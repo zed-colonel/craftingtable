@@ -678,9 +678,11 @@ export class RoadmapService {
         ? 'A roadmap command is in progress.'
         : ended(r)
           ? 'This roadmap has ended. Its agents can no longer change.'
-          : this.storage.amendments.pending(workspaceId, r.id)
-            ? 'Decide the pending planning amendment first.'
-            : null,
+          : this.storage.windDowns.find(workspaceId, r.id)?.status === 'settling'
+            ? 'This roadmap is being stopped.'
+            : this.storage.amendments.pending(workspaceId, r.id)
+              ? 'Decide the pending planning amendment first.'
+              : null,
       entries: r.definition.entries.map((e) => {
         const agents = entryAgents(r, e);
         const assignment = latestAssignment(r, e.id);
@@ -1963,7 +1965,7 @@ export class RoadmapService {
       scheduling.mode !== (old.definition.scheduling?.mode ?? 'sequential')
     )
       conflict(
-        'Finish the in-flight attempts before changing scheduling mode. Capacity limits can be edited while paused.',
+        'Finish the in-flight attempts before changing scheduling mode. Capacity limits can be edited at any time.',
       );
     const started =
       (parallel

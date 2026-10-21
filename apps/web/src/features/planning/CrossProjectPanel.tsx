@@ -316,7 +316,9 @@ export function CrossProjectPanel({
               roadmapId: saving?.id ?? crypto.randomUUID(),
               expectedVersion: saving?.version ?? 0,
               // A running roadmap is held to the revision this form showed (R-B6, decision 10).
-              ...(roadmap ? { expectedRevision: roadmap.definition.revision } : {}),
+              ...(roadmap
+                ? { expectedRevision: editingRevision ?? roadmap.definition.revision }
+                : {}),
               name,
               configuration: {
                 definitionId,
@@ -830,7 +832,10 @@ export function CrossProjectPanel({
                   : 'Roadmap agent and automation settings'}
               </summary>
               {roadmap?.status === 'running' && (
-                <p>Started items keep their saved settings; the change applies to queued items.</p>
+                <p>
+                  Started items keep their saved settings except their agents, which apply from each
+                  entry’s next step; steps running now keep theirs.
+                </p>
               )}
               <About label="About roadmap settings">
                 {roadmap && (

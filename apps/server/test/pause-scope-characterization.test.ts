@@ -201,10 +201,18 @@ it.each(RUNNING)(
 );
 
 it.each(RUNNING)(
-  '$name: refused while the roadmap’s wind-down settles and once it has ended',
+  '$name: refused once the roadmap has ended, and while its wind-down settles',
   async (command) => {
     const fx = await fixture();
-    setStatus(fx, storedRoadmap(fx.f.state), 'running');
+    setStatus(fx, storedRoadmap(fx.f.state), 'stopped');
+    const stopped = storedRoadmap(fx.f.state);
+    const ended = await command.send(fx);
+    expect(ended.statusCode, ended.body).toBe(409);
+    expect(ended.json().error.message).toBe(
+      'This roadmap has ended. Ended roadmaps retain their history.',
+    );
+    expect(storedRoadmap(fx.f.state)).toEqual(stopped);
+    setStatus(fx, stopped, 'running');
     const at = new Date().toISOString();
     fx.tx.windDowns.insert({
       id: asRoadmapWindDownId(randomUUID()),
@@ -227,11 +235,6 @@ it.each(RUNNING)(
       message: 'This roadmap is being stopped.',
     });
     expect(storedRoadmap(fx.f.state)).toEqual(before);
-    setStatus(fx, before, 'stopped');
-    const stopped = storedRoadmap(fx.f.state);
-    const ended = await command.send(fx);
-    expect(ended.statusCode, ended.body).toBe(409);
-    expect(storedRoadmap(fx.f.state)).toEqual(stopped);
   },
 );
 

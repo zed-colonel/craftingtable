@@ -283,7 +283,11 @@ export function RoadmapEditor({
                 ...(saved ? { view: saved } : {}),
                 roadmap: { ...start, version },
               });
-              setDraft({ ...draft, expectedVersion: version });
+              setDraft({
+                ...draft,
+                expectedVersion: version,
+                expectedRevision: start.definition.revision,
+              });
             }
             setAgentDrafts(
               (drafts) => new Map([...drafts].filter(([entryId]) => !applied.includes(entryId))),
@@ -541,7 +545,10 @@ export function RoadmapEditor({
                   </button>
                 </div>
                 {frozen && (
-                  <p className="hint">This entry has started. Its effective settings stay fixed.</p>
+                  <p className="hint">
+                    This entry has started. Its settings stay fixed; its agents apply from its next
+                    step, and a step running now keeps its agent.
+                  </p>
                 )}
                 {parallel && (
                   <label className="field">
@@ -649,7 +656,10 @@ export function RoadmapEditor({
           </p>
         </About>
         {baseline?.status === 'running' && (
-          <p>Started items keep their saved settings; the change applies to queued items.</p>
+          <p>
+            Started items keep their saved settings except their agents, which apply from each
+            entry’s next step; steps running now keep theirs.
+          </p>
         )}
         {baseline && outdated(baseline, draft) && (
           <p role="alert">

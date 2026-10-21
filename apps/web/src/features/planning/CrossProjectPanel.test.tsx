@@ -371,10 +371,30 @@ it('opens the exact reviewer checkboxes, retains other assignments, and saves ch
   expect(
     vi.mocked(saveCrossProject).mock.calls[0]![1].configuration.defaults.reviewerRoles,
   ).toEqual(['independent-integration-reviewer', 'repository-maintainer']);
+  // The revision the form was opened at, which a running roadmap's save is held to (R-B6).
+  expect(vi.mocked(saveCrossProject).mock.calls[0]![1]).toMatchObject({
+    expectedVersion: 3,
+    expectedRevision: 2,
+  });
   await screen.findByText(/Saved · revision 3. No settings save needed/);
   expect(save.hasAttribute('disabled')).toBe(true);
   expect(changed).toHaveBeenLastCalledWith(id, false);
   expect(screen.queryByText(/Accepted for saved revision 2/)).toBeNull();
+});
+
+it('edits a running roadmap’s queued settings, and says what its started items keep (R-B6, decision 5)', async () => {
+  setup({ ...savedRoadmap(), status: 'running' } as Roadmap);
+  await screen.findByText(
+    'Started items keep their saved settings except their agents, which apply from each entry’s next step; steps running now keep theirs.',
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Assign independent reviewer responsibilities' }),
+  );
+  const maintainer = screen.getByRole('checkbox', {
+    name: 'repository-maintainer',
+  }) as HTMLInputElement;
+  expect(maintainer.disabled).toBe(false);
+  expect(screen.queryByText(/Pause the roadmap to edit queued settings/)).toBeNull();
 });
 
 // R-C6 review L2: with no accepted plan there is nothing a save could carry.

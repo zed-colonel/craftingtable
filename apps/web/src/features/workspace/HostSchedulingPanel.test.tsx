@@ -200,3 +200,43 @@ it('saves workstation capacity while a roadmap runs (R-B6, decision 9)', async (
   fireEvent.click(save);
   await screen.findByText(/Workstation capacity saved/);
 });
+it('dates a running roadmap’s limits edit by its revision, not its version (R-B6, decision 10)', async () => {
+  const roadmap = (version: number, revision: number) => ({
+    id: 'map',
+    version,
+    name: 'Stack',
+    status: 'running',
+    revision,
+    crossProject: true,
+    scheduling: {
+      mode: 'parallel',
+      maxInFlight: 4,
+      maxPerRepository: 2,
+      maxIntegrationRefreshes: 3,
+    },
+    editBlocker: null,
+    inFlight: [],
+  });
+  let current = roadmap(3, 2);
+  vi.mocked(request).mockImplementation(async (url) =>
+    url.endsWith('/capacities') ? { roadmaps: [current] } : status,
+  );
+  render(<HostSchedulingPanel workspaceId="workspace" csrfToken="csrf" canManageHost={false} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Change roadmap limits' }));
+  fireEvent.change(screen.getByLabelText('Maximum in-flight items'), { target: { value: '3' } });
+  // The scheduler moved the version on: the edit still stands.
+  current = roadmap(7, 2);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh roadmap limits' }));
+  await screen.findByText('Roadmap limits and in-flight work refreshed.');
+  expect(screen.queryByText(/The roadmap changed during this edit/)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Save roadmap limits' }).hasAttribute('disabled')).toBe(
+    false,
+  );
+  // A new revision dates it.
+  current = roadmap(8, 3);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh roadmap limits' }));
+  await screen.findByText(/The roadmap changed during this edit/);
+  expect(screen.getByRole('button', { name: 'Save roadmap limits' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+});

@@ -493,13 +493,13 @@ evidence it accepts is a current review.
   review) run on its roadmap's saved reviewer delegation. A cycle no roadmap owns still owes the
   security review, which the operator who started the cycle authorizes; a roadmap that owns a
   cycle without a readable reviewer delegation authorizes none, and the cycle stops.
-- A roadmap's agents are assigned separately from its saved definition, while scheduling is
-  paused: an assignment carries backend, model and effort only, never permissions, reviewer
+- A roadmap's agents are assigned separately from its saved definition, at any time until it
+  ends (R-B6): an assignment carries backend, model and effort only, never permissions, reviewer
   responsibilities, budgets or merge authority, and runs keep the assignment they launched with
   ([ADR-064](decisions/ADR-064-agent-profile-delegation.md)). Permissions are saved with the
   definition, which needs step-up when it grants `unrestricted`.
-- Standing decision preparation is granted per roadmap while scheduling is paused, audited, and
-  revoked by the operator or by an applied amendment. Each preparation runs as the grantor, who
+- Standing decision preparation is granted per roadmap at any time until it ends (R-B6), audited,
+  and revoked by the operator or by an applied amendment. Each preparation runs as the grantor, who
   must still be an active owner or editor at every launch stage; approving a decision stays the
   operator's alone ([ADR-065](decisions/ADR-065-future-delegation-and-decision-preparation.md)).
 - Approvals grant only what they name. Adopting a map's scheduling proposals needs the exact

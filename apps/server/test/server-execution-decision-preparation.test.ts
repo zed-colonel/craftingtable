@@ -19,6 +19,7 @@ import {
   waitFor,
   waitUntil,
 } from './execution-test-support.js';
+import { moduleOf } from './scheduler-test-support.js';
 import {
   architectureDecisionInbox,
   decisionBriefs,
@@ -229,6 +230,27 @@ async function proposeAndAccept(
     rationale: outcome === 'accepted' ? 'Approved.' : 'Not this boundary.',
   });
 }
+
+it('refuses to prepare a decision on a controller without Git, and writes nothing (I2-no-git-guard)', async () => {
+  // R-B7's scheduler half: the preparations module refuses before anything else when the daemon
+  // has no Git (mutant I2-no-git-guard); the seam is the module's, not the facade's.
+  const fixture = await decisionFixture();
+  const { f, tx } = fixture;
+  const preparations = moduleOf(f.state.context.services.roadmapService, 'preparations');
+  (preparations as { git: unknown }).git = undefined;
+  const before = storedRoadmap(f.state);
+  const audits = tx.audit.listWorkspace({ workspaceId: fixture.ws, limit: 2000 }).length;
+  const launches = f.backend.launches.length;
+  const result = await prepare(fixture, 'LOCAL-ADR-01');
+  expect(result.statusCode, result.body).toBe(409);
+  expect(result.json().error.message).toBe(
+    'Decision preparation is unavailable on this controller.',
+  );
+  expect(storedRoadmap(f.state)).toEqual(before);
+  expect(tx.audit.listWorkspace({ workspaceId: fixture.ws, limit: 2000 })).toHaveLength(audits);
+  expect(tx.execution.runs.listLive()).toEqual([]);
+  expect(f.backend.launches).toHaveLength(launches);
+});
 
 it('prepares a decision while the roadmap runs, through the roadmap’s own writes (R-C3b)', async () => {
   const fixture = await decisionFixture();

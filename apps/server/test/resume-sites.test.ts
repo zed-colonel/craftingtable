@@ -22,6 +22,7 @@ import {
   present,
   type Ready,
   roadmapControl,
+  roadmapFixture,
   roadmapId,
   saveRoadmapRequest,
   storedRoadmap,
@@ -305,9 +306,8 @@ describe("a roadmap's Resume (controlWithin)", () => {
 
   it('resumes the paused slice cycle of an attempt whose entry the definition no longer has (R-B7 increment 12)', async () => {
     const f = await pausedEntry();
-    const outcome = await roadmapResume(
-      f,
-      () => writeAttempt(f.state, f.attempt.id, { entryId: asRoadmapEntryId(randomUUID()) }),
+    const outcome = await roadmapResume(f, () =>
+      writeAttempt(f.state, f.attempt.id, { entryId: asRoadmapEntryId(randomUUID()) }),
     );
     expect(outcome.resumed).toEqual([f.cycle.id]);
   });
@@ -443,6 +443,62 @@ describe("a roadmap's Resume (controlWithin)", () => {
     const f = await pausedEntry();
     await controlCycle(f.state, f.cycle, 'stop');
     expect(await roadmapResume(f)).toEqual({ resumed: [], hold: undefined });
+  });
+
+  // R-B7 scheduler half, LOW-2 (mutant R12): a parallel roadmap's Resume resumes in the current
+  // definition's entry order, not in the order of its attempts.
+  it('resumes paused cycles in the definition’s entry order, not the attempts’ order', async () => {
+    const f = await pausedEntry({ sibling: true });
+    const sibling = present(f.sibling);
+    await controlCycle(f.state, cycleOf(f.state, sibling.cycleId), 'pause');
+    const outcome = await roadmapResume(f, () =>
+      writeRoadmap(f.state, (r) => ({ attempts: r.attempts.toReversed() })),
+    );
+    expect(storedRoadmap(f.state).attempts.map((a) => a.entryId)).toEqual([
+      sibling.entryId,
+      f.attempt.entryId,
+    ]);
+    expect(outcome).toEqual({ resumed: [f.cycle.id, sibling.cycleId], hold: undefined });
+  });
+
+  // R-B7 scheduler half, LOW-2 (mutant R13): a parallel roadmap swallows one cycle's refusal
+  // to resume; its independent sibling still resumes and the Resume answers 200.
+  it('resumes a sibling past a cycle whose own resume refuses, on a parallel roadmap', async () => {
+    const f = await pausedEntry({ sibling: true });
+    const sibling = present(f.sibling);
+    await controlCycle(f.state, cycleOf(f.state, sibling.cycleId), 'pause');
+    // The hand-made review scope names no map, so the first entry's own resume refuses (404).
+    const outcome = await roadmapResume(f, () => rescope(f));
+    expect(outcome).toEqual({ resumed: [f.cycle.id, sibling.cycleId], hold: undefined });
+    expect(cycleOf(f.state, f.cycle.id).status).toBe('paused');
+    expect(cycleOf(f.state, sibling.cycleId).status).not.toBe('paused');
+  });
+
+  // R-B7 scheduler half, LOW-2: the other side of the parallel guard. A sequential roadmap's
+  // Resume answers with its cycle's own refusal and stays paused.
+  it('answers a cycle’s own refusal to resume on a sequential roadmap, and stays paused', async () => {
+    const sequential = await roadmapFixture();
+    const { state } = sequential;
+    expect((await saveRoadmapRequest(state)).statusCode).toBe(200);
+    await roadmapControl(state, 'start');
+    const attempt = await awaitRoadmapMerge(state, 0);
+    await controlCycle(state, cycleOf(state, attempt.cycleId), 'pause');
+    await roadmapControl(state, 'pause');
+    // `rescope` and `watchResumes` read only the state, the attempt and its cycle.
+    const f = { state, attempt, cycle: cycleOf(state, attempt.cycleId) } as unknown as Fixture;
+    rescope(f);
+    const resumed = watchResumes(f);
+    const answer = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${state.workspaceId}/roadmaps/${roadmapId}/control`,
+      headers: mutationHeaders(state),
+      payload: { action: 'resume', expectedVersion: storedRoadmap(state).version },
+    });
+    expect(answer.statusCode, answer.body).toBe(404);
+    expect(answer.json().error.message).toBe('Resource not found');
+    expect(resumed()).toEqual([f.cycle.id]);
+    expect(storedRoadmap(state).status).toBe('paused');
+    expect(cycleOf(state, f.cycle.id).status).toBe('paused');
   });
 });
 

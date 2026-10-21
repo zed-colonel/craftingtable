@@ -8,6 +8,7 @@ import {
 } from '@craftingtable/domain';
 import type { CraftingTableStorage } from '@craftingtable/storage';
 import { afterEach, expect, it } from 'vitest';
+import { SupersededRoadmapOperation } from '../src/services/roadmap/shared.js';
 import {
   adoptSupervisedMap,
   awaitRoadmapMerge,
@@ -155,6 +156,16 @@ it('admits each entry with its check, and audits a delegated merge as the system
   const execution = state.context.services.executionService;
   const created = watch(storage, execution, 'createWorktree', inOptions(5));
   const merged = watch(storage, execution, 'mergeWorktree', inOptions(5));
+  // The check the delegated merge is handed, as the scheduler made it: the count above holds that
+  // the merge asks it, this that it is the scheduler's own (the R-B7 scheduler half's mutation
+  // round: a no-op check in its place was counted the same).
+  const mergeChecks: (() => void)[] = [];
+  const watchedMerge = execution.mergeWorktree;
+  execution.mergeWorktree = function (this: unknown, ...args: Parameters<typeof watchedMerge>) {
+    const check = args[5]?.actor.check;
+    if (check) mergeChecks.push(check);
+    return watchedMerge.apply(this, args);
+  } as typeof watchedMerge;
   const input = roadmapInput(state);
   // The first entry merges automatically; the second waits for the operator's merge.
   const saved = await saveRoadmapRequest(state, {
@@ -177,6 +188,9 @@ it('admits each entry with its check, and audits a delegated merge as the system
     // reservation's write.
     merged: { calls: 1, check: 2, attach: 0, attachInTransaction: [], refusals: [] },
   });
+  // The roadmap has completed, so the scheduler's own check now refuses as superseded.
+  expect(mergeChecks).toHaveLength(1);
+  expect(() => mergeChecks[0]?.()).toThrow(SupersededRoadmapOperation);
   expect(audited(storage, state.workspaceId, 'worktree.merged')).toEqual([
     { actorKind: 'user', targetId: second.worktreeId },
     { actorKind: 'system', targetId: first.worktreeId },
@@ -562,6 +576,81 @@ itNeedsCargo(
   },
 );
 
+/** `delegateScopeRepair`'s site: the actor inside its delegation, the fifth argument. */
+const inDelegation = (args: unknown[], wrap: Wrap) => {
+  const delegation = args[4] as { actor: Actor } | undefined;
+  if (!delegation) return undefined;
+  const next = [...args];
+  next[4] = { ...delegation, actor: wrapActor(delegation.actor, wrap) };
+  return next;
+};
+
+/**
+ * As server-execution-scope-recovery-operator-rounds.test.ts: the parent's first review finds one
+ * defect and every later one finds it resolved; a repair commits its correction and its review
+ * resolves the findings of its packet.
+ */
+function answerOneRepair(f: Awaited<ReturnType<typeof supervisedMapFixture>>): void {
+  const { state } = f,
+    ws = state.workspaceId,
+    storage = state.context.storage;
+  const normal = f.backend.replyForRequest!;
+  let parentReviews = 0;
+  const reportWith = (scope: ExecutionScope, findings: readonly unknown[]) =>
+    '## Open questions\nnone\n\n## Review report\n' +
+    scopeReport(state, scope)
+      .replace('"findings":[]', `"findings":${JSON.stringify(findings)}`)
+      .replaceAll(
+        'mergeable',
+        findings.some((f) => (f as { status: string }).status === 'open')
+          ? 'changes-requested'
+          : 'mergeable',
+      );
+  const defect = { ...structuredFinding, id: 'F003', severity: 'major' };
+  f.backend.replyForRequest = async (request) => {
+    const tree = storage.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
+    const scope = tree.executionScope!;
+    if (scope.kind === 'parent-acceptance') {
+      parentReviews++;
+      await runScopedFixtureCheck(request);
+      return {
+        resultText: reportWith(
+          scope,
+          parentReviews > 1
+            ? [{ ...defect, status: 'resolved', disposition: 'Verified the repair.' }]
+            : [defect],
+        ),
+      };
+    }
+    const packetPath = runRecord(request, 'craftingtable-scope-repair.json');
+    if (packetPath) {
+      if (request.model !== 'review-model') {
+        commitFile(request.cwd, 'repair.txt', 'Corrected the family');
+        return implementationDone;
+      }
+      await runScopedFixtureCheck(request);
+      const packet = JSON.parse(readFileSync(packetPath, 'utf8'));
+      return {
+        resultText: reportWith(
+          scope,
+          packet.sources
+            .flatMap((s: { findings: (typeof structuredFinding)[] }) => s.findings)
+            .map((finding: typeof structuredFinding) => ({
+              id: finding.id,
+              title: finding.title,
+              severity: finding.severity,
+              explanation: finding.explanation,
+              recommendation: finding.recommendation,
+              status: 'resolved',
+              disposition: 'Verified the committed correction.',
+            })),
+        ),
+      };
+    }
+    return normal(request);
+  };
+}
+
 itNeedsCargo(
   'delegates an operator’s repair round with its check and attach, and carries its reviews',
   async () => {
@@ -573,61 +662,7 @@ itNeedsCargo(
       ws = state.workspaceId,
       storage = state.context.storage;
     const services = state.context.services;
-    const normal = f.backend.replyForRequest!;
-    let parentReviews = 0;
-    const reportWith = (scope: ExecutionScope, findings: readonly unknown[]) =>
-      '## Open questions\nnone\n\n## Review report\n' +
-      scopeReport(state, scope)
-        .replace('"findings":[]', `"findings":${JSON.stringify(findings)}`)
-        .replaceAll(
-          'mergeable',
-          findings.some((f) => (f as { status: string }).status === 'open')
-            ? 'changes-requested'
-            : 'mergeable',
-        );
-    const defect = { ...structuredFinding, id: 'F003', severity: 'major' };
-    f.backend.replyForRequest = async (request) => {
-      const tree = storage.execution.worktrees.listActive(ws).find((t) => t.path === request.cwd)!;
-      const scope = tree.executionScope!;
-      if (scope.kind === 'parent-acceptance') {
-        parentReviews++;
-        await runScopedFixtureCheck(request);
-        return {
-          resultText: reportWith(
-            scope,
-            parentReviews > 1
-              ? [{ ...defect, status: 'resolved', disposition: 'Verified the repair.' }]
-              : [defect],
-          ),
-        };
-      }
-      const packetPath = runRecord(request, 'craftingtable-scope-repair.json');
-      if (packetPath) {
-        if (request.model !== 'review-model') {
-          commitFile(request.cwd, 'repair.txt', 'Corrected the family');
-          return implementationDone;
-        }
-        await runScopedFixtureCheck(request);
-        const packet = JSON.parse(readFileSync(packetPath, 'utf8'));
-        return {
-          resultText: reportWith(
-            scope,
-            packet.sources
-              .flatMap((s: { findings: (typeof structuredFinding)[] }) => s.findings)
-              .map((finding: typeof structuredFinding) => ({
-                id: finding.id,
-                title: finding.title,
-                severity: finding.severity,
-                explanation: finding.explanation,
-                recommendation: finding.recommendation,
-                status: 'resolved',
-                disposition: 'Verified the committed correction.',
-              })),
-          ),
-        };
-      }
-      return normal(request);
-    };
+    answerOneRepair(f);
     f.service.save(f.auth, ws, f.input);
     await adoptSupervisedMap(f);
     await roadmapControl(state, 'start');
@@ -654,13 +689,7 @@ itNeedsCargo(
       storage,
       services.workCycleService,
       'delegateScopeRepair',
-      (args, wrap) => {
-        const delegation = args[4] as { actor: Actor } | undefined;
-        if (!delegation) return undefined;
-        const next = [...args];
-        next[4] = { ...delegation, actor: wrapActor(delegation.actor, wrap) };
-        return next;
-      },
+      inDelegation,
     );
     const repeated = watch(
       storage,
@@ -714,6 +743,71 @@ itNeedsCargo(
     expect(audited(storage, ws, 'worktree.merged')[0]).toEqual({
       actorKind: 'system',
       targetId: round.worktreeId,
+    });
+  },
+);
+
+itNeedsCargo(
+  'delegates automatic recovery’s repair round with its check and attach (MEDIUM-1, mutant C6)',
+  async () => {
+    // R-B7's scheduler half: the automatic recovery owner's site (`advanceScopeRecovery`), the
+    // one of the four attaches no row reached. As scope-recovery-test-support.ts ('accepted'):
+    // the parent's review finds a defect, recovery is enabled while the roadmap is paused, and on
+    // Resume the scheduler delegates the repair to the owning slice itself.
+    const f = await supervisedMapFixture(false, 'automatic', false, false, true);
+    const { state } = f,
+      ws = state.workspaceId,
+      storage = state.context.storage;
+    const services = state.context.services;
+    answerOneRepair(f);
+    f.service.save(f.auth, ws, f.input);
+    await adoptSupervisedMap(f);
+    await roadmapControl(state, 'start');
+    const parent = () =>
+      storage.execution.cycles
+        .listForWorkspace(ws)
+        .find((c) => c.executionScope?.kind === 'parent-acceptance');
+    await waitFor(() => parent()?.status === 'needs-attention', 'parent finding');
+    await roadmapControl(state, 'pause');
+    const enabled = await state.context.app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${ws}/roadmaps/${roadmapId}/scope-recovery`,
+      headers: mutationHeaders(state),
+      payload: {
+        expectedVersion: storedRoadmap(state).version,
+        enabled: true,
+        maxRoundsPerParent: 3,
+      },
+    });
+    expect(enabled.statusCode, enabled.body).toBe(200);
+    const delegated = watch(
+      storage,
+      services.workCycleService,
+      'delegateScopeRepair',
+      inDelegation,
+    );
+    await roadmapControl(state, 'resume');
+    await waitFor(() => {
+      const held = Object.values(storedRoadmap(state).entryHolds ?? {}).find(
+        (h) => h.status === 'needs-attention',
+      );
+      if (held) throw new Error(held.reason);
+      return storage.planning.workItems.find(ws, state.workItemId)?.status === 'completed';
+    }, 'automatic recovered parent acceptance');
+    const rounds = () => storedRoadmap(state).attempts.filter((a) => a.recovery);
+    await waitFor(
+      () => rounds().length === 1 && rounds()[0]!.recovery!.phase === 'completed',
+      'round completed',
+    );
+    // As the operator's delegation: the repair's wrapper asks it on entry, the new tree twice,
+    // the wrapper after Git and again in the transaction that starts the repair, where the attach
+    // marks the round active.
+    expect(delegated).toEqual({
+      calls: 1,
+      check: 5,
+      attach: 1,
+      attachInTransaction: [true],
+      refusals: [],
     });
   },
 );

@@ -8,8 +8,9 @@ import {
   asWorkItemId,
   DEFAULT_COMPLETION_POLICY,
 } from '@craftingtable/domain';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { openDaemonStorage } from '../src/persisted-records.js';
+import { ExecutionRequestError } from '../src/services/errors.js';
 import { resolveScope, scopeEvidenceLedger } from '../src/services/execution-scope.js';
 
 /* -------------------------------------------------------------------------- */
@@ -319,6 +320,77 @@ itNeedsCargo(
       const c = state.context.storage.execution.cycles.find(ws, a.cycleId)!;
       if (c.executionScope?.kind !== 'slice') expect(c.step).toBe('review');
     }
+  },
+);
+itNeedsCargo(
+  'leaves a cross-project roadmap uncompleted when its selected scope’s subjects are not current (I2-subjects-current)',
+  async () => {
+    // R-B7's scheduler half: the pass that finds the selected scope complete awaits
+    // `assertSubjectsCurrent` before it marks the roadmap completed (mutant I2-subjects-current).
+    // As the row above: the parent is accepted and the target's evidence is accepted, but the
+    // freshness check refuses, as it does when the evidence went stale.
+    const f = await supervisedMapFixture(),
+      { state } = f,
+      ws = state.workspaceId;
+    f.service.save(f.auth, ws, f.input);
+    await adoptSupervisedMap(f);
+    expect((await roadmapControl(state, 'start')).statusCode).toBe(200);
+    await waitFor(() => {
+      const bad = Object.values(storedRoadmap(state).entryHolds ?? {}).find(
+        (h) => h.status === 'needs-attention',
+      );
+      if (bad) throw new Error(bad.reason);
+      return (
+        state.context.storage.planning.workItems.find(ws, state.workItemId)?.status === 'completed'
+      );
+    }, 'parent independently accepted');
+    expect(storedRoadmap(state).status).toBe('running');
+    const evidence = state.context.services.runtimeEvidenceService;
+    const stale = 'Current independently accepted evidence is required for LOCAL-TARGET.';
+    const asserted = vi
+      .spyOn(evidence, 'assertSubjectsCurrent')
+      .mockRejectedValue(new ExecutionRequestError('conflict', stale));
+    const spec = (await evidence.view(f.auth, ws, f.parentScope.definitionId)).subjects.find(
+      (s) => s.subject.sourceId === 'LOCAL-TARGET',
+    )!;
+    const submitted = await evidence.submit(f.auth, ws, f.parentScope.definitionId, {
+      runtimeId: f.runtime.current!.id,
+      subject: spec.subject,
+      subjectCommit: git(['rev-parse', 'revision'], f.root).trim(),
+      environmentId: asQualificationEnvironmentId('local-tests'),
+      executedBy: 'author',
+      executedAt: new Date().toISOString(),
+      reviewers: [
+        { identity: 'independent-reviewer', roles: spec.reviewerRoles, artifact: 'review' },
+      ],
+      requirements: spec.requirements.map((requirement) => ({ requirement, artifact: 'review' })),
+      cases: [],
+      artifacts: [
+        {
+          name: 'review',
+          content: 'Independently inspected the target and all required receipts.',
+        },
+      ],
+    });
+    await evidence.decide(f.auth, ws, f.parentScope.definitionId, {
+      submissionId: submitted.submissions[0]!.submission.id,
+      outcome: 'accepted',
+      rationale: 'Independent target review accepted.',
+    });
+    await waitFor(
+      () => storedRoadmap(state).status !== 'running',
+      'the completing pass meets the refusal',
+    );
+    expect(f.service.view(f.auth, ws, f.input.configuration).selectedScopeComplete).toBe(true);
+    expect(asserted.mock.calls).toEqual([
+      [ws, f.parentScope.definitionId, 1, [{ kind: 'checkpoint', sourceId: 'LOCAL-TARGET' }]],
+    ]);
+    // The pass's refusal stops the roadmap with its reason, as any scheduler error does.
+    expect(storedRoadmap(state)).toMatchObject({
+      status: 'needs-attention',
+      reason: stale,
+      attention: { code: 'scheduler-error' },
+    });
   },
 );
 itNeedsCargo(

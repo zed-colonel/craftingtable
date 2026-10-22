@@ -30,7 +30,7 @@ import {
 
 /**
  * R-B7 scheduler half, increment 1 (characterization; tests only): a roadmap's Resume
- * (`RoadmapService.controlWithin`) and an item's Resume (`controlEntry`) on each condition the
+ * (`RoadmapControl.controlWithin`, through `RoadmapService.control`) and an item's Resume (`controlEntry`) on each condition the
  * two copies of the resume rule read (CTRL-12). Each row pins which cycles the command asks to
  * resume (`WorkCycleService.control` with `resume`), the entry's hold after it, and the
  * command's answer. Rows whose answer changes under R-B7 decision 1 A (one resume rule for both)

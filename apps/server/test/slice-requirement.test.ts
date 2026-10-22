@@ -455,8 +455,8 @@ describe('the slice requirement, both copies', () => {
 
 describe('the slice requirement on a later binding revision that binds the slice’s work item', () => {
   /**
-   * The settlement review of R-B7's scheduler half (LOW-1): every row above asks slice a's
-   * evidence at revision 1, or returns before asking it. Here binding revision 2 binds every work
+   * The settlement review of R-B7's scheduler half (LOW-1): the table's rows above ask slice a's
+   * evidence at revision 1, and the unbound rows below return before asking it. Here binding revision 2 binds every work
    * item as revision 1 does, and the evidence asked of it is revision 2's.
    */
   it('asks slice a’s evidence of that revision in both copies', async () => {

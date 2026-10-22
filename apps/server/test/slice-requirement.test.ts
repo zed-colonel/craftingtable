@@ -44,6 +44,8 @@ const evidence = vi.hoisted(() => ({
   accepted: false,
   /** Whether slice a's receipts are current; `undefined` asks the policy. */
   receiptCurrent: undefined as boolean | undefined,
+  /** The definition and revision each ask of slice a's evidence named (review of increment 1). */
+  asked: [] as { definitionId: unknown; bindingRevision: unknown }[],
 }));
 vi.mock('../src/services/runtime-evidence-policy.js', async (importOriginal) => {
   const original =
@@ -72,7 +74,8 @@ vi.mock('../src/services/runtime-evidence-policy.js', async (importOriginal) => 
   return {
     ...original,
     acceptedEvidence: (...args: Parameters<typeof original.acceptedEvidence>) =>
-      subjectIsSliceA(args)
+      subjectIsSliceA(args) &&
+      evidence.asked.push({ definitionId: args[2], bindingRevision: args[3] }) > 0
         ? evidence.accepted
           ? ({ id: 'accepted-slice-evidence' } as unknown as ReturnType<
               typeof original.acceptedEvidence
@@ -239,6 +242,7 @@ function receipt(
 
 /** What each copy answers for slice a in each state. */
 function answers(f: Fixture, revision = 1) {
+  evidence.asked = [];
   const blockers = scopePhaseBlockers(
     f.tx,
     f.ws,
@@ -266,6 +270,11 @@ function answers(f: Fixture, revision = 1) {
           (b) => b.message === `Slice ${SLICE} must be ${state}.` && b.refs?.sliceId === SLICE,
         ),
       ]),
+    ),
+    // Each copy asks slice a's evidence of the definition and revision it was asked about (the
+    // review of R-B7's increment 1, NIT-6), never another.
+    evidenceAsked: evidence.asked.every(
+      (a) => a.definitionId === f.definition.id && a.bindingRevision === revision,
     ),
   };
 }
@@ -435,7 +444,11 @@ describe('the slice requirement, both copies', () => {
   it.each(rows)('$name: both copies agree', async ({ facts, expected, parent }) => {
     const f = await fixture();
     facts(f);
-    expect(answers(f)).toEqual({ milestoneMet: expected, scopePhaseBlockers: expected });
+    expect(answers(f)).toEqual({
+      milestoneMet: expected,
+      scopePhaseBlockers: expected,
+      evidenceAsked: true,
+    });
     expect(parentCheck(f)).toEqual(parent);
   });
 });
@@ -468,6 +481,7 @@ describe('the slice requirement on a binding that does not bind the slice’s wo
     expect(answers(f, revision)).toEqual({
       milestoneMet: met(false, false, false),
       scopePhaseBlockers: met(false, false, false),
+      evidenceAsked: true,
     });
   });
 
@@ -481,6 +495,7 @@ describe('the slice requirement on a binding that does not bind the slice’s wo
     expect(answers(f, revision)).toEqual({
       milestoneMet: met(false, false, false),
       scopePhaseBlockers: met(false, false, false),
+      evidenceAsked: true,
     });
   });
 });

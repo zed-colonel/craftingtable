@@ -275,7 +275,7 @@ export class RoadmapSelection {
   }
 
   /** Whether this unmerged slice worktree's merge waits on the given slice of the same map. */
-  waitsOnSlice(tx: StorageRepositories, tree: Worktree, slice: ExecutionScope): boolean {
+  private waitsOnSlice(tx: StorageRepositories, tree: Worktree, slice: ExecutionScope): boolean {
     if (
       tree.executionScope?.kind !== 'slice' ||
       !tree.workItemId ||

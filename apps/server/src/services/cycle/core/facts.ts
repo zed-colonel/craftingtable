@@ -119,7 +119,8 @@ export function cycleFacts(
      * it: a settling roadmap's id does not change while the pass runs (R-B11).
      */
     readonly settling: ReadonlySet<string>;
-    readonly owner: () => OwnerPolicy | undefined;
+    /** Only its id is read: the pass's snapshot outlives its awaits (R-B7's increment 8). */
+    readonly owner: () => Pick<OwnerPolicy, 'roadmapId'> | undefined;
   },
 ): CycleFacts {
   const tx = mapReadSnapshot(storage);

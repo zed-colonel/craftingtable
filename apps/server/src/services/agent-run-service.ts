@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { RoadmapActor } from './roadmap-actor.js';
+import type { RoadmapCheck } from './roadmap-actor.js';
 import type { AgentBackend } from '@craftingtable/agents';
 import {
   type AgentBackendKind,
@@ -185,7 +185,7 @@ export class AgentRunService {
   async startDecisionPreparation(
     context: CommandContext,
     preparation: import('@craftingtable/domain').DecisionPreparation,
-    actor: RoadmapActor,
+    actor: RoadmapCheck,
   ): Promise<AgentRun> {
     this.workspaceService.requireRole(context, preparation.workspaceId, ['owner', 'editor']);
     actor.check();
@@ -203,7 +203,7 @@ export class AgentRunService {
       undefined,
       undefined,
       { purpose: 'investigation', preparationId: preparation.id },
-      { value: preparation, check: actor.check },
+      { value: preparation, check: () => actor.check() },
     );
   }
 

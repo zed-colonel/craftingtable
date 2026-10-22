@@ -11,3 +11,9 @@ export interface RoadmapActor {
   /** The roadmap's own write, in the transaction that reserves the cycle's step. */
   readonly attach?: () => void;
 }
+
+/**
+ * The actor of a facade that only asks the check (R-B7 scheduler half, the review of increment 9,
+ * NIT-1): such a facade never runs an `attach`, so one written into its call is refused.
+ */
+export type RoadmapCheck = Pick<RoadmapActor, 'check'>;

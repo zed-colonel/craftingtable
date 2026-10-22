@@ -33,9 +33,12 @@ the daemon's modules import one another without cycles, type-only imports includ
 services share goes into a module neither imports back (R-B7). And it holds that the cycle's decision core
 (`apps/server/src/services/cycle/core/`) reaches, by value imports, no service and no file or
 process access: the core decides and the services act (R-B7). The cycle side (`services/cycle/`,
-`services/run/`, the two facades and `workflow-policy.ts`) reads a cycle's owning roadmap only
-through the scheduler's answer, `OwnerPolicy` (`services/roadmap/owner-policy.ts`), never the
-roadmap's record or delegation policy itself (R-B7). Only the replay tool and the
+`services/run/`, the two facades, `workflow-policy.ts` and `cycle-priority.ts`) reads a cycle's
+owning roadmap only through the scheduler's answer, `OwnerPolicy` (`services/roadmap/owner-policy.ts`),
+never the roadmap's record or delegation policy itself (R-B7). Outside it by design:
+`agent-profile-policy.ts` (ADR-064's layering of a cycle's agents), the scope recovery wait and the
+launch's scan of decision preparations (`run/launch.ts`; they read every roadmap of the workspace,
+not an owner), and `runtime-evidence-service.ts` (R-B7's third part). Only the replay tool and the
 workstation module import the replays' host pin (`apps/server/src/services/replay-host.ts`), so
 the daemon compares a native approval with the live host digest, while a replay runs as the host
 its goldens were recorded on (R-B4b). No package depends on ActionQueue, WorldInterface,

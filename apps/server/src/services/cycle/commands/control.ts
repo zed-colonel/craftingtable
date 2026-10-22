@@ -5,7 +5,7 @@
  * command's preconditions are R-B4's `decideCommand`.
  */
 
-import type { RoadmapActor } from '../../roadmap-actor.js';
+import type { RoadmapActor, RoadmapCheck } from '../../roadmap-actor.js';
 import { validExtraRounds } from '../../command-bounds.js';
 import type { SourceRepositoryId, WorkCycleId, MapAmendmentId } from '@craftingtable/domain';
 import { required, heldStop } from '@craftingtable/domain';
@@ -485,7 +485,7 @@ export class CycleControl {
    * stays with the operator. `check` is the roadmap's own authority check, repeated before the
    * review is reserved and again before it launches. Returns whether a review was started.
    */
-  async reviewForDeclaredChecks(cycle: WorkCycle, actor: RoadmapActor): Promise<boolean> {
+  async reviewForDeclaredChecks(cycle: WorkCycle, actor: RoadmapCheck): Promise<boolean> {
     const ws = cycle.workspaceId;
     const review = this.storage.execution.runs.find(ws, cycle.currentRunId);
     const head = review?.reviewBranchContext?.headSha;
@@ -504,7 +504,7 @@ export class CycleControl {
     const reserved = this.writer.change(cycle, decided.changes);
     try {
       await this.writer.next(reserved, 'review', review, undefined, {}, 'advance', {
-        check: actor.check,
+        check: () => actor.check(),
       });
     } catch (error) {
       const latest = this.storage.execution.cycles.find(ws, cycle.id);

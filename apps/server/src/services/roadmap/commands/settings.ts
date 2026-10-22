@@ -678,7 +678,7 @@ export class RoadmapSettings {
    * settles (R-B6, decisions 1 and 3 to 5): what it changes is read at the next launch, admission
    * or use, and nothing launched is reconfigured.
    */
-  assertSettingsOpen(workspaceId: WorkspaceId, roadmap: Roadmap): void {
+  private assertSettingsOpen(workspaceId: WorkspaceId, roadmap: Roadmap): void {
     const held = this.views.settingsHeld(workspaceId, roadmap);
     if (held.ended) conflict('This roadmap has ended. Ended roadmaps retain their history.');
     if (held.settling) windDownRefused('wind-down-in-progress', 'This roadmap is being stopped.');
@@ -688,7 +688,7 @@ export class RoadmapSettings {
    * The editable precondition's first step (R-B7, CTRL-14): open (`assertSettingsOpen`), then
    * neither a stale form nor a roadmap command holding it, refused with the site's own text.
    */
-  requireSettingsOpen(
+  private requireSettingsOpen(
     workspaceId: WorkspaceId,
     roadmap: Roadmap,
     form: { readonly expectedVersion: number; readonly expectedRevision?: number | undefined },
@@ -704,7 +704,7 @@ export class RoadmapSettings {
   }
 
   /** Its second step: no pending planning amendment, refused with the site's own text. */
-  requireNoPendingAmendment(workspaceId: WorkspaceId, roadmap: Roadmap, message: string) {
+  private requireNoPendingAmendment(workspaceId: WorkspaceId, roadmap: Roadmap, message: string) {
     if (this.views.settingsHeld(workspaceId, roadmap).amendment) conflict(message);
   }
 
@@ -715,7 +715,7 @@ export class RoadmapSettings {
    * a definition write is held to the revision its form showed, or to the version when the form
    * sent none.
    */
-  settingsStale(
+  private settingsStale(
     roadmap: Roadmap,
     view: { readonly expectedVersion: number; readonly expectedRevision?: number | undefined },
     writes: 'grant' | 'definition',

@@ -4,7 +4,7 @@
  * after the review's evidence and the integration snapshot it inspected are checked.
  */
 
-import type { RoadmapActor } from '../roadmap-actor.js';
+import type { RoadmapCheck } from '../roadmap-actor.js';
 import { randomUUID } from 'node:crypto';
 import {
   asAuditEventId,
@@ -51,7 +51,7 @@ export class ScopeReceipts {
     worktreeId: WorktreeId,
     expectedWorktreeVersion: number,
     /** The roadmap's actor, when its scheduler records the receipt (R-B7). */
-    delegation?: { readonly actor: RoadmapActor },
+    delegation?: { readonly actor: RoadmapCheck },
   ) {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor']);
     return this.mutations.during(worktreeId, 'scope-receipt', async () => {

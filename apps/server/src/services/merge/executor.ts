@@ -12,7 +12,7 @@ import {
   proposalDigest,
   type RepositoryChecksService,
 } from '../repository-checks-service.js';
-import type { RoadmapActor } from '../roadmap-actor.js';
+import type { RoadmapCheck } from '../roadmap-actor.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import {
@@ -115,7 +115,7 @@ export class MergeExecutor {
       };
     } = {},
     requestId?: string,
-    delegation?: { roadmapId: RoadmapId; definitionRevision: number; actor: RoadmapActor },
+    delegation?: { roadmapId: RoadmapId; definitionRevision: number; actor: RoadmapCheck },
     finalApproval?: {
       finalizationId: FinalizationId;
       expectedHeadSha: string;
@@ -546,7 +546,7 @@ export class MergeExecutor {
    * proposal they were shown may merge it, never a roadmap's, and a merge whose result cannot
    * be adopted is refused.
    */
-  async checkAdoption(
+  private async checkAdoption(
     worktree: Worktree,
     review: AgentRun,
     approval:
@@ -624,7 +624,7 @@ export class MergeExecutor {
    * The checks a merge commit proposes, if they are exactly what the operator approved and can
    * be adopted; otherwise why not. Read with the daemon's Git, after the merge.
    */
-  async mergeProposal(
+  private async mergeProposal(
     repository: SourceRepository,
     mergeSha: string,
     approved: string,
@@ -648,7 +648,7 @@ export class MergeExecutor {
    * Records the adoption a merge approval carried, at the merge commit, in the merge's own
    * transaction; or, if the merge commit did not propose what was approved, the refusal.
    */
-  recordMergeAdoption(
+  private recordMergeAdoption(
     tx: StorageRepositories,
     worktree: Worktree,
     merge: MergeOperation & { readonly mergeSha: string },
@@ -726,7 +726,7 @@ export class MergeExecutor {
     });
   }
 
-  async recoverMergeScratch(
+  private async recoverMergeScratch(
     repository: SourceRepository,
     operation: import('@craftingtable/domain').MergeOperation,
   ): Promise<void> {
@@ -768,7 +768,7 @@ export class MergeExecutor {
     if (!removed.ok) throw new ExecutionRequestError('conflict', removed.failure.message);
   }
 
-  async cleanupMerge(
+  private async cleanupMerge(
     operation: import('@craftingtable/domain').MergeOperation,
     repository: SourceRepository,
     tree: Worktree,

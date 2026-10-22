@@ -92,7 +92,7 @@ export class CycleProjections {
     return { cycle, projection: this.projection(mapReadSnapshot(this.storage), cycle) };
   }
 
-  projection(tx: StorageRepositories, c: WorkCycle): CycleProjection {
+  private projection(tx: StorageRepositories, c: WorkCycle): CycleProjection {
     const agents = cycleAgents(tx, c);
     const nextAgentSelections = selectionSet(agents);
     if (TERMINAL_CYCLE_STATUSES.has(c.status))

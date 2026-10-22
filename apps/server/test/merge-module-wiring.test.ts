@@ -26,8 +26,13 @@ it('gives the merge modules the execution service’s own objects', async () => 
     expect(module.runtimeEvidence, `${name}.runtimeEvidence`).toBe(runtimeEvidenceService);
     expect(module.workItemService, `${name}.workItemService`).toBe(workItemService);
     expect(module.storage, `${name}.storage`).toBe(state.context.storage);
+    // The review of increment 10 (NIT-3): its clock, notifier, workspace service and Git too.
+    for (const field of ['now', 'notifier', 'workspaceService', 'git'])
+      expect(module[field], `${name}.${field}`).toBe(fields[field]);
   }
   expect((fields.merges as Fields).repositoryChecks).toBe(executionService.repositoryChecks);
+  expect((fields.merges as Fields).config).toBe(fields.config);
+  expect(fields.workspaceService).toBe(state.context.services.workspaceService);
 });
 
 it('hands mergeWorktree and recordScopeReceipt their arguments, and returns the modules’ answers', async () => {

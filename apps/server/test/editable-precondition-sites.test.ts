@@ -132,6 +132,20 @@ const stored = (fx: Fixture): Roadmap => {
   return roadmap;
 };
 
+/**
+ * The workspace's audit rows and its cycles' versions: with the stored roadmap, what a refusal
+ * must leave as it was (the review of R-B7's increment 1, NIT-7).
+ */
+const elsewhere = (fx: Fixture) => ({
+  audit: fx.state.context.storage.audit.listWorkspace({
+    workspaceId: fx.state.workspaceId,
+    limit: 5000,
+  }).length,
+  cycles: fx.state.context.storage.execution.cycles
+    .listForWorkspace(fx.state.workspaceId)
+    .map((c) => `${c.id}@${c.version}`),
+});
+
 function setStatus(fx: Fixture, status: RoadmapStatus) {
   const { attention: _attention, ...rest } = stored(fx);
   fx.state.context.storage.roadmaps.save(
@@ -513,6 +527,7 @@ it.each(SITES)(
       const refusal = (first(site.order, states) ?? site.passes) as Refusal;
       await holding(fx, row, async (view) => {
         const before = stored(fx);
+        const others = elsewhere(fx);
         const read = await VIEWS[site.name]?.(fx);
         const response = await site.send(fx, view);
         const label = `${site.name} [${row.join(' + ')}]`;
@@ -521,6 +536,7 @@ it.each(SITES)(
         expect(error.message, label).toBe(refusal.message);
         expect(error.reason, label).toBe(refusal.reason);
         expect(stored(fx), label).toEqual(before);
+        expect(elsewhere(fx), label).toEqual(others);
         if (read) {
           // The view's text on the same states, and (a view has no form, so a row with a stale
           // form is left out) that it blocks exactly when its command refuses.
@@ -536,6 +552,7 @@ it.each(SITES)(
     }
     // With none of them, the command passes the precondition.
     const before = stored(fx);
+    const others = elsewhere(fx);
     const read = await VIEWS[site.name]?.(fx);
     if (read) expect(read.blocker, `${site.name} view, none`).toBeNull();
     const response = await site.send(fx, {});
@@ -546,6 +563,7 @@ it.each(SITES)(
       expect(response.statusCode, response.body).toBe(409);
       expect(response.json().error.message).toBe(site.passes.message);
       expect(stored(fx)).toEqual(before);
+      expect(elsewhere(fx)).toEqual(others);
     }
   },
 );
@@ -592,6 +610,7 @@ it('assignCycleEntryAgents: a command running, then a pending amendment; ended a
   for (const row of ROWS.filter((r) => !r.includes('stale'))) {
     await holding(fx, row, async () => {
       const before = stored(fx);
+      const others = elsewhere(fx);
       expect(() =>
         roadmaps.assignCycleEntryAgents(
           auth,
@@ -607,6 +626,7 @@ it('assignCycleEntryAgents: a command running, then a pending amendment; ended a
         }),
       );
       expect(stored(fx), row.join(' + ')).toEqual(before);
+      expect(elsewhere(fx), row.join(' + ')).toEqual(others);
     });
   }
   // Ended and settling at once, the assignment is still written.

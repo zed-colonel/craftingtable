@@ -1419,6 +1419,11 @@ describe('the cycle side reads roadmap policy only through OwnerPolicy (rule 14,
           "import { roadmapCarriesRound } from './scope-recovery-policy.js';\nexport const pass = roadmapCarriesRound;\n",
         'apps/server/src/services/workflow-policy.ts':
           "import * as recovery from './scope-recovery-policy.js';\nexport const workflow = recovery;\n",
+        // The two files the rule names beside the trees (the review of increment 8, NIT-2, LOW-3).
+        'apps/server/src/services/agent-run-service.ts':
+          "import { attemptDelegation } from './roadmap-delegation-policy.js';\nexport const runs = attemptDelegation;\n",
+        'apps/server/src/services/cycle-priority.ts':
+          "import { cycleOwnership } from './cycle-ownership.js';\nexport const priority = cycleOwnership;\n",
         // Re-exports of it, by name and of the whole module (the review of increments 8-11, LOW-1).
         'apps/server/src/services/cycle/effects/workflow.ts':
           "export { roadmapCarriesRound } from '../../scope-recovery-policy.js';\n",
@@ -1433,7 +1438,7 @@ describe('the cycle side reads roadmap policy only through OwnerPolicy (rule 14,
         'apps/server/src/services/agent-profile-policy.ts':
           "import { cycleOwnership } from './cycle-ownership.js';\nexport const layers = cycleOwnership;\n",
         'apps/server/src/index.ts':
-          "import { facts } from './services/cycle/core/facts.js';\nimport { launch } from './services/run/launch.js';\nimport { pass } from './services/work-cycle-service.js';\nimport { workflow } from './services/workflow-policy.js';\nimport { wait } from './services/cycle/commands/control.js';\nimport { layers } from './services/agent-profile-policy.js';\nexport const main = [facts, launch, pass, workflow, wait, layers];\n",
+          "import { facts } from './services/cycle/core/facts.js';\nimport { launch } from './services/run/launch.js';\nimport { pass } from './services/work-cycle-service.js';\nimport { workflow } from './services/workflow-policy.js';\nimport { wait } from './services/cycle/commands/control.js';\nimport { layers } from './services/agent-profile-policy.js';\nimport { runs } from './services/agent-run-service.js';\nimport { priority } from './services/cycle-priority.js';\nexport const main = [facts, launch, pass, workflow, wait, layers, runs, priority];\n",
       }),
       EMITTED_EXPORTS,
     );
@@ -1441,6 +1446,8 @@ describe('the cycle side reads roadmap policy only through OwnerPolicy (rule 14,
       findings.filter((finding) => finding.includes("owning roadmap's policy")).sort(),
     ).toEqual(
       [
+        reads('apps/server/src/services/agent-run-service.ts', delegation),
+        reads('apps/server/src/services/cycle-priority.ts', ownership),
         reads('apps/server/src/services/cycle/core/facts.ts', ownership),
         reads('apps/server/src/services/run/launch.ts', delegation),
         reads('apps/server/src/services/cycle/effects/workflow.ts', recovery),
@@ -1586,6 +1593,7 @@ it('passes on the real repository, having read and classified its modules', () =
     'apps/server/src/services/work-cycle-service.ts',
     'apps/server/src/services/agent-run-service.ts',
     'apps/server/src/services/workflow-policy.ts',
+    'apps/server/src/services/cycle-priority.ts',
     'apps/server/src/services/scope-recovery-policy.ts',
     'apps/server/src/services/cycle-ownership.ts',
     'apps/server/src/services/roadmap-delegation-policy.ts',

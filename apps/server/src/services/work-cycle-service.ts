@@ -76,7 +76,7 @@ import {
 import { ControllerFigures } from './kernel/figures.js';
 import { mapReadSnapshot } from './map-read-snapshot.js';
 import { ownerPolicy } from './roadmap/owner-policy.js';
-import type { RoadmapActor } from './roadmap-actor.js';
+import type { RoadmapActor, RoadmapCheck } from './roadmap-actor.js';
 import type { RunLog } from './run/shared.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import type { WorkspaceEventNotifier } from './workspace-event-notifier.js';
@@ -320,7 +320,7 @@ export class WorkCycleService {
     workspaceId: WorkspaceId,
     id: WorkCycleId,
     input: IntegrationResolutionRequest,
-    actor?: RoadmapActor,
+    actor?: RoadmapCheck,
   ): Promise<WorkCycle> {
     return this.integration.resolveIntegration(context, workspaceId, id, input, actor);
   }
@@ -409,7 +409,7 @@ export class WorkCycleService {
   retireForAmendment(context: CommandContext, cycle: WorkCycle, amendmentId: MapAmendmentId): void {
     this.controls.retireForAmendment(context, cycle, amendmentId);
   }
-  reviewForDeclaredChecks(cycle: WorkCycle, actor: RoadmapActor): Promise<boolean> {
+  reviewForDeclaredChecks(cycle: WorkCycle, actor: RoadmapCheck): Promise<boolean> {
     return this.controls.reviewForDeclaredChecks(cycle, actor);
   }
   leaveMergeToOperator(cycle: WorkCycle, repositoryId: SourceRepositoryId): void {

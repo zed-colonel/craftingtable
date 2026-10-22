@@ -102,12 +102,13 @@
  *    trail is never rewritten; R-C1's measure decodes its rows there. Tests may import it.
  * 14. The cycle side reads roadmap policy through the scheduler's answer (R-B7, CTRL-13): no
  *    production module of `apps/server/src/services/cycle/` or `apps/server/src/services/run/`,
- *    nor `work-cycle-service.ts`, `agent-run-service.ts` or `workflow-policy.ts`, imports by value
- *    `cycle-ownership.ts` or `roadmap-delegation-policy.ts`, or `roadmapCarriesRound` from
- *    `scope-recovery-policy.ts`: each asks `OwnerPolicy` (`roadmap/owner-policy.ts`). Outside it
- *    by design: `agent-profile-policy.ts` (ADR-064's layering of a cycle's agents), the scope
- *    recovery wait and the launch's scan of decision preparations (they read every roadmap of the
- *    workspace, not an owner) and `runtime-evidence-service.ts` (R-B7's third part).
+ *    nor `work-cycle-service.ts`, `agent-run-service.ts`, `workflow-policy.ts` or
+ *    `cycle-priority.ts`, imports by value `cycle-ownership.ts` or `roadmap-delegation-policy.ts`,
+ *    or `roadmapCarriesRound` from `scope-recovery-policy.ts`: each asks `OwnerPolicy`
+ *    (`roadmap/owner-policy.ts`). Outside it by design: `agent-profile-policy.ts` (ADR-064's
+ *    layering of a cycle's agents), the scope recovery wait and the launch's scan of decision
+ *    preparations (they read every roadmap of the workspace, not an owner) and
+ *    `runtime-evidence-service.ts` (R-B7's third part).
  *
  * What it reads is structural, not a directory walk with name patterns (R-I4, TS-M11):
  *
@@ -261,6 +262,8 @@ const OWNER_POLICY_READERS = {
     'apps/server/src/services/work-cycle-service.ts',
     'apps/server/src/services/agent-run-service.ts',
     'apps/server/src/services/workflow-policy.ts',
+    // The pass's priority, a reader `OwnerPolicy` answers (the review of R-B7's increment 8).
+    'apps/server/src/services/cycle-priority.ts',
   ]),
 };
 /** What those modules may not import by value: the owning roadmap's record and policy. */

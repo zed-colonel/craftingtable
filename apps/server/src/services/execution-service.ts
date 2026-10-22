@@ -42,7 +42,7 @@ import { type MergeGate, mergeGateFor } from './merge/gate.js';
 import { ScopeReceipts } from './merge/receipt.js';
 import { PhaseGateError, resourceBlockers } from './phase-resources.js';
 import type { RepositoryChecksService } from './repository-checks-service.js';
-import type { RoadmapActor } from './roadmap-actor.js';
+import type { RoadmapCheck } from './roadmap-actor.js';
 import { latestReviewReport } from './run-lineage.js';
 import type { RuntimeEvidenceService } from './runtime-evidence-service.js';
 import type { WorkItemService } from './work-item-service.js';
@@ -610,7 +610,7 @@ export class ExecutionService {
     worktreeId: WorktreeId,
     expectedWorktreeVersion: number,
     /** The roadmap's actor, when its scheduler records the receipt (R-B7). */
-    delegation?: { readonly actor: RoadmapActor },
+    delegation?: { readonly actor: RoadmapCheck },
   ) {
     return this.receipts.recordScopeReceipt(
       context,
@@ -630,7 +630,7 @@ export class ExecutionService {
       readonly executionScope?: import('@craftingtable/domain').ExecutionScope;
     },
     requestId?: string,
-    reservation?: { readonly id: WorktreeId; readonly actor: RoadmapActor },
+    reservation?: { readonly id: WorktreeId; readonly actor: RoadmapCheck },
   ): Promise<Worktree> {
     this.workspaceService.requireRole(context, workspaceId, ['owner', 'editor'], {
       ...(requestId === undefined ? {} : { requestId }),
@@ -802,13 +802,13 @@ export class ExecutionService {
   async createDecisionWorktree(
     context: CommandContext,
     value: import('@craftingtable/domain').DecisionPreparation,
-    actor: RoadmapActor,
+    actor: RoadmapCheck,
   ): Promise<Worktree> {
     return required(
       await this.createPlanWorktree(
         context,
         { ...value, targetBranch: value.integrationBranch },
-        actor.check,
+        () => actor.check(),
         'decision',
       ),
       'the decision worktree',

@@ -27,7 +27,7 @@ export class RoadmapDrain {
     private readonly state: RoadmapState,
     private readonly writer: RoadmapWriter,
     private readonly holds: RoadmapHolds,
-    private readonly attentionItems: RoadmapAttention,
+    private readonly roadmapAttention: RoadmapAttention,
     private readonly recovery: RoadmapRecoveryRounds,
     private readonly admission: RoadmapAdmission,
   ) {}
@@ -106,7 +106,7 @@ export class RoadmapDrain {
     this.markWaiters(key);
   }
 
-  markWaiters(key: string): void {
+  private markWaiters(key: string): void {
     // A decision preparation held back by this lock may be tried again (review HIGH-2), on this
     // path or the round end's (increment 10 review LOW-1).
     for (const [roadmapId, held] of this.state.preparationsHeld)
@@ -223,7 +223,7 @@ export class RoadmapDrain {
         }
       }
       try {
-        this.attentionItems.syncAttention();
+        this.roadmapAttention.syncAttention();
       } catch {
         /* The next pass re-derives the set; delivery reads whatever is stored meanwhile. */
       }

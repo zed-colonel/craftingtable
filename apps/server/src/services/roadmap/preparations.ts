@@ -99,7 +99,7 @@ export class RoadmapPreparations {
   }
 
   /** The exact map checkpoint a preparation would prepare, and its bound owner, or why not. */
-  preparationTarget(
+  private preparationTarget(
     roadmap: Roadmap,
     checkpointId: string,
   ): PreparationTarget | { readonly refused: string } {
@@ -165,7 +165,7 @@ export class RoadmapPreparations {
   }
 
   /** A preparation whose run has not ended: it holds its checkpoint and a place in the bound. */
-  preparationInFlight(p: import('@craftingtable/domain').DecisionPreparation): boolean {
+  private preparationInFlight(p: import('@craftingtable/domain').DecisionPreparation): boolean {
     const run = this.storage.execution.runs.find(p.workspaceId, p.runId);
     return !p.failure && (!run || ['starting', 'running', 'waiting'].includes(run.status));
   }
@@ -401,7 +401,7 @@ export class RoadmapPreparations {
   }
 
   /** Whoever granted standing preparation, while they may still prepare decisions. */
-  grantor(roadmap: Roadmap) {
+  private grantor(roadmap: Roadmap) {
     return activeEditor(
       this.storage,
       roadmap.decisionPreparationGrant?.grantedByUserId,

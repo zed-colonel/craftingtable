@@ -621,7 +621,7 @@ export class RoadmapAdmission {
     return MOVED;
   }
 
-  reconcileCompletedAttempts(roadmap: Roadmap): Roadmap {
+  private reconcileCompletedAttempts(roadmap: Roadmap): Roadmap {
     const tx = mapReadSnapshot(this.storage);
     let changed = false;
     const entryHolds = { ...roadmap.entryHolds };
@@ -659,7 +659,7 @@ export class RoadmapAdmission {
   }
 
   /** Each round survives worktree replacement and returns through the original independent reviewers. */
-  async advanceScopeRecovery(
+  private async advanceScopeRecovery(
     roadmap: Roadmap,
     entry: RoadmapEntry,
     sourceCycle: import('@craftingtable/domain').WorkCycle,

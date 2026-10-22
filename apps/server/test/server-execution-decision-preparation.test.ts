@@ -707,6 +707,29 @@ it('prepares nothing for a grantor who may no longer prepare, and stops a launch
   expect(run?.status).not.toBe('finished');
 });
 
+// R-B7 scheduler half, review of increment 6 (NIT-3): a pass prepares the decisions its slices
+// need before it releases settled preparations, so a preparation it just launched is never one
+// it releases in the same turn.
+it('prepares, then releases, in each pass', async () => {
+  const fixture = await decisionFixture();
+  const { f } = fixture;
+  await grantAndStart(fixture);
+  const preparations = moduleOf(f.state.context.services.roadmapService, 'preparations') as {
+    prepareNeededDecisions: (...args: unknown[]) => Promise<unknown>;
+    releaseSettledPreparations: (...args: unknown[]) => Promise<unknown>;
+  };
+  const order: string[] = [];
+  for (const method of ['prepareNeededDecisions', 'releaseSettledPreparations'] as const) {
+    const original = preparations[method].bind(preparations);
+    vi.spyOn(preparations, method).mockImplementation(async (...args) => {
+      order.push(method);
+      return original(...args);
+    });
+  }
+  await f.state.context.services.roadmapService.tick();
+  expect(order.slice(0, 2)).toEqual(['prepareNeededDecisions', 'releaseSettledPreparations']);
+});
+
 // R-B7 scheduler half, review of increment 3 (LOW-2): the standing grant's grantor must still be
 // an editor, not only an active member; a grantor demoted to viewer prepares nothing.
 it('prepares nothing for a grantor demoted to viewer', async () => {

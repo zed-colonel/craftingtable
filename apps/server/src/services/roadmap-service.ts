@@ -71,7 +71,7 @@ export class RoadmapService {
   private readonly selection: RoadmapSelection;
   private readonly holds: RoadmapHolds;
   private readonly views: RoadmapViews;
-  private readonly attentionItems: RoadmapAttention;
+  private readonly roadmapAttention: RoadmapAttention;
   private readonly preparations: RoadmapPreparations;
   private readonly recovery: RoadmapRecoveryRounds;
   private readonly integration: RoadmapIntegration;
@@ -114,7 +114,7 @@ export class RoadmapService {
       this.writer,
       this.selection,
     );
-    this.attentionItems = new RoadmapAttention(
+    this.roadmapAttention = new RoadmapAttention(
       storage,
       notifier,
       this.state,
@@ -195,7 +195,7 @@ export class RoadmapService {
       this.state,
       this.writer,
       this.holds,
-      this.attentionItems,
+      this.roadmapAttention,
       this.recovery,
       this.admission,
     );
@@ -431,10 +431,10 @@ export class RoadmapService {
     return this.views.history(context, workspaceId, id);
   }
   syncAttention(force = false): void {
-    this.attentionItems.syncAttention(force);
+    this.roadmapAttention.syncAttention(force);
   }
   passAttention(roadmap: Roadmap): readonly ProjectedItem[] {
-    return this.attentionItems.passAttention(roadmap);
+    return this.roadmapAttention.passAttention(roadmap);
   }
   prepareDecision(
     context: AuthContext,

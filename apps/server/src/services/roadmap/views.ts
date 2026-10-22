@@ -593,7 +593,7 @@ export class RoadmapViews {
     return counts;
   }
 
-  rememberMap(roadmap: Roadmap, view: CrossProjectView): void {
+  private rememberMap(roadmap: Roadmap, view: CrossProjectView): void {
     this.state.readMaps.set(roadmap.id, {
       commits: this.storage.commits,
       revision: roadmap.definition.revision,
@@ -601,7 +601,7 @@ export class RoadmapViews {
     });
   }
 
-  mapForRead(tx: StorageRepositories, roadmap: Roadmap): CrossProjectView {
+  private mapForRead(tx: StorageRepositories, roadmap: Roadmap): CrossProjectView {
     const known = this.state.readMaps.get(roadmap.id);
     if (known?.commits === this.storage.commits && known.revision === roadmap.definition.revision)
       return known.view;
@@ -615,7 +615,7 @@ export class RoadmapViews {
   }
 
   /** What an item is about on this map roadmap, from its typed references; none if not on it. */
-  itemSubject(
+  private itemSubject(
     tx: StorageRepositories,
     roadmap: Roadmap,
     graph: RoadmapGraph,
@@ -644,7 +644,7 @@ export class RoadmapViews {
     return graph;
   }
 
-  graphAt(
+  private graphAt(
     tx: StorageRepositories,
     workspaceId: WorkspaceId,
     roadmapId: RoadmapId,

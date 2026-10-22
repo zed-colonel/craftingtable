@@ -109,7 +109,7 @@ export class RoadmapHolds {
   }
 
   /** The in-place re-verification the scheduler makes itself, if decision 4's facts all hold. */
-  selfReverify(roadmap: Roadmap, entry: RoadmapEntry) {
+  private selfReverify(roadmap: Roadmap, entry: RoadmapEntry) {
     const scope = entry.executionScope;
     const grant = roadmap.reverificationGrant;
     if (!scope || !grant) return undefined;
@@ -186,7 +186,7 @@ export class RoadmapHolds {
    * roadmap's version alone, so the version check alone would miss it (increment 4 review LOW-1).
    * A read that fails keeps the hold.
    */
-  async releasable(roadmap: Roadmap, entry: RoadmapEntry, check: ReleaseCheck): Promise<boolean> {
+  private async releasable(roadmap: Roadmap, entry: RoadmapEntry, check: ReleaseCheck): Promise<boolean> {
     if (!this.releaseGuarded(roadmap, entry)) return false;
     try {
       if (!(await this.cleared(roadmap, check))) return false;
@@ -201,7 +201,7 @@ export class RoadmapHolds {
    * awaits, the entry's plan version is retired or being retired), while a roadmap command runs or
    * admissions are held, or once the delegating user lost their authority.
    */
-  releaseGuarded(roadmap: Roadmap, entry: RoadmapEntry): boolean {
+  private releaseGuarded(roadmap: Roadmap, entry: RoadmapEntry): boolean {
     if (
       roadmapHeld(this.storage, roadmap, entry) ||
       this.state.controlling.has(roadmap.id) ||
@@ -348,7 +348,7 @@ export class RoadmapHolds {
    * A stop that a plain resume would only reproduce keeps its attention when the roadmap
    * or its item resumes; the operator resolves it with the control it names (R-A7).
    */
-  resumable(cycle: WorkCycle): boolean {
+  private resumable(cycle: WorkCycle): boolean {
     // A stop's investigation holds it until it ends, and a worktree change it found until the
     // operator acknowledges it (R-C16).
     if (investigationHolds(cycle)) return false;

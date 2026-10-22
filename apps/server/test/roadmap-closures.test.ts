@@ -71,6 +71,34 @@ interface Wrap {
   attach<F extends (() => void) | undefined>(fn: F): F;
 }
 
+/** The checks each site was handed, unwrapped, in the order its calls passed them. */
+const handed = new WeakMap<Site, (() => void)[]>();
+
+/**
+ * Each check a site was handed is the scheduler's own, not a no-op or another's (the review of
+ * R-B7's increment 1, NIT-2; 9a79bec held it for the merge alone): with the roadmap no longer
+ * running, as a pause or a completion leaves it, each refuses.
+ */
+function expectSchedulersChecks(
+  state: Parameters<typeof storedRoadmap>[0],
+  sites: readonly Site[],
+  refusal: (new (...args: never[]) => Error) | string = SupersededRoadmapOperation,
+): void {
+  const roadmap = storedRoadmap(state);
+  if (roadmap.status === 'running')
+    state.context.storage.transaction((tx) =>
+      tx.roadmaps.save(
+        { ...roadmap, status: 'paused', version: roadmap.version + 1 },
+        roadmap.version,
+      ),
+    );
+  for (const site of sites) {
+    const checks = present(handed.get(site));
+    expect(checks.length).toBeGreaterThan(0);
+    for (const check of checks) expect(check).toThrow(refusal);
+  }
+}
+
 /**
  * Wraps `service[method]`: `closures` returns the call's arguments with its closures wrapped, or
  * `undefined` for a call that passes none (left uncounted).
@@ -82,16 +110,20 @@ function watch(
   closures: (args: unknown[], wrap: Wrap) => unknown[] | undefined,
 ): Site {
   const site: Site = { calls: 0, check: 0, attach: 0, attachInTransaction: [], refusals: [] };
+  const checks: (() => void)[] = [];
+  handed.set(site, checks);
   const target = service as Record<string, (...args: unknown[]) => unknown>;
   const original = target[method];
   if (typeof original !== 'function') throw new Error(`No method ${method}`);
   const wrap: Wrap = {
-    check: (fn) =>
-      (fn &&
-        (() => {
-          site.check += 1;
-          return fn();
-        })) as typeof fn,
+    check: (fn) => {
+      if (!fn) return fn;
+      checks.push(fn);
+      return (() => {
+        site.check += 1;
+        return fn();
+      }) as typeof fn;
+    },
     attach: (fn) =>
       (fn &&
         (() => {
@@ -188,6 +220,7 @@ it('admits each entry with its check, and audits a delegated merge as the system
     // reservation's write.
     merged: { calls: 1, check: 2, attach: 0, attachInTransaction: [], refusals: [] },
   });
+  expectSchedulersChecks(state, [created, merged]);
   // The roadmap has completed, so the scheduler's own check now refuses as superseded.
   expect(mergeChecks).toHaveLength(1);
   expect(() => mergeChecks[0]?.()).toThrow(SupersededRoadmapOperation);
@@ -254,6 +287,7 @@ it('starts a delegated conflict resolution with its check, and merges every entr
     // Each of the three entries' merges asks it twice, as the sequential roadmap's merge does.
     merged: { calls: 3, check: 6, attach: 0, attachInTransaction: [], refusals: [] },
   });
+  expectSchedulersChecks(state, [resolved, merged]);
   expect(
     audited(storage, state.workspaceId, 'worktree.merged').map((row) => row.actorKind),
   ).toEqual(['system', 'system', 'system']);
@@ -336,6 +370,7 @@ it('sends a merge refused for skipped adopted checks back for one review with th
       refusals: [skipped, skipped],
     },
   });
+  expectSchedulersChecks(state, [reviewed, merged]);
 });
 
 /** As server-execution-decision-preparation.test.ts: every slice waits on one decision. */
@@ -423,6 +458,25 @@ it('prepares an operator’s decision with its check at the worktree and at the 
     // session started.
     launched: { calls: 1, check: 5, attach: 0, attachInTransaction: [], refusals: [] },
   });
+  // The preparation's check refuses once its record failed.
+  const current = storedRoadmap(state);
+  storage.transaction((tx) =>
+    tx.roadmaps.save(
+      {
+        ...current,
+        decisionPreparations: current.decisionPreparations?.map((q) =>
+          q.id === p.id ? { ...q, failure: 'Stopped by the test.' } : q,
+        ),
+        version: current.version + 1,
+      },
+      current.version,
+    ),
+  );
+  expectSchedulersChecks(
+    state,
+    [worktree, launched],
+    'Decision preparation authority or binding changed. Start a fresh preparation.',
+  );
 });
 
 /** `repeatScopeReview` and `control`'s actor, with its `check` and `attach`, at `index`. */
@@ -464,6 +518,7 @@ itNeedsCargo(
       attachInTransaction: [],
       refusals: ['Waiting for local-verification: 1/1 reservations occupied.'],
     });
+    expectSchedulersChecks(state, [receipts]);
     const verifications = storedRoadmap(state)
       .attempts.map((a) => storage.execution.worktrees.find(ws, a.worktreeId))
       .filter((t) => t?.executionScope?.kind === 'slice-verification')
@@ -573,6 +628,7 @@ itNeedsCargo(
       },
       receipts: { calls: 1, check: 2, attach: 0, attachInTransaction: [], refusals: [] },
     });
+    expectSchedulersChecks(state, [repeated, receipts]);
   },
 );
 
@@ -755,6 +811,13 @@ itNeedsCargo(
       // The repair's delegated merge.
       merged: { calls: 1, check: 2, attach: 0, attachInTransaction: [], refusals: [] },
     });
+    expectSchedulersChecks(state, [repeated, resumed, merged]);
+    // The operator's repair is checked by its own command's check.
+    expectSchedulersChecks(
+      state,
+      [delegated],
+      'The roadmap changed while this repair was being prepared. Refresh.',
+    );
     expect(audited(storage, ws, 'worktree.merged')[0]).toEqual({
       actorKind: 'system',
       targetId: round.worktreeId,
@@ -829,5 +892,6 @@ itNeedsCargo(
       attachInTransaction: [true],
       refusals: [],
     });
+    expectSchedulersChecks(state, [delegated]);
   },
 );

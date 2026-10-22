@@ -20,6 +20,7 @@ import {
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
+  git,
   itNeedsCargo,
   mutationHeaders,
   roadmapControl,
@@ -418,3 +419,78 @@ itNeedsCargo(
     expect(storedRoadmap(state).entryHolds?.[sourceEntry.id]).toBeUndefined();
   },
 );
+
+/**
+ * A recovery round's review restarts within the roadmap's allowance (`maxIntegrationRefreshes`,
+ * 3 by default) and is refused at it (R-B7 scheduler half: the review of b423cb4's round, the
+ * restart block characterized after it moved). The round is written by hand at its parent
+ * review, its repair done, with the stopped parent review recorded as the round's review and
+ * already restarted `restarts` times.
+ */
+async function roundAtParentReview(restarts: number) {
+  const { state, ws, tx, parent, sourceEntry, ownerEntry } = await stoppedParentReview();
+  const roadmap = storedRoadmap(state);
+  const ownerAttempt = roadmap.attempts.find((a) => a.entryId === ownerEntry.id && !a.recovery)!;
+  const round: RoadmapAttempt = {
+    id: asRoadmapAttemptId(randomUUID()),
+    entryId: ownerEntry.id,
+    definitionRevision: ownerAttempt.definitionRevision,
+    worktreeId: ownerAttempt.worktreeId,
+    cycleId: ownerAttempt.cycleId,
+    status: 'completed',
+    createdAt: new Date().toISOString(),
+    completedAt: new Date().toISOString(),
+    recovery: {
+      sourceEntryId: sourceEntry.id,
+      sourceRunId: parent.currentRunId,
+      sourceSequence: 1,
+      findingFingerprint: 'a'.repeat(64),
+      phase: 'parent-review',
+      reviewRunIds: { [sourceEntry.id]: parent.currentRunId },
+      reviewRestarts: { [sourceEntry.id]: restarts },
+      requestedByUserId: state.userId,
+    },
+  };
+  // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
+  state.context.services.roadmapService['writer'].change(roadmap, {
+    attempts: [...roadmap.attempts, round],
+  });
+  // The repair's merge moved the integration branch past the stopped review's snapshot.
+  const reviewed = tx.execution.runs.find(ws, parent.currentRunId)!.reviewBranchContext!;
+  const checkout = tx.execution.worktrees.find(ws, parent.worktreeId)!.path;
+  const head = git(['rev-parse', reviewed.targetBranch], checkout).trim();
+  const merged = git(
+    ['commit-tree', `${head}^{tree}`, '-p', head, '-m', 'The repair merged.'],
+    checkout,
+  ).trim();
+  git(['update-ref', `refs/heads/${reviewed.targetBranch}`, merged, head], checkout);
+  const resumes = vi.spyOn(state.context.services.workCycleService, 'control');
+  for (let i = 0; i < 2; i++) await state.context.services.roadmapService.tick();
+  const stored = storedRoadmap(state);
+  return {
+    hold: stored.entryHolds?.[sourceEntry.id],
+    restarts: stored.attempts.find((a) => a.id === round.id)?.recovery?.reviewRestarts,
+    resumed: resumes.mock.calls.filter(
+      ([, , id, action]) => id === parent.id && action === 'resume',
+    ).length,
+    sourceEntry,
+  };
+}
+
+itNeedsCargo('restarts a round’s stopped review within the allowance and counts it', async () => {
+  const { hold, restarts, resumed, sourceEntry } = await roundAtParentReview(2);
+  expect(hold).toBeUndefined();
+  expect(resumed).toBe(1);
+  expect(restarts).toEqual({ [sourceEntry.id]: 3 });
+});
+
+itNeedsCargo('refuses a round’s review restart at the allowance and holds its entry', async () => {
+  const { hold, restarts, resumed, sourceEntry } = await roundAtParentReview(3);
+  expect(resumed).toBe(0);
+  expect(restarts).toEqual({ [sourceEntry.id]: 3 });
+  expect(hold).toMatchObject({
+    status: 'needs-attention',
+    reason:
+      'Recovery review refresh allowance exhausted. Inspect and refresh this scope manually before resuming.',
+  });
+});

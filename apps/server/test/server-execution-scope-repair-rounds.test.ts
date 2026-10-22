@@ -421,40 +421,32 @@ itNeedsCargo(
 );
 
 /**
- * A recovery round's review restarts within the roadmap's allowance (`maxIntegrationRefreshes`,
- * 3 by default) and is refused at it (R-B7 scheduler half: the review of b423cb4's round, the
- * restart block characterized after it moved). The round is written by hand at its parent
- * review, its repair done, with the stopped parent review recorded as the round's review and
- * already restarted `restarts` times.
+ * A recovery round's reviews restart within the roadmap's allowance (`maxIntegrationRefreshes`,
+ * 3 in the fixture's parallel scheduling) and are refused at it (R-B7 scheduler half: the review
+ * of 180c36a raised it, and the restart block is characterized after it moved). The round is
+ * written by hand, its repair done and merged: the merge moves the integration branch past the
+ * stopped parent review's snapshot. A round's `reviewRunIds` are written when it is made, so the
+ * stopped review's resume meets a count of 0; a count past it is met by a review whose cycle
+ * completed, which the round repeats. Here that is the owning slice's verification: with
+ * `verification`, the round's repair worktree is a merge of the owning slice at the new head, so
+ * the slice's earlier verification is no longer current, and the round has repeated it
+ * `restarts` times.
  */
-async function roundAtParentReview(restarts: number) {
+async function roundRestarting(phase: 'parent-review' | 'verification', restarts: number) {
   const { state, ws, tx, parent, sourceEntry, ownerEntry } = await stoppedParentReview();
   const roadmap = storedRoadmap(state);
   const ownerAttempt = roadmap.attempts.find((a) => a.entryId === ownerEntry.id && !a.recovery)!;
-  const round: RoadmapAttempt = {
-    id: asRoadmapAttemptId(randomUUID()),
-    entryId: ownerEntry.id,
-    definitionRevision: ownerAttempt.definitionRevision,
-    worktreeId: ownerAttempt.worktreeId,
-    cycleId: ownerAttempt.cycleId,
-    status: 'completed',
-    createdAt: new Date().toISOString(),
-    completedAt: new Date().toISOString(),
-    recovery: {
-      sourceEntryId: sourceEntry.id,
-      sourceRunId: parent.currentRunId,
-      sourceSequence: 1,
-      findingFingerprint: 'a'.repeat(64),
-      phase: 'parent-review',
-      reviewRunIds: { [sourceEntry.id]: parent.currentRunId },
-      reviewRestarts: { [sourceEntry.id]: restarts },
-      requestedByUserId: state.userId,
-    },
-  };
-  // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
-  state.context.services.roadmapService['writer'].change(roadmap, {
-    attempts: [...roadmap.attempts, round],
-  });
+  const verificationEntry = roadmap.definition.entries.find(
+    (e) =>
+      e.workItemId === sourceEntry.workItemId &&
+      e.executionScope?.kind === 'slice-verification' &&
+      e.executionScope.sourceId === ownerEntry.executionScope?.sourceId,
+  )!;
+  const target = phase === 'verification' ? verificationEntry : sourceEntry;
+  const targetCycle = tx.execution.cycles.find(
+    ws,
+    roadmap.attempts.find((a) => a.entryId === target.id && !a.recovery)!.cycleId,
+  )!;
   // The repair's merge moved the integration branch past the stopped review's snapshot.
   const reviewed = tx.execution.runs.find(ws, parent.currentRunId)!.reviewBranchContext!;
   const checkout = tx.execution.worktrees.find(ws, parent.worktreeId)!.path;
@@ -464,33 +456,93 @@ async function roundAtParentReview(restarts: number) {
     checkout,
   ).trim();
   git(['update-ref', `refs/heads/${reviewed.targetBranch}`, merged, head], checkout);
-  const resumes = vi.spyOn(state.context.services.workCycleService, 'control');
+  // With `verification`, the round's repair worktree is an owning-slice attempt merged at the
+  // new head. (At the parent review nothing reads it.)
+  const owner = tx.execution.worktrees.find(ws, ownerAttempt.worktreeId)!;
+  const repairId = randomUUID() as RoadmapAttempt['worktreeId'];
+  if (phase === 'verification') {
+    tx.execution.worktrees.insert({
+      id: repairId,
+      workspaceId: ws,
+      repositoryId: owner.repositoryId,
+      projectId: owner.projectId,
+      workItemId: owner.workItemId,
+      branchName: `${owner.branchName}-repair`,
+      baseSha: head,
+      baseBranch: owner.baseBranch,
+      integrationBranch: owner.integrationBranch,
+      path: `${owner.path}-repair`,
+      createdAt: new Date().toISOString(),
+      createdByUserId: state.userId,
+      executionScope: owner.executionScope!,
+    });
+    tx.execution.worktrees.markMerged({
+      workspaceId: ws,
+      worktreeId: repairId,
+      occurredAt: new Date().toISOString(),
+      mergeSha: merged,
+    });
+  }
+  const round: RoadmapAttempt = {
+    id: asRoadmapAttemptId(randomUUID()),
+    entryId: ownerEntry.id,
+    definitionRevision: ownerAttempt.definitionRevision,
+    worktreeId: repairId,
+    cycleId: asWorkCycleId(randomUUID()),
+    status: 'completed',
+    createdAt: new Date().toISOString(),
+    completedAt: new Date().toISOString(),
+    recovery: {
+      sourceEntryId: sourceEntry.id,
+      sourceRunId: parent.currentRunId,
+      sourceSequence: 1,
+      findingFingerprint: 'a'.repeat(64),
+      phase,
+      reviewRunIds: { [target.id]: targetCycle.currentRunId },
+      reviewRestarts: restarts ? { [target.id]: restarts } : {},
+      requestedByUserId: state.userId,
+    },
+  };
+  // biome-ignore lint/complexity/useLiteralKeys: a private member the test drives directly.
+  state.context.services.roadmapService['writer'].change(roadmap, {
+    attempts: [...roadmap.attempts, round],
+  });
+  const cycles = state.context.services.workCycleService;
+  const resumes = vi.spyOn(cycles, 'control');
+  const repeats = vi.spyOn(cycles, 'repeatScopeReview');
   for (let i = 0; i < 2; i++) await state.context.services.roadmapService.tick();
   const stored = storedRoadmap(state);
   return {
     hold: stored.entryHolds?.[sourceEntry.id],
     restarts: stored.attempts.find((a) => a.id === round.id)?.recovery?.reviewRestarts,
     resumed: resumes.mock.calls.filter(
-      ([, , id, action]) => id === parent.id && action === 'resume',
+      ([, , id, action]) => id === targetCycle.id && action === 'resume',
     ).length,
-    sourceEntry,
+    repeated: repeats.mock.calls.filter(([, , id]) => id === targetCycle.id).length,
+    target,
   };
 }
 
-itNeedsCargo('restarts a round’s stopped review within the allowance and counts it', async () => {
-  const { hold, restarts, resumed, sourceEntry } = await roundAtParentReview(2);
+const REFUSED =
+  'Recovery review refresh allowance exhausted. Inspect and refresh this scope manually before resuming.';
+
+itNeedsCargo('resumes a round’s stopped parent review and counts its first restart', async () => {
+  const { hold, restarts, resumed, target } = await roundRestarting('parent-review', 0);
   expect(hold).toBeUndefined();
   expect(resumed).toBe(1);
-  expect(restarts).toEqual({ [sourceEntry.id]: 3 });
+  expect(restarts).toEqual({ [target.id]: 1 });
 });
 
-itNeedsCargo('refuses a round’s review restart at the allowance and holds its entry', async () => {
-  const { hold, restarts, resumed, sourceEntry } = await roundAtParentReview(3);
-  expect(resumed).toBe(0);
-  expect(restarts).toEqual({ [sourceEntry.id]: 3 });
-  expect(hold).toMatchObject({
-    status: 'needs-attention',
-    reason:
-      'Recovery review refresh allowance exhausted. Inspect and refresh this scope manually before resuming.',
-  });
+itNeedsCargo('repeats a round’s completed review within the allowance and counts it', async () => {
+  const { hold, restarts, repeated, target } = await roundRestarting('verification', 2);
+  expect(hold).toBeUndefined();
+  expect(repeated).toBe(1);
+  expect(restarts).toEqual({ [target.id]: 3 });
+});
+
+itNeedsCargo('refuses a round’s review repeat at the allowance and holds its entry', async () => {
+  const { hold, restarts, repeated, target } = await roundRestarting('verification', 3);
+  expect(repeated).toBe(0);
+  expect(restarts).toEqual({ [target.id]: 3 });
+  expect(hold).toMatchObject({ status: 'needs-attention', reason: REFUSED });
 });

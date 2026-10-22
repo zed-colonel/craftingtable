@@ -29,6 +29,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-B9](#r-b9) | P1 | M | done (4d81743, efd7369); live finding 2026-10-13 fixed (1f65664 and its review's fixes), deployed 2026-10-14 (c1b1341) | Low-disruption restarts: bounded drain plus automatic resume of interrupted steps |
 | [R-B10](#r-b10) | P1 | S-M | done (0e4eb04, adeb4cf, f32b407, 6ea1fae, 2bd6e40) | Retire legacy finalization for new starts (split from R-B8, 2026-09-24) |
 | [R-B11](#r-b11) | P4 | L | done 2026-10-13 on `remediation/p4` (706d166..70257ff, ADR-073; independently reviewed; not merged or deployed) | Wind down a roadmap: settle it, retire its plan versions, clean up its repositories |
+| [R-B12](#r-b12) | P5 | L | open (added 2026-10-20 by the operator; P5 with R-C18 part 2, operator 2026-10-21) | Resource-aware admission: count builds, not agents, and admit them on measured headroom |
 | **C** | | | | **Operator-wait reduction (the vision: minimum operator input)** |
 | [R-C1](#r-c1) | P1 | S-M | done (7689200, ca489a9) | Measure operator-wait as a first-class metric |
 | [R-C2](#r-c2) | P1 | S-M | done (f049b3a, 2d24969) | Re-prompt the agent automatically on output-format validation failures |
@@ -47,10 +48,10 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C15](#r-c15) | P2 | S | done (2026-09-28) | A checkpoint review is given the decisions its checkpoint requires (added 2026-09-28) |
 | [R-C16](#r-c16) | P2 | M | open (design approved 2026-10-01) | Investigate: dispatch a read-only investigation from any question stop (added 2026-10-01) |
 | [R-C17](#r-c17) | P4 | M (four S parts) | built and deployed on `remediation/p4` (parts 1 to 3 2026-10-17 at 62bf204, their follow-ups 2026-10-18 at 5f42f45, part 4 2026-10-19 at 26de44b; not merged; see entry) | Step time limits: hung checks, cut-off handoffs and the operator's controls |
-| [R-C18](#r-c18) | P4 | S-M (two parts) | open (found live 2026-10-17; placement for the operator) | A second project's roadmap in the same workspace: the stop it forces and the item it strands |
-| [R-C19](#r-c19) | P4 | S | open (found live 2026-10-21; placement for the operator) | A plan ready to finalize says so in Needs you (added 2026-10-21) |
-| [R-C20](#r-c20) | P4 | S-M | open (found live 2026-10-21, widened the same day; placement for the operator) | A staged review report that only needs restating is repaired in the reviewer's session, without re-running the checks (added 2026-10-21) |
-| [R-C21](#r-c21) | P4 | S-M | open (found live 2026-10-21; with R-C19 and R-C20) | A stage's selection offers only the last report's findings, and its list does not scroll (added 2026-10-21) |
+| [R-C18](#r-c18) | P4 | S-M (two parts) | open (found live 2026-10-17; part 1 in P4 step 1, part 2 in P5 with R-B12, operator 2026-10-21) | A second project's roadmap in the same workspace: the stop it forces and the item it strands |
+| [R-C19](#r-c19) | P4 | S | open (found live 2026-10-21; P4 step 1, operator 2026-10-21) | A plan ready to finalize says so in Needs you (added 2026-10-21) |
+| [R-C20](#r-c20) | P4 | S-M | open (found live 2026-10-21, widened the same day; P4 step 1, operator 2026-10-21) | A staged review report that only needs restating is repaired in the reviewer's session, without re-running the checks (added 2026-10-21) |
+| [R-C21](#r-c21) | P4 | S-M | open (found live 2026-10-21; P4 step 1, with R-C19 and R-C20) | A stage's selection offers only the last report's findings, and its list does not scroll (added 2026-10-21) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -67,6 +68,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-E4](#r-e4) | P3 | M | done (2026-10-09, 4b47211..aae01e7, independently reviewed; not merged or deployed) | Work-item and run pages become drill-downs |
 | [R-E5](#r-e5) | P3 | M | done (R-E5a 2026-10-07, R-E5b 2026-10-11) | Consolidate settings and agent selection |
 | [R-E6](#r-e6) | P1 | M | done (4c77665, a7d1b19) | Operator vocabulary and copy |
+| [R-E7](#r-e7) | P4 | S | open (found 2026-10-22 in R-B7's gate; its own item by the operator's decision; P4 step 2) | The map page's first load can reset its selections before Save (added 2026-10-22) |
 | **F** | | | | **Plan and roadmap formats (ground truth; Studio readiness)** |
 | [R-F1](#r-f1) | P1/P4 | S then L | partial (52c5c8b) | One compiled map model and one requirement evaluator |
 | [R-F2](#r-f2) | P3 | M | done (parts 1 to 4 2026-10-07; 6 with R-G6 2026-10-08; 5 with R-A6 2026-10-09) | Typed feature recognition instead of prose and magic identifiers |
@@ -105,6 +107,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-H6](#r-h6) | P3 | M | done (587db01..c41099c on `remediation/p3`, 2026-10-08; independently reviewed) | Journal cleanup: registry tables and `repository-*` vocabulary (added 2026-09-24) |
 | [R-H7](#r-h7) | P4 | M | done (2026-10-15, not merged or deployed) | Route parameters declared and parsed once; branded ids through services and storage (added 2026-10-12) |
 | [R-H8](#r-h8) | P4 | S | done 2026-10-21: built 2026-10-20 (54edf54..1cd9802), deployed 2026-10-20 at 1cd9802 (not merged); the live done-when met 2026-10-21 | Storage maintenance walks every run directory each minute (added 2026-10-20) |
+| [R-H9](#r-h9) | P5 | M | open (added 2026-10-20 by the operator; P5, or earlier only if the drive's heat returns, operator 2026-10-21) | Build directories: write less, and keep them where the operator puts them |
 | **I** | | | | **Engineering hygiene (tests, docs, repository, deployment)** |
 | [R-I1](#r-i1) | P0 | S | partial (4952821, 44a64bd) | Protect the work and stop repository bloat |
 | [R-I2](#r-i2) | P1 | M | done (7bb4562, b0a0c0d, d08a143) | Split the 14k-line execution test file |
@@ -2180,6 +2183,37 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **Deploy (operator).** Migration 0041 runs at the new release's start; the preflight lists it as pending. Rollback: a release before schema 41 cannot open the migrated database, so `--rollback` across it is refused, and the pre-migration copy is the only way back (losing every wind-down, retirement and cleanup since). No rollback restores refs a cleanup deleted; their commits stay in their integration branch or in a local `<repository>/parked/<branch>` tag. After deploying, the live roadmap b81d5f92 ("Cross-project roadmap", stopped) is wound down from its board: **Wind down…**, retire WorldInterface - WI-FABRIC-2 version 2 as superseded and Exoskeleton - EXO-V3 version 2 as parked, **Retire versions** (password); then **Clean up repositories…**, discard left unchecked, **Clean up repositories** (password). The rehearsal's figures are what to expect; anything the plan keeps is listed with its reason.
 - **Sequencing:** first in P4. R-B4 absorbs the `roadmap-wound-down` stop code; R-B5's kernel consumes the persisted hold; R-B6 reuses it as its per-roadmap drain; the R-C10 follow-up shares one "settling or ended, or retired" predicate. The open to-do measuring R-C3b loses its premise (the cross-project roadmap) and is restated in program.md.
 
+### R-B12
+
+**Resource-aware admission: count builds, not agents, and admit them on measured headroom** · Phase P5 · Effort L · Status: open (P5, with R-C18 part 2; operator 2026-10-21)
+
+- **Added 2026-10-20 by the operator:** "we don't seem to be utilizing the resources of my
+  workstation efficiently, which largely undercuts the point of CraftingTable's ultimate purpose
+  of orchestrating potentially multiple roadmaps or a cross-stack roadmap."
+- **Today:** admission counts steps. Each workstation capacity is a fixed integer (1–32,
+  `host-scheduling.ts`), and this workstation allows two development steps. A step holds its slot
+  whether its agent is thinking (almost no load) or building (all cores, tens of GB written). On
+  2026-10-20 the machine averaged 4.1 % CPU pressure across 5,895 samples, while the one hot drive
+  set the real limit. The operator's own tooling (`ct-busy.sh`, 2026-10-20) already sorts the
+  daemon's processes into builds and agents; the daemon itself cannot.
+- **Change:**
+  1. *Separate the two kinds of work.* Agent steps keep the slot count, which can then be raised.
+     Heavy work (declared checks, pinned Cargo builds, agents' build and test tool calls, run as
+     their own units as checks already are) takes a separate build allowance per device, sized
+     from what that device holds (R-H9's build root).
+  2. *Admit on measured headroom.* Before starting heavy work, the daemon reads CPU and memory
+     PSI, available memory, and the build device's temperature and latency (hwmon,
+     `/sys/block/*/stat`, as `drive-watch.sh` does). It defers the work while a limit is
+     exceeded, and shows the deferral on the run ("waiting for the build drive to cool", 68 °C of
+     72), so it is visible and not a stall. Running work is never paused.
+  3. *Show it.* The dashboard shows each device's load and what is waiting for it.
+- **Sequencing:** in P5 with R-C18 part 2 (operator, 2026-10-21); after R-H9, for the build
+  root. R-B6, which also changes what admission waits on, is done (4534a88). Then retire the operator's `ct-busy.sh`, `drive-watch.sh` and the "one heavy writer
+  at a time" rule.
+- **Done when:** two roadmaps in different repositories run at once, with no step waiting on a
+  slot while its device has headroom; nvme0 stays below 72 °C without the operator's watch; a CT
+  gate runs beside an AQ check without either one failing.
+
 ## Workstream C — Operator-wait reduction (the vision: minimum operator input)
 
 ### R-C1
@@ -3759,7 +3793,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C18
 
-**A second project's roadmap in the same workspace: the stop it forces and the item it strands** · Phase P4 · Effort S-M (two parts) · Status: open (found live 2026-10-17; recorded at the operator's request; placement for the operator)
+**A second project's roadmap in the same workspace: the stop it forces and the item it strands** · Phase P4 · Effort S-M (two parts) · Status: open (found live 2026-10-17; recorded at the operator's request; part 1 in P4 step 1, part 2 in P5 with R-B12, operator 2026-10-21)
 
 - **Found 2026-10-17.** To start ActionQueue's AQ-PERF-1 roadmap (25d2abb1), the operator had to stop WorldInterface's (9b64a571) at 22:45:06:
   - Both projects are in the Exo-Stack workspace, and only one roadmap per workspace may be running, paused or needing attention (`assertRunnable`, `roadmap-service.ts:2148-2153`; the unique index `roadmap_workspace_delegation`, `packages/storage/migrations/0012-roadmaps.sql:12-13`).
@@ -3781,7 +3815,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C19
 
-**A plan ready to finalize says so in Needs you** · Phase P4 · Effort S · Status: open (found live 2026-10-21; recorded at the operator's request; placement for the operator)
+**A plan ready to finalize says so in Needs you** · Phase P4 · Effort S · Status: open (found live 2026-10-21; recorded at the operator's request; P4 step 1, operator 2026-10-21)
 
 - **Found 2026-10-21.** ActionQueue's AQ-PERF-1 roadmap (25d2abb1) completed at 01:45:34 ("All roadmap entries are completed."), with all five items of plan version 4f6ef8f1 complete and their merge commits in `aq-perf-1`. The next step is that plan's finalization ([ADR-042](../../decisions/ADR-042-staged-plan-finalization.md)), which starts only from the plan version page's **Finalize integration** section (`FinalizationPanel`, under `PlanVersionRoute`; "Not started."). Nothing pointed there: Needs you lists stops, a completed roadmap is not one, and the roadmap's board and a plain roadmap's History do not mention finalization (only a map roadmap's History shows each project's readiness, `docs/roadmaps.md`, Finalization). The operator looked for it and did not find it.
 - **Change:** a Needs you item, one per plan version, when the plan is ready to finalize: every item completed (the completions, as `FinalizationService.start` reads them) with integration evidence recorded (the item's merge, or the branch settings' evidence), and no finalization of that version preparing, active or completed. It names the plan and links to the plan version page's Finalize integration section, and it is the operator's (`owner: 'operator'`), so configured notifications send it. It resolves when a finalization starts, the plan version is retired, or the operator dismisses it (for a plan finalized outside CraftingTable). The finished roadmap's board says the same in its status. The attention projector already keys items by subject family and marks them on record changes (`attention-projector.ts`; `finalization:<id>` today): the item's subject is the plan version, marked when a completion, a finalization or a retirement is recorded for it.
@@ -3794,7 +3828,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 
 ### R-C20
 
-**A staged review report that only needs restating is repaired in the reviewer's session, without re-running the checks** · Phase P4 · Effort S-M · Status: open (found live 2026-10-21; recorded at the operator's request; widened at their request the same day; placement for the operator)
+**A staged review report that only needs restating is repaired in the reviewer's session, without re-running the checks** · Phase P4 · Effort S-M · Status: open (found live 2026-10-21; recorded at the operator's request; widened at their request the same day; P4 step 1, operator 2026-10-21)
 
 *Widened 2026-10-21* from the missing category alone (the first title: "A staged finding's missing category stops finalization instead of being repaired") to every report issue a restatement fixes, and the repair's check re-run.
 
@@ -4474,6 +4508,15 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - **Glossary wording:** internal identifiers "belong" in disclosures (a target; see the note above). The glossary has 17 terms.
   - Tests: new panel tests fail on 4c77665; the copy check's self-test covers the state exemption and conditional prose.
   - **Walkthrough after the fixes:** `2026-09-25-vocabulary-copy-review-after`. Its row records 61e41cb, captured from the working tree that became this commit, as the earlier `-after` row recorded its parent.
+
+### R-E7
+
+**The map page's first load can reset its selections before Save** · Phase P4 · Effort S · Status: open (found 2026-10-22 in R-B7's gate; its own item by the operator's decision of 2026-10-22; P4 step 2)
+
+- **Found 2026-10-22,** in R-B7's gate at 990e864 (R-B7's entry, "Round, gate and review at 990e864"). In the walkthrough rehearsal, `Inspect aq` stayed disabled for 60 s after the map's binding was saved. The runtime panel still listed `aq` as not configured. The rerun passed, and no run has reproduced it. It was diagnosed from the failure's page snapshot and the code; the most likely cause is that binding revision 1 was saved without `aq`.
+- **Today (read at 74176aa):** the map page reads its definition in an effect (`apps/web/src/features/planning/ConcurrencyImports.tsx:123-126`) that calls `open`, and `open` applies whatever response arrives through `adoptView`, which resets every selection to the recorded values. Unlike the listing effect above it (83-96, with its `alive` flag), it has no guard against a stale response. Under the e2e dev server's `<StrictMode>`, React 19 runs the effect twice. The first response ends `busy`, the spec selects `aq`'s upstream, and then the second response resets the selections to the recorded empty value, so Save sends only `wi` and `exo`. In a production build the effect runs once per map. The same reset there needs two loads in flight: moving between maps while one is loading. The code dates from before P4 (3feb310, ba8cc13).
+- **Change:** the definition read applies only its newest response (a request token, or the listing effect's `alive` pattern), and `busy` holds until that response lands. The rehearsal's spec checks that `aq`'s selection is in place before it saves.
+- **Done when:** a component test with two overlapping definition reads, the older one resolving last, keeps the newer one's view and the operator's choices; the rehearsal passes under `<StrictMode>`.
 
 ## Workstream F — Plan and roadmap formats (ground truth; Studio readiness)
 
@@ -7222,6 +7265,45 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 - **The live daemon after the deploy (2026-10-21; deployed 2026-10-20 21:53:53 at 1cd9802; measured read-only, `ri12h8/tools/rh8/live-after.sh`, output in `ri12h8/rh8/live-after`).** R-B5's per-second read of the main process (`/proc`, 600 s), taken in the first 10 minutes after the paced first pass in which the daemon ran nothing (no check, build or agent, by R-B5's busy rule) and no storage attention item was open: 01:45:52 to 01:55:51, which the AQ roadmap's runs had kept from coming sooner. Minutes 2 to 10, at rest: 81 to 123 ms of main-thread CPU a minute (96 on average, 120 on all threads), the busiest second 20 to 41 ms, no second at 100 ms or more. The tick is each minute's two or three busiest seconds, 33 to 61 ms together (usually about 33); the other 57 seconds come to 46 to 53 ms (median 0.8 to 0.9 ms a second, about 0.08 % of a core: the daemon's own, as R-B5's 0.0 to 0.1 %). Against about 1,500 ms a minute in two busy seconds before (R-B5's live sample, 2026-10-20). **The done-when is met** (about 50 ms a minute and no second at 100 ms, at rest). Minute 1 was not at rest: the window opened 18 s after the AQ roadmap's AQ-P5 worktree was removed, and its end-of-run cleanup removed that worktree's build cache, 185 GiB (198,355,210,240 bytes; `storage.cleaned` authorized 01:45:59.7, removed 01:46:02.0): about 2.6 s of main-thread CPU sizing it (four seconds of 390 to 660 ms, some 50,000 read calls a second) and the `rm` after it (the busiest second 943 ms, 3.7 s a second on all threads), 3,985 ms in the minute with 7 seconds at 100 ms or more. That is increment 2's LOW-2 (below), seen live.
 - **Left:** increment 2's review LOW-2 (cleanup's re-check, the end-of-run cleanup's walk and the worktree caches' sizing unpaced; not at rest; seen live 2026-10-21, above: a removed worktree's 185 GiB cache held the event loop for about 6 s, the busiest second 943 ms, once, and the cost grows with the cache) and LOW-5 (cleanup turned off during a tick, older than R-H8). After each start of the daemon the first pass takes about 40 minutes on a tree like the live one, during which a directory first read late is acted on late by the same delay (an expired scratch or a cache up to about 40 minutes after the start). Increment 2's commit (afc0024) says "Tests first"; its tests were written after the code, alongside it.
   - *Follow-up, found reading the code at 1cd9802 (2026-10-20; recorded by the operator, not built):* a paced walk can hold up the next step. `cleanupAfterRun` waits for the tick in progress (`while (this.operation) await …`), and every launch on that worktree waits for the cleanup (`waitForRunCleanup`). A tick normally ends within about half a second. One directory, however, is walked whole: an expired scratch holding a large Cargo target is sized entry by entry at the pacer's duty cycle (10 ms of work, then 100 ms of pause), so the next step on any worktree whose run has just ended could wait tens of seconds. That is an estimate from the code, not measured. The fix: the pacer's `hurry` also holds while an end-of-run cleanup waits (a non-empty `runCleanups`), as it already does while the daemon stops. Test: a tick paced through a heavy directory finishes its walk without pauses once a run's cleanup is requested.
+
+### R-H9
+
+**Build directories: write less, and keep them where the operator puts them** · Phase P5 · Effort M · Status: open (P5, or earlier only if the drive's heat returns; operator 2026-10-21)
+
+- **Added 2026-10-20 by the operator,** after the AQ-PERF-1 roadmap's first hour under `drive-watch`
+  (nvme0 47 -> 69 °C, read+write latency spikes to 951 ms) and the 2026-10-17 freeze it follows.
+- **Today (at `af80c8b`, measured live 2026-10-20):** everything a run builds lands in the data
+  directory, on nvme0 (`/mnt/workhorse`, the hot WD SN750):
+  - the worktree's build cache, `runs/worktree-caches/<worktree>` (two ActionQueue caches: 45 GB
+    and 11 GB);
+  - each run's declared-check and pinned-Cargo directory, `check-logs/<run>/declared-target`
+    (37.8 GB for one AQ run), plus that check's `cargo-home-<slot>` and private `TMPDIR`;
+  - the run's `scratch/target`.
+  The same commit can be compiled in all three, each from cold, and nothing is shared between runs.
+  `CRAFTINGTABLE_RUNS_ROOT`, `CRAFTINGTABLE_WORKTREE_ROOT` and `CRAFTINGTABLE_AGENT_TMP_ROOT`
+  move some roots, but `checkLogRoot` (`config.ts:417`) is fixed under the data directory.
+- **Change:**
+  1. *Write less.* A declared check builds in a per-repository warm directory, keyed as
+     `declared-target/<hash>` already is, instead of a fresh one per run. Runs that share it
+     take turns, the way builds within one run already do (`buildsInRunTarget`), because Cargo's
+     lock does not cover a test still running from the files. The directory is pruned by size
+     and age through the storage tick (R-H8), not per run.
+  2. *Place.* One build-directory root (`CRAFTINGTABLE_BUILD_ROOT`), defaulting to today's paths,
+     holds worktree caches, declared targets, check Cargo homes and check `TMPDIR`s. The root
+     must not be on tmpfs, because confined check units cannot see tmpfs (`local-check.ts`). The
+     daemon records it in its fixed roots, so the sandbox and cleanup still name it.
+- **Where to put it (operator's decision, with the deploy):**
+  - nvme1 (btrfs root, cool and idle): fast, but on 2026-10-17 btrfs ran out of space for new
+    chunks under churn (205 GiB came back after a balance), and today it is again at 238 GiB
+    allocated against 124 GiB used. It needs a scheduled `btrfs balance -dusage=50`, or another
+    choice.
+  - sda (`/mnt/storage`, SATA SSD, ext4, 232 GB free): no chunk problem and cool, but about a
+    third of NVMe speed; it also holds sysmon and the e2e scratch.
+  - A new drive: the cleanest choice, if part 1 does not cut the writes enough.
+- **Since (2026-10-21):** a heatsink (2026-10-20) and a box fan on the case side (2026-10-21) hold nvme0 at 48 to 62 °C under the same Rust check load that reached 74 to 77 °C before; no drive-watch warning since 13:13 that day. The operator placed this item in P5 for that reason.
+- **Done when:** a second AQ run of the same roadmap writes at least half less to nvme0 than the
+  first (sysmon's `w=` totals over each run); the build root moves by configuration alone, and
+  `pnpm check` and `pnpm replays` are unchanged.
 
 ## Workstream I — Engineering hygiene (tests, docs, repository, deployment)
 

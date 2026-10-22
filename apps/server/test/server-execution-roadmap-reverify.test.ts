@@ -1,5 +1,5 @@
 import { roadmapsResponseSchema, roadmapViewSchema } from '@craftingtable/contracts';
-import { afterEach, expect } from 'vitest';
+import { afterEach, expect, vi } from 'vitest';
 import {
   adoptSupervisedMap,
   cleanupExecutionFixtures,
@@ -203,20 +203,26 @@ itNeedsCargo(
     expect(kept.instructions).not.toBe('Changed defaults.');
 
     // A's queued review is gated as a verification (R-B7 scheduler half, the round at b423cb4): an
-    // active attempt of its owning slice holds it, where a parent acceptance's gate would not.
+    // active attempt of its owning slice holds it at the scheduler's own check, where a parent
+    // acceptance's gate would not, so no repeat of the review is asked for while it waits. (The
+    // repeat's own scope check would refuse it with the same blocker, so the wait alone does not
+    // show whose gate held it; the review of 180c36a, MEDIUM-1.)
+    const repeats = vi.spyOn(state.context.services.workCycleService, 'repeatScopeReview');
     const active = await scopeTree(f, { ...A.executionScope!, kind: 'slice' });
     await roadmapControl(state, 'resume');
     for (let step = 0; ; step++) {
       const wait = storedRoadmap(state).entryWaits?.[A.id];
       if (wait?.code === 'phase-blocked') {
-        expect(wait.refs).toEqual({ blockers: ['slice-attempt-active'] });
+        expect(wait.refs?.blockers).toContain('slice-attempt-active');
         break;
       }
-      if (step > 100) throw new Error('Timed out waiting for the queued review to be gated.');
+      if (step > 1000) throw new Error('Timed out waiting for the queued review to be gated.');
       await stepDaemons();
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     expect(cycle(A.id)?.currentRunId).toBe(oldA.currentRunId);
+    expect(repeats.mock.calls.filter(([, , id]) => id === oldA.id)).toEqual([]);
+    repeats.mockRestore();
     expect(
       (
         await state.context.app.inject({

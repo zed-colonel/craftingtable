@@ -62,7 +62,7 @@ export class RoadmapControl {
     }
   }
 
-  async controlWithin(
+  private async controlWithin(
     context: AuthContext,
     workspaceId: WorkspaceId,
     id: RoadmapId,

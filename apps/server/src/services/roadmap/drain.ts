@@ -27,7 +27,7 @@ export class RoadmapDrain {
     private readonly state: RoadmapState,
     private readonly writer: RoadmapWriter,
     private readonly holds: RoadmapHolds,
-    private readonly roadmapAttention: RoadmapAttention,
+    private readonly derivedAttention: RoadmapAttention,
     private readonly recovery: RoadmapRecoveryRounds,
     private readonly admission: RoadmapAdmission,
   ) {}
@@ -61,7 +61,7 @@ export class RoadmapDrain {
    * looks at every roadmap, as the loop's first tick did. While admissions are held the marks
    * are taken and dropped, as the ticks were skipped; their release marks every roadmap.
    */
-  async loop(): Promise<void> {
+  private async loop(): Promise<void> {
     this.state.kernel.mark('start');
     while (!this.state.abort.signal.aborted) {
       // A tick in flight (a test's) ends first, so its marks are not lost (review LOW-2).
@@ -123,7 +123,7 @@ export class RoadmapDrain {
     await this.round('all');
   }
 
-  async round(marked: Marked): Promise<void> {
+  private async round(marked: Marked): Promise<void> {
     if (this.state.ticking) return;
     this.state.ticking = true;
     let done: () => void = () => undefined;
@@ -223,7 +223,7 @@ export class RoadmapDrain {
         }
       }
       try {
-        this.roadmapAttention.syncAttention();
+        this.derivedAttention.syncAttention();
       } catch {
         /* The next pass re-derives the set; delivery reads whatever is stored meanwhile. */
       }

@@ -66,8 +66,8 @@ it('gives every module the facade’s own state, writer and modules, and composi
   expect(modules.map(([name]) => name).sort()).toEqual(
     [
       'admission',
-      'roadmapAttention',
       'controls',
+      'derivedAttention',
       'drain',
       'holds',
       'integration',
@@ -150,7 +150,7 @@ it('hands each delegate’s arguments to its module, and returns what the module
       'lockReleased → drain',
       'mapItemSlices → views',
       'page → views',
-      'passAttention → roadmapAttention',
+      'passAttention → derivedAttention',
       'prepareDecision → preparations',
       'recoverInterrupted → controls',
       'reverifyEntry → controls',
@@ -162,7 +162,7 @@ it('hands each delegate’s arguments to its module, and returns what the module
       'statusList → views',
       'statusOf → views',
       'summaries → views',
-      'syncAttention → roadmapAttention',
+      'syncAttention → derivedAttention',
       'tick → drain',
       'wake → drain',
       'workspaceProfiles → settings',

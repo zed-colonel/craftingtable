@@ -75,9 +75,10 @@ interface Wrap {
 const handed = new WeakMap<Site, (() => void)[]>();
 
 /**
- * Each check a site was handed is the scheduler's own, not a no-op or another's (the review of
- * R-B7's increment 1, NIT-2; 9a79bec held it for the merge alone): with the roadmap no longer
- * running, as a pause or a completion leaves it, each refuses.
+ * Each check a site was handed is not a no-op (the review of R-B7's increment 1, NIT-2; 9a79bec
+ * held it for the merge alone): with the roadmap no longer running, as a pause or a completion
+ * leaves it, each refuses. (Any check that reads the roadmap's status refuses here too, so this
+ * does not tell the scheduler's own check from another's; the settlement review's NIT-1.)
  */
 function expectSchedulersChecks(
   state: Parameters<typeof storedRoadmap>[0],

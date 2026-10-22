@@ -453,6 +453,29 @@ describe('the slice requirement, both copies', () => {
   });
 });
 
+describe('the slice requirement on a later binding revision that binds the slice’s work item', () => {
+  /**
+   * The settlement review of R-B7's scheduler half (LOW-1): every row above asks slice a's
+   * evidence at revision 1, or returns before asking it. Here binding revision 2 binds every work
+   * item as revision 1 does, and the evidence asked of it is revision 2's.
+   */
+  it('asks slice a’s evidence of that revision in both copies', async () => {
+    const f = await fixture();
+    const binding = present(
+      f.tx.imports.bindings(f.ws, f.definition.id).find((b) => b.revision === 1),
+    );
+    f.tx.imports.addBindings({ ...binding, revision: 2, createdAt: new Date().toISOString() });
+    evidence.accepted = true;
+    const answered = answers(f, 2);
+    expect(evidence.asked.length).toBeGreaterThan(0);
+    expect(answered).toEqual({
+      milestoneMet: met(false, false, true),
+      scopePhaseBlockers: met(false, false, true),
+      evidenceAsked: true,
+    });
+  });
+});
+
 describe('the slice requirement on a binding that does not bind the slice’s work item', () => {
   /**
    * A binding revision missing `local/AQ-01` (the slice's work item) and keeping `local/AQ-02`.

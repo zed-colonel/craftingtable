@@ -107,7 +107,7 @@ export class RoadmapAttention {
     return this.attentionItems(mapReadSnapshot(this.storage), roadmap);
   }
 
-  attentionItems(tx: StorageRepositories, roadmap: Roadmap): ProjectedItem[] {
+  private attentionItems(tx: StorageRepositories, roadmap: Roadmap): ProjectedItem[] {
     const workspaceId = roadmap.workspaceId;
     // The roadmap's board (R-E2); setup items open its setup at their section.
     const ws = encodeURIComponent(workspaceId);

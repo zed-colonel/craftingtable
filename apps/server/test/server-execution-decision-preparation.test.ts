@@ -19,6 +19,7 @@ import {
   waitFor,
   waitUntil,
 } from './execution-test-support.js';
+import { addMember } from './cleanup-test-support.js';
 import { moduleOf } from './scheduler-test-support.js';
 import {
   architectureDecisionInbox,
@@ -704,6 +705,29 @@ it('prepares nothing for a grantor who may no longer prepare, and stops a launch
   const run = tx.execution.runs.find(f.state.workspaceId, stopped.runId);
   expect(stopped.failure ?? run?.status).toMatch(/revoked|failed|cancelled/);
   expect(run?.status).not.toBe('finished');
+});
+
+// R-B7 scheduler half, review of increment 3 (LOW-2): the standing grant's grantor must still be
+// an editor, not only an active member; a grantor demoted to viewer prepares nothing.
+it('prepares nothing for a grantor demoted to viewer', async () => {
+  const fixture = await decisionFixture();
+  const { f, tx } = fixture;
+  await grantAndStart(fixture);
+  const viewer = addMember(f.state, 'viewer');
+  const granted = storedRoadmap(f.state);
+  tx.roadmaps.save(
+    {
+      ...granted,
+      version: granted.version + 1,
+      decisionPreparationGrant: {
+        ...granted.decisionPreparationGrant!,
+        grantedByUserId: viewer.user.id,
+      },
+    },
+    granted.version,
+  );
+  await f.state.context.services.roadmapService.tick();
+  expect(prepared(fixture)).toEqual([]);
 });
 
 it('a decision preparation takes no slice capacity, and goes once its decision is accepted (LIVE-16)', async () => {

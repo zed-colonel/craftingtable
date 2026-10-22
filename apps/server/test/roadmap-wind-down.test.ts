@@ -85,6 +85,17 @@ describe('settling a roadmap (R-B11)', () => {
     expect(roadmap.reason).toBe(
       'Roadmap stopped. Existing worktrees remain available for manual work.',
     );
+    // R-B7 scheduler half, review of increment 4 (LOW-2): the settlement saves the stopped
+    // roadmap as the operator who asked, in their session, not as the system.
+    expect(
+      auditLog(state).filter((e) => e.action === 'roadmap.updated' && e.metadata.action === 'stop'),
+    ).toEqual([
+      expect.objectContaining({
+        actorKind: 'user',
+        actorUserId: state.userId,
+        sessionId: expect.any(String),
+      }),
+    ]);
     for (const attempt of [first, third]) {
       expect(cycleOf(state, attempt.cycleId).status).toBe('stopped');
       // The end it records (R-B4b increment 2 review, MEDIUM-2).

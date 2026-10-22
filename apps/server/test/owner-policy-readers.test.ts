@@ -359,6 +359,16 @@ function answers({ cycle, sibling, claimTree }: Arranged) {
     settling: new Set([owner?.roadmap.id ?? 'no-roadmap']),
     owner: () => ownerPolicy(storage, cycle),
   });
+  // R-B7 scheduler half, review of increment 1 (LOW-4): `settling` asks whether its own owner
+  // settles, so another roadmap's settlement leaves every row unheld.
+  expect(
+    cycleFacts(storage, cycle, {
+      now: new Date(),
+      settling: new Set(['another-roadmap']),
+      owner: () => ownerPolicy(storage, cycle),
+    }).settling(),
+    'another roadmap settling',
+  ).toBe(false);
   const delegation = workflowDelegation(storage, cycle);
   // The roadmap claim, with the cycle at a merge approval and at a detected conflict.
   const claim = (stopped: WorkCycle) => currentCycleAttention(storage, stopped)?.claim;

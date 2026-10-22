@@ -58,6 +58,10 @@ it('gives every module the facade’s own state, writer and modules, and composi
     // The daemon's one Git, which the execution service holds too.
     git: (services.executionService as unknown as { git: unknown }).git,
   };
+  // R-B7 scheduler half, review of increment 7 (NIT-2): the facade's own fields, which the
+  // modules are checked against below, are composition's objects.
+  expect(fields.storage, 'the facade’s storage').toBe(storage);
+  expect(fields.workspaces, 'the facade’s workspaces').toBe(services.workspaceService);
   const modules = modulesOf(roadmaps);
   expect(modules.map(([name]) => name).sort()).toEqual(
     [

@@ -685,6 +685,21 @@ itNeedsCargo(
         },
       },
     });
+    // R-B7 scheduler half, review of increment 9 (LOW-2): the repair's new tree is created
+    // under the repair's own wrapper, not the roadmap's actor it was handed. Recorded inside the
+    // counting watch below, so `handed` is the actor `delegateScopeRepair` itself receives.
+    const handed: Actor[] = [];
+    const treeActors: Actor[] = [];
+    watch(storage, services.workCycleService, 'delegateScopeRepair', (args) => {
+      const actor = (args[4] as { actor?: Actor } | undefined)?.actor;
+      if (actor) handed.push(actor);
+      return undefined;
+    });
+    watch(storage, services.executionService, 'createWorktree', (args) => {
+      const actor = (args[5] as { actor?: Actor } | undefined)?.actor;
+      if (actor) treeActors.push(actor);
+      return undefined;
+    });
     const delegated = watch(
       storage,
       services.workCycleService,
@@ -744,6 +759,11 @@ itNeedsCargo(
       actorKind: 'system',
       targetId: round.worktreeId,
     });
+    expect(handed).toHaveLength(1);
+    expect(treeActors).toHaveLength(1);
+    expect(treeActors[0]).not.toBe(handed[0]);
+    expect(treeActors[0]?.check).not.toBe(handed[0]?.check);
+    expect(treeActors[0]).not.toHaveProperty('attach');
   },
 );
 

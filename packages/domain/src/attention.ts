@@ -175,7 +175,7 @@ export const ROADMAP_ATTENTION_CODES = Object.keys(ROADMAP_ATTENTION) as Roadmap
  * it.
  */
 export const ENTRY_WAIT = {
-  // The scheduler's own blockers (`RoadmapService.blocker`).
+  // The scheduler's own blockers (`RoadmapSelection.blocker`).
   'dependency-blocked': 'controller',
   'capacity-blocked': 'controller',
   'exclusion-blocked': 'controller',

@@ -1235,6 +1235,38 @@ describe('the cycle core reaches no service and no file or process access (rule 
     );
   });
 
+  // R-B7 scheduler half, review of increment 10 (LOW-1): the merge gate is a root of its own; a
+  // gate that reaches the file system or a service is found though no cycle-core module imports it.
+  it('starts from the merge gate too', () => {
+    const gate = 'apps/server/src/services/merge/gate.ts';
+    const { findings } = inspectWorkspace(
+      workspace({
+        'apps/server/src/index.ts':
+          "import { mergeGateFor } from './services/merge/gate.js';\nexport const main = mergeGateFor;\n",
+        [gate]:
+          "import { read } from '../journal.js';\nimport { act } from '../thing-service.js';\nexport const mergeGateFor = () => read() + act();\n",
+        'apps/server/src/services/journal.ts':
+          "import { readFileSync } from 'node:fs';\nexport const read = () => readFileSync('x', 'utf8');\n",
+        'apps/server/src/services/thing-service.ts': 'export const act = () => 1;\n',
+      }),
+      EMITTED_EXPORTS,
+      [],
+    );
+    expect(coreFindings(findings).sort()).toEqual(
+      [
+        reaches(
+          'apps/server/src/services/journal.ts',
+          [gate, 'apps/server/src/services/journal.ts'],
+          'node:fs',
+        ),
+        service('apps/server/src/services/thing-service.ts', [
+          gate,
+          'apps/server/src/services/thing-service.ts',
+        ]),
+      ].sort(),
+    );
+  });
+
   it('follows only value imports, within the daemon', () => {
     const { findings } = inspectWorkspace(
       workspace({

@@ -132,6 +132,9 @@ const parentScope = (): ExecutionScope => ({
   sourceId: 'AQ-01',
 });
 
+/** A slice's scope: recovery never owns a slice's stop. */
+const sliceScope = (): ExecutionScope => ({ ...parentScope(), kind: 'slice' });
+
 /**
  * Gives the first entry's attempt a cycle of a review scope other than a slice. A cycle's scope
  * is immutable (`work_cycle_scope_immutable`), so the paused cycle ends and a copy of it with
@@ -370,6 +373,25 @@ describe("a roadmap's Resume (controlWithin)", () => {
     expect(outcome).toEqual({ resumed: [], hold: undefined });
   });
 
+  // R-B7 scheduler half, review of increment 1 (MEDIUM-1): recovery owns no slice's stop, so
+  // the roadmap's Resume resumes a slice cycle at the stop it skips for another review scope.
+  it('resumes a slice’s stop under scope recovery: recovery owns no slice’s stop', async () => {
+    const f = await pausedEntry();
+    const outcome = await roadmapResume(
+      f,
+      () => {
+        enableScopeRecovery(f);
+        rescope(f, {
+          executionScope: sliceScope(),
+          status: 'needs-attention',
+          stop: stop('review-needs-attention'),
+        });
+      },
+      true,
+    );
+    expect(outcome).toEqual({ resumed: [f.cycle.id], hold: undefined });
+  });
+
   it('skips a review scope whose round the roadmap carries, and resumes nothing of a round not paused', async () => {
     const f = await pausedEntry({ sibling: true });
     const outcome = await roadmapResume(f, () => {
@@ -591,6 +613,51 @@ describe("an item's Resume (controlEntry)", () => {
     expect(outcome).toEqual({ status: 200, message: undefined, resumed: [], hold: undefined });
   });
 
+  // R-B7 scheduler half, review of increment 1 (MEDIUM-1): the item's Resume resumes a slice
+  // cycle at a stop recovery would own for another review scope, and releases the hold.
+  it('resumes a slice’s stop under scope recovery, and releases the hold', async () => {
+    const f = await pausedEntry();
+    const outcome = await itemResume(
+      f,
+      () => {
+        enableScopeRecovery(f);
+        rescope(f, {
+          executionScope: sliceScope(),
+          status: 'needs-attention',
+          stop: stop('review-needs-attention'),
+        });
+      },
+      true,
+    );
+    expect(outcome).toEqual({
+      status: 200,
+      message: undefined,
+      resumed: [f.cycle.id],
+      hold: undefined,
+    });
+  });
+
+  // R-B7 scheduler half, review of increment 1 (MEDIUM-1): nor does it ask whether recovery
+  // converges for a slice; it resumes the slice where another review scope is refused.
+  it('resumes a paused slice under scope recovery without asking whether recovery converges', async () => {
+    const f = await pausedEntry();
+    recovery.decision = { escalation: true, reason: NOT_CONVERGING };
+    const outcome = await itemResume(
+      f,
+      () => {
+        enableScopeRecovery(f);
+        rescope(f, { executionScope: sliceScope() });
+      },
+      true,
+    );
+    expect(outcome).toEqual({
+      status: 200,
+      message: undefined,
+      resumed: [f.cycle.id],
+      hold: undefined,
+    });
+  });
+
   it('leaves a review scope whose round the roadmap carries, and resumes nothing of a round not paused', async () => {
     const f = await pausedEntry({ sibling: true });
     const outcome = await itemResume(f, () => {
@@ -676,6 +743,31 @@ describe("an item's Resume (controlEntry)", () => {
       hold: undefined,
     });
     expect(cycleOf(f.state, f.cycle.id).status).toBe('paused');
+  });
+
+  // R-B7 scheduler half, review of increment 3 (LOW-3): an item paused before its entry was
+  // admitted has no attempt; its Resume releases the hold and asks no cycle to resume.
+  it('releases the hold of an item paused before it started, resuming nothing', async () => {
+    const f = await pausedEntry();
+    const unstarted = present(
+      storedRoadmap(f.state).definition.entries.find(
+        (e) => !storedRoadmap(f.state).attempts.some((a) => a.entryId === e.id),
+      ),
+    );
+    const control = async (action: 'pause' | 'resume') =>
+      f.state.context.app.inject({
+        method: 'POST',
+        url: `/api/workspaces/${f.state.workspaceId}/roadmaps/${roadmapId}/control`,
+        headers: mutationHeaders(f.state),
+        payload: { action, entryId: unstarted.id, expectedVersion: storedRoadmap(f.state).version },
+      });
+    expect((await control('pause')).statusCode).toBe(200);
+    expect(storedRoadmap(f.state).entryHolds?.[unstarted.id]?.status).toBe('paused');
+    const resumed = watchResumes(f);
+    const answer = await control('resume');
+    expect(answer.statusCode, answer.body).toBe(200);
+    expect(resumed()).toEqual([]);
+    expect(storedRoadmap(f.state).entryHolds?.[unstarted.id]).toBeUndefined();
   });
 
   it('refuses an ended cycle, and keeps the hold', async () => {

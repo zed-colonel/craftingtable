@@ -1,7 +1,8 @@
 /**
  * Cycles as the browser reads them (R-B7): the workspace's attention list and a work item's
  * detail, each cycle beside its projection (its agents, the actions the daemon would accept, its
- * waits and routes), and whether a cycle's item wait holds its reminders. Nothing here writes.
+ * waits and routes), and whether a cycle's item wait holds its reminders. Nothing here writes a
+ * cycle; a refused read records its denial, as `requireAuthorized` does everywhere.
  */
 import {
   type CycleProjection,

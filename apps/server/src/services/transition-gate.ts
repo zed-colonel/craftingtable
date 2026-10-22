@@ -12,7 +12,7 @@ import { scopeAllowsEarlyDevelopment } from './scope-resolution.js';
 /**
  * The whole-item predecessor rule, in one place (R-A7, CTRL-12). Commands
  * (`WorkCycleService.requireReady`), the launch (`BranchService.requirePredecessors`, which
- * adds Git ancestry) and the roadmap scheduler (`RoadmapService.blocker`, which adds in-flight
+ * adds Git ancestry) and the roadmap scheduler (`RoadmapSelection.blocker`, which adds in-flight
  * attempts) all read their verdict from here, instead of each restating it:
  *
  * - a required predecessor that is not completed blocks, unless the slice's early-start
@@ -62,7 +62,7 @@ export type ItemRefusal = Extract<
 
 /**
  * The item-status rule, in one place (R-B4, decision 2): commands and the cycle core
- * (`requireReady`), the roadmap scheduler (`RoadmapService.blocker` and its started entries) and
+ * (`requireReady`), the roadmap scheduler (`RoadmapSelection.blocker` and its started entries) and
  * the launch read their verdict from here. Each caller keeps its own wording and outcome (a
  * refused command, a stopped cycle, a held entry):
  *

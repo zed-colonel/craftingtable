@@ -9,6 +9,7 @@ import {
   asRoadmapId,
   asRoadmapWindDownId,
 } from '@craftingtable/domain';
+import { openDatabase } from '@craftingtable/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AuthContext } from '../src/services/auth-service.js';
 import { addMember, cleanupFixture, FOURTH, OTHER } from './cleanup-test-support.js';
@@ -427,6 +428,39 @@ describe('what a wind-down refuses (R-B11 review F3)', () => {
     );
     for (let i = 0; i < 2; i++) await state.context.services.roadmapService.tick();
     expect(storedRoadmap(state)).toMatchObject({ status: 'running', attempts: [] });
+  });
+
+  // R-B7 scheduler half, review of increment 3 (LOW-2): the requester must still be active, not
+  // only an editor; a disabled editor's wind-down settles nothing in their name.
+  it('settles nothing for a requester who is still an editor but disabled', async () => {
+    const { state, release } = await settleFixture();
+    const editor = addMember(state, 'editor');
+    const db = openDatabase(state.context.storage.databasePath);
+    try {
+      db.prepare(`UPDATE users SET status = 'disabled' WHERE id = ?`).run(editor.user.id);
+    } finally {
+      db.close();
+    }
+    state.context.storage.transaction((tx) =>
+      tx.windDowns.insert({
+        id: asRoadmapWindDownId(randomUUID()),
+        workspaceId: state.workspaceId,
+        roadmapId: asRoadmapId(roadmapId),
+        version: 1,
+        status: 'settling',
+        retire: [],
+        abandonResolutions: [],
+        previewDigest: 'd'.repeat(64),
+        requestedAt: new Date().toISOString(),
+        requestedByUserId: editor.user.id,
+        startedAt: new Date().toISOString(),
+      }),
+    );
+    await state.context.services.roadmapService.tick();
+    expect(record(state)).toMatchObject({ status: 'settling', incomplete: { step: 'cycles' } });
+    expect(record(state).incomplete?.message).toMatch(/can no longer act/);
+    expect(storedRoadmap(state).status).toBe('running');
+    release();
   });
 
   it('settles as its requester only while they may act, holding the roadmap meanwhile', async () => {

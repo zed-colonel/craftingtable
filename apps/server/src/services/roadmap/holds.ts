@@ -186,7 +186,11 @@ export class RoadmapHolds {
    * roadmap's version alone, so the version check alone would miss it (increment 4 review LOW-1).
    * A read that fails keeps the hold.
    */
-  private async releasable(roadmap: Roadmap, entry: RoadmapEntry, check: ReleaseCheck): Promise<boolean> {
+  private async releasable(
+    roadmap: Roadmap,
+    entry: RoadmapEntry,
+    check: ReleaseCheck,
+  ): Promise<boolean> {
     if (!this.releaseGuarded(roadmap, entry)) return false;
     try {
       if (!(await this.cleared(roadmap, check))) return false;

@@ -429,8 +429,9 @@ itNeedsCargo(
  * stopped review's resume meets a count of 0; a count past it is met by a review whose cycle
  * completed, which the round repeats. Here that is the owning slice's verification: with
  * `verification`, the round's repair worktree is a merge of the owning slice at the new head, so
- * the slice's earlier verification is no longer current, and the round has repeated it
- * `restarts` times.
+ * the slice's earlier verification is no longer current. `restarts` is the count the round
+ * records for it: the restart block reads only that count, whatever history wrote it (a real
+ * count past 1 needs a newer verification that went stale again).
  */
 async function roundRestarting(phase: 'parent-review' | 'verification', restarts: number) {
   const { state, ws, tx, parent, sourceEntry, ownerEntry } = await stoppedParentReview();
@@ -457,7 +458,8 @@ async function roundRestarting(phase: 'parent-review' | 'verification', restarts
   ).trim();
   git(['update-ref', `refs/heads/${reviewed.targetBranch}`, merged, head], checkout);
   // With `verification`, the round's repair worktree is an owning-slice attempt merged at the
-  // new head. (At the parent review nothing reads it.)
+  // new head. Without it the owning slice's verification stays current, which keeps the round
+  // at its parent review.
   const owner = tx.execution.worktrees.find(ws, ownerAttempt.worktreeId)!;
   const repairId = randomUUID() as RoadmapAttempt['worktreeId'];
   if (phase === 'verification') {
@@ -499,7 +501,7 @@ async function roundRestarting(phase: 'parent-review' | 'verification', restarts
       findingFingerprint: 'a'.repeat(64),
       phase,
       reviewRunIds: { [target.id]: targetCycle.currentRunId },
-      reviewRestarts: restarts ? { [target.id]: restarts } : {},
+      ...(restarts ? { reviewRestarts: { [target.id]: restarts } } : {}),
       requestedByUserId: state.userId,
     },
   };

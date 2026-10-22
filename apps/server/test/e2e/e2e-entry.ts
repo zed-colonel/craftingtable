@@ -1,18 +1,19 @@
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { createRuntime } from '../../src/composition.js';
-import { configFromEnv } from '../../src/config.js';
-import { e2eEnvironment } from './e2e-environment.js';
-import { openDaemonStorage } from '../../src/persisted-records.js';
-import { seedTestDaemonStorage } from './test-daemon-storage.js';
 import {
   RUN_PREFIXES,
   runDirectoryPrefix,
   sweepEndedRuns,
 } from '../../../../packages/storage/test/test-run-directory.js';
+import { createRuntime } from '../../src/composition.js';
+import { configFromEnv } from '../../src/config.js';
+import { openDaemonStorage } from '../../src/persisted-records.js';
+import { e2eEnvironment } from './e2e-environment.js';
+import { seedTestDaemonStorage } from './test-daemon-storage.js';
 import { chooseTestDataRoot } from './test-data-root.js';
 
-const E2E_USERNAME = 'e2e-admin';
+// The README's screenshots bootstrap the operator's name instead (`pnpm docs:screenshots`).
+const E2E_USERNAME = process.env.CRAFTINGTABLE_E2E_USERNAME ?? 'e2e-admin';
 const E2E_PASSWORD = 'correct horse battery staple';
 // The run's test data root (R-I2): a disk directory a confined check can see, beside the live
 // data directory, or the runtime tmpfs when none is named. The daemon's directory there names

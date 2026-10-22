@@ -4,6 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
 /** The daemon under test launches this scripted stand-in instead of Claude Code. */
 const FAKE_CODEX = fileURLToPath(new URL('./e2e/fake-codex.mjs', import.meta.url));
 const FAKE_CLAUDE = fileURLToPath(new URL('./e2e/fake-claude.mjs', import.meta.url));
+/** The README's screenshots run a stand-in whose output reads like a real session. */
+const README_CLAUDE = fileURLToPath(new URL('./e2e/readme-agent.mjs', import.meta.url));
 const SERVER_DIRECTORY = fileURLToPath(new URL('./apps/server/', import.meta.url));
 
 // The suite owns these ports so it runs alongside an operator daemon or `pnpm dev`
@@ -21,6 +23,8 @@ const SERVER_HEALTH_URL = `${SERVER_ORIGIN}/api/health`;
  */
 const INSTALLATION_SPECS = ['**/storage.spec.ts'];
 const WALKTHROUGH = !!process.env.CRAFTINGTABLE_WALKTHROUGH;
+/** `pnpm docs:screenshots`: the README's images, taken on a daemon of their own. */
+const README_SCREENSHOTS = process.env.CRAFTINGTABLE_README_SCREENSHOTS === '1';
 
 /**
  * One scalable timeout for the suite (TS-M15), as `vitest.config.ts` has for the unit tests
@@ -70,7 +74,12 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: ['**/mobile.spec.ts', '**/walkthrough.spec.ts', ...INSTALLATION_SPECS],
+      testIgnore: [
+        '**/mobile.spec.ts',
+        '**/walkthrough.spec.ts',
+        '**/readme-screenshots.spec.ts',
+        ...INSTALLATION_SPECS,
+      ],
       use: {
         ...devices['Desktop Chrome'],
         // Typical MacBook browser viewport (acceptance criterion 5).
@@ -91,7 +100,7 @@ export default defineConfig({
         browserName: 'chromium',
       },
     },
-    ...(WALKTHROUGH
+    ...(WALKTHROUGH || README_SCREENSHOTS
       ? []
       : [
           {
@@ -121,6 +130,16 @@ export default defineConfig({
           },
         ]
       : []),
+    ...(README_SCREENSHOTS
+      ? [
+          {
+            name: 'readme',
+            testMatch: '**/readme-screenshots.spec.ts',
+            timeout: WALKTHROUGH_TIMEOUT_MS,
+            use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+          },
+        ]
+      : []),
   ],
   webServer: [
     {
@@ -137,12 +156,14 @@ export default defineConfig({
       // milliseconds when idle; the bound is scaled with the rest for a slower host.
       gracefulShutdown: { signal: 'SIGTERM', timeout: Math.round(10_000 * TIME_SCALE) },
       env: {
-        CRAFTINGTABLE_CLAUDE_EXECUTABLE: FAKE_CLAUDE,
+        CRAFTINGTABLE_CLAUDE_EXECUTABLE: README_SCREENSHOTS ? README_CLAUDE : FAKE_CLAUDE,
         CRAFTINGTABLE_CODEX_EXECUTABLE: FAKE_CODEX,
         CRAFTINGTABLE_PORT: String(SERVER_PORT),
         CRAFTINGTABLE_PUBLIC_ORIGIN: WEB_URL,
         // The walkthrough photographs the default slots; the gate's parallel specs need more.
-        ...(WALKTHROUGH
+        // The README shows the operator's own name, as its quickstart bootstraps it.
+        ...(README_SCREENSHOTS ? { CRAFTINGTABLE_E2E_USERNAME: 'keith' } : {}),
+        ...(WALKTHROUGH || README_SCREENSHOTS
           ? {}
           : { CRAFTINGTABLE_DEVELOPMENT_CAPACITY: '8', CRAFTINGTABLE_VERIFICATION_CAPACITY: '4' }),
       },

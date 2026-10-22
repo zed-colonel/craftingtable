@@ -678,6 +678,8 @@ Read by the test harness: `vitest.config.ts`, `playwright.config.ts`, `e2e/` and
 | `CRAFTINGTABLE_WALKTHROUGH` | unset | `1` records the UI walkthrough (`pnpm ui:walkthrough`); `rehearse` walks it without captures (`pnpm test:e2e`). |
 | `CRAFTINGTABLE_WALKTHROUGH_DIR` | `$XDG_DATA_HOME/craftingtable-walkthrough` | Where walkthrough images go, outside the repository. |
 | `WALKTHROUGH_LABEL` | the commit | The walkthrough capture's label. |
+| `CRAFTINGTABLE_README_SCREENSHOTS` | unset | `1` takes the README's screenshots into `docs/images/readme/` (`pnpm docs:screenshots`). |
+| `CRAFTINGTABLE_E2E_USERNAME` | `e2e-admin` | The admin the e2e daemon bootstraps; the README's screenshots use `keith`. |
 | `CRAFTINGTABLE_DEV_API_TARGET` | `http://127.0.0.1:${CRAFTINGTABLE_PORT:-4601}` | The Vite dev server's API proxy target (`apps/web/vite.config.ts`; the e2e run sets it). |
 | `CRAFTINGTABLE_MIGRATION_SNAPSHOT` | unset | A copied snapshot for the opt-in migration and resume tests; never a live database. |
 | `CRAFTINGTABLE_REAL_CLAUDE` | unset | `1` runs the sandbox test against the installed Claude Code. |

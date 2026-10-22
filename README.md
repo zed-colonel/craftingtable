@@ -9,6 +9,8 @@ them in isolated Git worktrees while you watch live, steer, and decide. A separa
 run judges each branch; the daemon merges only on a current `mergeable` review, and final
 promotion into a protected branch always waits for your explicit approval.
 
+![The dashboard of a workspace: six items in Needs you, the operator-wait summary, and counts of live runs, items in the agenda, ready, blocked and completed](docs/images/readme/dashboard.png)
+
 ## The main workflow
 
 1. **Import a plan.** **Import plan** takes a plan bundle (an implementation plan plus a
@@ -20,6 +22,9 @@ promotion into a protected branch always waits for your explicit approval.
 4. **Run the work.** Either set up an **Automated cycle** (design → implement → review →
    remediate, each step with its own agent, model and permissions) or create a worktree
    and launch implement and review runs by hand. Every run is journaled and streamed live.
+
+   ![An implement run waiting for the operator's next instruction: its latest turn, and its activity feed of messages and tool calls](docs/images/readme/live-run.png)
+
 5. **Merge through the review gate.** When the latest run on a worktree is a finished review
    with a `mergeable` verdict for the current source and target commits, **Merge into**
    merges it into the integration branch and completes the item. Any later run closes the gate.
@@ -28,6 +33,9 @@ promotion into a protected branch always waits for your explicit approval.
    into integration branches. Cross-project work comes in as a concurrency map, bound to exact
    plan versions and executed as scoped slices with independent verification and parent
    acceptance. [`docs/roadmaps.md`](docs/roadmaps.md) is the guide.
+
+   ![A parallel roadmap's board: one item merged, two awaiting merge approval, and one waiting on them](docs/images/readme/roadmap-board.png)
+
 7. **Finalize and promote.** Once every item in a plan version is completed, **Finalize
    integration** runs staged reviews (correctness, conformance, simplification, polish,
    final independent review) on a candidate branch. You approve the exact candidate and
@@ -38,6 +46,10 @@ checkpoints to accept, setup) is an item in **Needs you**, most blocking first. 
 hosts the controls that resolve it. The dashboard, the rail count, a strip on every other page
 and the roadmap page read the same items, and optional Pushover alerts (configured per workspace
 under **Settings**) open them.
+
+![Needs you with a design question open above the list of open items: merge approvals, design and implementation questions, and a used-up remediation allowance](docs/images/readme/needs-you.png)
+
+The screenshots come from a scripted session on a fixture project (`pnpm docs:screenshots`).
 
 ## Running it
 
@@ -130,3 +142,7 @@ a browser shell, or a replacement for Git or GitHub, and nothing here is a runti
 dependency of the projects it supervises.
 
 > Do not finish CraftingTable before using CraftingTable.
+
+## License
+
+CraftingTable is released under the [MIT License](LICENSE).

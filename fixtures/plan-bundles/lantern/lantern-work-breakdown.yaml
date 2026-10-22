@@ -1,0 +1,74 @@
+document: Lantern 0.1 Implementation Plan
+status: development-planning-baseline
+repository: example/lantern
+integration_branch: develop
+pull_requests:
+- id: LN-01
+  title: Define the log record model and line parser
+  depends_on: []
+  risk: medium
+  primary_areas:
+  - record
+  exit_gate: Every sample log in fixtures/ parses into records, and malformed lines are reported with their line number.
+- id: LN-02
+  title: Choose the on-disk segment format
+  depends_on: []
+  risk: high
+  primary_areas:
+  - segment
+  exit_gate: The format is written down and a round-trip test pins it.
+- id: LN-03
+  title: Add the field tokenizer
+  depends_on: []
+  risk: medium
+  primary_areas:
+  - tokenizer
+  exit_gate: Tokenizer tests cover Unicode, quoted values and key=value fields.
+- id: LN-04
+  title: Parse the query language
+  depends_on: []
+  risk: medium
+  primary_areas:
+  - query
+  exit_gate: The grammar's examples parse, and errors point at the offending column.
+- id: LN-05
+  title: Add the lantern command-line interface
+  depends_on: []
+  risk: low
+  primary_areas:
+  - cli
+  exit_gate: lantern index and lantern search work end to end on the sample logs.
+- id: LN-06
+  title: Write index segments to disk
+  depends_on: []
+  risk: high
+  primary_areas:
+  - segment
+  - storage
+  exit_gate: Segments survive a crash mid-write and are fsynced before they are listed.
+- id: LN-07
+  title: Merge small segments in the background
+  depends_on:
+  - LN-06
+  risk: high
+  primary_areas:
+  - compaction
+  exit_gate: Merging never changes a search result, and readers never see a half-merged segment.
+- id: LN-08
+  title: Run queries across segments
+  depends_on:
+  - LN-06
+  risk: medium
+  primary_areas:
+  - query
+  - segment
+  exit_gate: Results match a brute-force scan on generated logs.
+- id: LN-09
+  title: Rank and highlight search results
+  depends_on:
+  - LN-07
+  - LN-08
+  risk: low
+  primary_areas:
+  - ranking
+  exit_gate: Ranking is stable across runs and highlights mark every matched term.

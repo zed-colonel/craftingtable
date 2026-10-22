@@ -50,6 +50,7 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
 | [R-C18](#r-c18) | P4 | S-M (two parts) | open (found live 2026-10-17; placement for the operator) | A second project's roadmap in the same workspace: the stop it forces and the item it strands |
 | [R-C19](#r-c19) | P4 | S | open (found live 2026-10-21; placement for the operator) | A plan ready to finalize says so in Needs you (added 2026-10-21) |
 | [R-C20](#r-c20) | P4 | S-M | open (found live 2026-10-21, widened the same day; placement for the operator) | A staged review report that only needs restating is repaired in the reviewer's session, without re-running the checks (added 2026-10-21) |
+| [R-C21](#r-c21) | P4 | S-M | open (found live 2026-10-21; with R-C19 and R-C20) | A stage's selection offers only the last report's findings, and its list does not scroll (added 2026-10-21) |
 | **D** | | | | **Read side and browser performance (pain point 3)** |
 | [R-D1](#r-d1) | P0 | S-M | done (67e2e9b) | Cheap server-side read fixes |
 | [R-D2](#r-d2) | P0 | S-M | done, partial on "done when" (67e2e9b) | Cheap browser refresh fixes |
@@ -3759,6 +3760,25 @@ The consolidated backlog for the 2026-09 system review. Each remediation item (`
   - A report still invalid after the repair limit stops as today, with the text in 3.
   - A review's repair at the same head starts its session with no check re-run and the gate accepts the earlier receipts; a test pins both.
 - **Priority:** small to medium, and it hits every staged finalization: each repair today costs a full set of checks. Take it with R-C19.
+
+### R-C21
+
+**A stage's selection offers only the last report's findings, and its list does not scroll** · Phase P4 · Effort S-M · Status: open (found live 2026-10-21; recorded at the operator's request; to go with R-C19 and R-C20)
+
+- **Found 2026-10-21,** in AQ-PERF-1's finalization (b5c62289), at the simplification stage's selection.
+  - *What the operator did:* chose "Select all improvements", with the rationale "Please address all of the findings. This release must be rock solid as downstream work depends on its correctness."
+  - *What was selected:* F-021 and F-039 only (`progress.decisions[0].selectedIds`, 2026-10-22T00:09:43Z). The remediation run (7832f172) was told "Implement or verify ONLY the selected batch: F-021, F-039", and its brief also quoted the rationale, so it read two contradicting instructions and followed the controller's.
+  - *What was left out:* the stage's discovery review (e4b9a822) had found 19 more open simplification findings (F-023 to F-038, F-040 to F-042; five minor, fourteen nits), and eight polish ones (F-013 to F-020). All 27 sit in the ledger's follow-ups (`progress.followUps`), not lost, but none was offered.
+- **Cause.** The selection lists `finalizationCheckpointFindings` (`apps/server/src/services/cycle/commands/finalization.ts`), which reads only the latest review run's report. The brief tells a reviewer that follow-up IDs "may be omitted while unchanged", so the review before the checkpoint (cc8df173) reported F-021 and F-039 alone. The panel (`StageDecision` in `apps/web/src/decisions/finalization/FinalizationStep.tsx`) filters that list to the stage's category, and "Select all improvements" selects exactly what it lists, with no count shown.
+- **And the list does not scroll** (the operator, 2026-10-21): the panel showed more than fit and gave no scrollbar, so the findings could not all be seen or picked one by one. Where it clips (the Needs you item or the finalization page, and which container) is for the design pass to reproduce with many findings.
+- **Change:**
+  1. *The selection offers every open optional finding of the stage's category:* the latest report's, plus the ledger's follow-ups of that category, one entry per ID, the latest statement winning. The same applies at the polish stage, where F-013 to F-020 must be offered.
+  2. *Every finding is visible and selectable one by one,* whatever the count: the list scrolls within the panel, or the page does, on a desktop and on a phone (R-A6's rule: a phone scrolls the page, never a region).
+  3. *The counts are shown:* "Select all 21 improvements", and "N of M selected" beside the submit, so a selection that is not everything says so before it is sent.
+  4. *No reading of the rationale:* the operator's words go to the agent as today; the controller never branches on them (program rule). Point 3 is what prevents the mismatch.
+- **Done when:** a stage whose earlier report found 20 optional findings, and whose last report restates two, offers all 20 (a test on the server's list); the panel shows each with a working scroll at 30 findings (e2e, with walkthrough captures before and after); select all selects every one and the counts say so; the polish stage offers its ledger follow-ups.
+- **Priority:** take it in step 1's session with R-C19 and R-C20; every finalization with optional findings meets it.
+
 
 ### R-D1
 

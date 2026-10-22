@@ -595,6 +595,24 @@ it('prepareDecision: a running roadmap’s version is not held, and a command ru
   );
 });
 
+it('applyDelegation: a running roadmap takes a grant as sent, from a form an older version showed', async () => {
+  // R-B7 scheduler half, the round backfilled at 0f77bec: `settingsStale` holds a running
+  // roadmap's grant to no version (last writer wins, each audited); the rows above, on a paused
+  // roadmap, hold it to the version.
+  const fx = await mapFixture();
+  setStatus(fx, 'running');
+  const before = stored(fx);
+  const response = await post(fx, 'delegation', {
+    entryIds: [before.definition.entries[0]!.id],
+    automation: { integrationMerge: 'manual', integrationConflicts: 'manual' },
+    reviewerRoles: ['repository-maintainer'],
+    rationale: 'Characterize the grant.',
+    expectedVersion: before.version - 1,
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  expect(stored(fx).version).toBeGreaterThan(before.version);
+});
+
 it('assignCycleEntryAgents: a command running, then a pending amendment; ended and settling are not asked', async () => {
   const fx = await mapFixture();
   const roadmaps = fx.state.context.services.roadmapService;

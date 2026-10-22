@@ -467,6 +467,42 @@ it('never opens the merge gate for a failed, cancelled or interrupted review wit
   }
 });
 
+it('closes the merge gate for a removed worktree, a review of another worktree version, and a review without a mergeable verdict', async () => {
+  // R-B7 scheduler half, the round backfilled at a48ea92: each of the pure gate's refusals,
+  // from the open gate of one mergeable review.
+  const state = await ready();
+  const { worktree } = await registerAndWorktree(state, fixtureRepository());
+  const id = await runToFinish(state, worktree.id, {
+    role: 'review',
+    instructions: 'VERDICT-MERGEABLE',
+  });
+  const run = state.context.storage.execution.runs.find(state.workspaceId, id);
+  const tree = state.context.storage.execution.worktrees.find(state.workspaceId, worktree.id);
+  if (run === undefined || tree === undefined) throw new Error('Missing fixtures');
+  const reviewRunId = run.id;
+  expect(mergeGateFor(tree, [run])).toEqual({ mergeable: true, reason: 'ready', reviewRunId });
+  expect(mergeGateFor({ ...tree, status: 'removed' }, [run])).toEqual({
+    mergeable: false,
+    reason: 'worktree-removed',
+  });
+  expect(mergeGateFor({ ...tree, version: tree.version + 1 }, [run])).toEqual({
+    mergeable: false,
+    reason: 'branch-review-required',
+    reviewRunId,
+  });
+  expect(mergeGateFor(tree, [{ ...run, verdict: 'changes-requested' }])).toEqual({
+    mergeable: false,
+    reason: 'changes-requested',
+    reviewRunId,
+  });
+  const { verdict: _verdict, ...unjudged } = run;
+  expect(mergeGateFor(tree, [unjudged])).toEqual({
+    mergeable: false,
+    reason: 'review-pending',
+    reviewRunId,
+  });
+});
+
 it("holds the merge while a stop's investigation is live, and is not superseded by it after (R-C16)", async () => {
   const state = await ready();
   const { worktree } = await registerAndWorktree(state, fixtureRepository());

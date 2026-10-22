@@ -430,6 +430,10 @@ export async function boundedScopeRecovery(outcome: ScopeRecoveryOutcome): Promi
   }
   const rounds = storedRoadmap(state).attempts.filter((a) => a.recovery);
   for (const round of rounds) {
+    // Each review a round restarted, it restarted once (R-B7 scheduler half, the round at
+    // b423cb4): its count starts at 0, so one restart records 1.
+    for (const restarts of Object.values(round.recovery?.reviewRestarts ?? {}))
+      expect(restarts).toBe(1);
     expect(tx.execution.worktrees.find(ws, round.worktreeId)?.mergedAt).toBeTruthy();
     expect(tx.execution.merges.latest(ws, round.worktreeId)?.roadmapId).toBe(roadmapId);
     expect(round.definitionRevision).toBe(prior.definition.revision);

@@ -202,8 +202,34 @@ itNeedsCargo(
     expect(kept.instructions).toBe(frozen.instructions);
     expect(kept.instructions).not.toBe('Changed defaults.');
 
-    // Resuming runs both fresh reviews with the assigned reviewer; the evidence is current again.
+    // A's queued review is gated as a verification (R-B7 scheduler half, the round at b423cb4): an
+    // active attempt of its owning slice holds it, where a parent acceptance's gate would not.
+    const active = await scopeTree(f, { ...A.executionScope!, kind: 'slice' });
     await roadmapControl(state, 'resume');
+    for (let step = 0; ; step++) {
+      const wait = storedRoadmap(state).entryWaits?.[A.id];
+      if (wait?.code === 'phase-blocked') {
+        expect(wait.refs).toEqual({ blockers: ['slice-attempt-active'] });
+        break;
+      }
+      if (step > 100) throw new Error('Timed out waiting for the queued review to be gated.');
+      await stepDaemons();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(cycle(A.id)?.currentRunId).toBe(oldA.currentRunId);
+    expect(
+      (
+        await state.context.app.inject({
+          method: 'POST',
+          url: `/api/workspaces/${ws}/worktrees/${active.id}/control`,
+          headers: mutationHeaders(state),
+          payload: { action: 'remove' },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    // Running on, it runs both fresh reviews with the assigned reviewer; the evidence is current
+    // again.
     // The test daemons step only when asked (R-B2 seam); step until both are verified again.
     for (let step = 0; ; step++) {
       if (
